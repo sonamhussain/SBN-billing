@@ -1,0 +1,12 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// A1.2 RULE:
+// NO business models here yet.
+// Organization starts in A1.3.
