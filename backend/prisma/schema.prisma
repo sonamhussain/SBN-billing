@@ -7,6 +7,11 @@ datasource db {
   provider = "postgresql"
 }
 
-// A1.2 RULE:
-// NO business models here yet.
-// Organization starts in A1.3.
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("organizations")
+}
