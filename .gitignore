@@ -8,3 +8,4 @@ backend/generated/prisma/
 coverage/
 .DS_Store
 .vscode/
+docs/Review_Package.md
