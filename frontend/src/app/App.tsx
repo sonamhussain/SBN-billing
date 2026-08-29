@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getHealth } from '../shared/api'
+import OrganizationSetup from '../modules/organization/OrganizationSetup.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -22,6 +23,8 @@ export default function App() {
         <p className="mt-4 text-slate-700">
           API Status: <strong>{apiStatus.toUpperCase()}</strong>
         </p>
+
+        {apiStatus === 'online' && <OrganizationSetup />}
       </div>
     </main>
   )
