@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getHealth } from '../shared/api'
 import OrganizationSetup from '../modules/organization/OrganizationSetup.tsx'
+import FacilitySetup from '../modules/facility/FacilitySetup.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -25,6 +26,7 @@ export default function App() {
         </p>
 
         {apiStatus === 'online' && <OrganizationSetup />}
+        {apiStatus === 'online' && <FacilitySetup />}
       </div>
     </main>
   )
