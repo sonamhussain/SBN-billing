@@ -12,7 +12,8 @@
     "db:status": "prisma migrate status",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
-    "test:unit": "node --test src/modules/organization/organization.validation.test.ts src/modules/facility/facility.validation.test.ts"
+    "test:unit": "node --test src/modules/organization/organization.validation.test.ts src/modules/facility/facility.validation.test.ts",
+    "authz:bootstrap:dev": "node --env-file=.env src/scripts/bootstrap-authz-dev.ts"
   },
   "keywords": [],
   "author": "",
