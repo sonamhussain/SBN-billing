@@ -6,6 +6,7 @@ import readyRouter from './routes/ready.route.ts'
 import organizationRouter from './modules/organization/organization.route.ts'
 import { organizationFacilityRouter, facilityRouter } from './modules/facility/facility.route.ts'
 import meRouter from './routes/me.route.ts'
+import accessRouter from './modules/access/access.route.ts'
 
 export const app = express()
 
@@ -23,3 +24,6 @@ app.use('/api/facilities', facilityRouter)
 
 // A1.5
 app.use('/api', meRouter)
+
+// A1.6
+app.use('/api/access', accessRouter)

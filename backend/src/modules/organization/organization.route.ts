@@ -1,12 +1,17 @@
-import { Router, type Response } from 'express'
+import { Router, type Response, type Request } from 'express'
 import type { ServiceErrorCode } from './organization.types.ts'
 import {
   createOrganization,
   getOrganization,
   updateOrganization,
 } from './organization.service.ts'
+import { requireOrganizationPermission } from '../../shared/authorization/require-permission.ts'
 
 const organizationRouter = Router()
+
+function organizationIdFromParams(req: Request): string {
+  return String(req.params.id)
+}
 
 function sendError(
   res: Response,
@@ -28,26 +33,34 @@ organizationRouter.post('/', async (req, res) => {
   res.status(201).json(result.value)
 })
 
-organizationRouter.get('/:id', async (req, res) => {
-  const result = await getOrganization(req.params.id)
+organizationRouter.get(
+  '/:id',
+  requireOrganizationPermission(organizationIdFromParams, 'organization.read'),
+  async (req, res) => {
+    const result = await getOrganization(organizationIdFromParams(req))
 
-  if (!result.ok) {
-    sendError(res, result.code, result.message)
-    return
-  }
+    if (!result.ok) {
+      sendError(res, result.code, result.message)
+      return
+    }
 
-  res.status(200).json(result.value)
-})
+    res.status(200).json(result.value)
+  },
+)
 
-organizationRouter.patch('/:id', async (req, res) => {
-  const result = await updateOrganization(req.params.id, req.body?.name)
+organizationRouter.patch(
+  '/:id',
+  requireOrganizationPermission(organizationIdFromParams, 'organization.update'),
+  async (req, res) => {
+    const result = await updateOrganization(organizationIdFromParams(req), req.body?.name)
 
-  if (!result.ok) {
-    sendError(res, result.code, result.message)
-    return
-  }
+    if (!result.ok) {
+      sendError(res, result.code, result.message)
+      return
+    }
 
-  res.status(200).json(result.value)
-})
+    res.status(200).json(result.value)
+  },
+)
 
 export default organizationRouter
