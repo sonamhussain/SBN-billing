@@ -14,6 +14,7 @@ model Organization {
   updatedAt   DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
   facilities  Facility[]
   memberships OrganizationMembership[]
+  auditEvents AuditEvent[]
 
   @@map("organizations")
 }
@@ -42,6 +43,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   memberships   OrganizationMembership[]
+  auditEvents   AuditEvent[]
 
   @@unique([email])
   @@map("user")
@@ -154,4 +156,24 @@ model RolePermission {
 
   @@id([roleId, permissionId])
   @@map("role_permissions")
+}
+
+model AuditEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  actorUserId    String   @map("actor_user_id") @db.Uuid
+  actionCode     String   @map("action_code") @db.Text
+  entityType     String   @map("entity_type") @db.Text
+  entityId       String   @map("entity_id") @db.Uuid
+  occurredAt     DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  beforeState    Json?    @map("before_state") @db.JsonB
+  afterState     Json?    @map("after_state") @db.JsonB
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actor        User         @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([entityType, entityId, occurredAt])
+  @@map("audit_events")
 }

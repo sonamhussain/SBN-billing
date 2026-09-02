@@ -4,6 +4,7 @@ export const permissionCodes = [
   'facility.create',
   'facility.read',
   'facility.update',
+  'audit.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

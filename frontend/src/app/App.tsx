@@ -4,6 +4,7 @@ import OrganizationSetup from '../modules/organization/OrganizationSetup.tsx'
 import FacilitySetup from '../modules/facility/FacilitySetup.tsx'
 import AuthSetup from '../modules/auth/AuthSetup.tsx'
 import AuthorizationCheck from '../modules/access/AuthorizationCheck.tsx'
+import AuditCheck from '../modules/audit/AuditCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -31,6 +32,7 @@ export default function App() {
         {apiStatus === 'online' && <FacilitySetup />}
         {apiStatus === 'online' && <AuthSetup />}
         {apiStatus === 'online' && <AuthorizationCheck />}
+        {apiStatus === 'online' && <AuditCheck />}
       </div>
     </main>
   )

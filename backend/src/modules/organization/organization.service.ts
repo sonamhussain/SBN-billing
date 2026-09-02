@@ -5,6 +5,9 @@ import {
   findOrganizationById,
   updateOrganizationRecord,
 } from './organization.repository.ts'
+import { prisma } from '../../shared/database/prisma.ts'
+import { recordAuditEvent } from '../audit/audit.service.ts'
+import { organizationAuditSnapshot } from '../audit/audit.snapshot.ts'
 
 type OrganizationRecord = {
   id: string
@@ -54,6 +57,7 @@ export async function getOrganization(
 export async function updateOrganization(
   id: string,
   nameInput: unknown,
+  actorUserId: string,
 ): Promise<ServiceResult<OrganizationDto>> {
   if (!isUuid(id)) {
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid organization id' }
@@ -71,6 +75,24 @@ export async function updateOrganization(
     return { ok: false, code: 'NOT_FOUND', message: 'organization not found' }
   }
 
-  const updated = await updateOrganizationRecord(id, name)
+  const updated = await prisma.$transaction(async (tx) => {
+    const record = await updateOrganizationRecord(id, name, tx)
+
+    await recordAuditEvent(
+      {
+        organizationId: id,
+        actorUserId,
+        actionCode: 'organization.updated',
+        entityType: 'ORGANIZATION',
+        entityId: id,
+        beforeState: organizationAuditSnapshot(existing),
+        afterState: organizationAuditSnapshot(record),
+      },
+      tx,
+    )
+
+    return record
+  })
+
   return { ok: true, value: toDto(updated) }
 }
