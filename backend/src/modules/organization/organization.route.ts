@@ -52,7 +52,11 @@ organizationRouter.patch(
   '/:id',
   requireOrganizationPermission(organizationIdFromParams, 'organization.update'),
   async (req, res) => {
-    const result = await updateOrganization(organizationIdFromParams(req), req.body?.name)
+    const result = await updateOrganization(
+      organizationIdFromParams(req),
+      req.body?.name,
+      String(res.locals.actorUserId),
+    )
 
     if (!result.ok) {
       sendError(res, result.code, result.message)

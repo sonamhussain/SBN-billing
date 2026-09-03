@@ -28,7 +28,11 @@ organizationFacilityRouter.post(
   '/:organizationId/facilities',
   requireOrganizationPermission(organizationIdFromRouteParam, 'facility.create'),
   async (req, res) => {
-    const result = await createFacility(organizationIdFromRouteParam(req), req.body?.name)
+    const result = await createFacility(
+      organizationIdFromRouteParam(req),
+      req.body?.name,
+      String(res.locals.actorUserId),
+    )
     if (!result.ok) { sendError(res, result.code, result.message); return }
     res.status(201).json(result.value)
   },
@@ -48,7 +52,11 @@ facilityRouter.patch(
   '/:id',
   requireOrganizationPermission(organizationIdFromExistingFacility, 'facility.update'),
   async (req, res) => {
-    const result = await updateFacility(facilityIdFromParams(req), req.body?.name)
+    const result = await updateFacility(
+      facilityIdFromParams(req),
+      req.body?.name,
+      String(res.locals.actorUserId),
+    )
     if (!result.ok) { sendError(res, result.code, result.message); return }
     res.status(200).json(result.value)
   },

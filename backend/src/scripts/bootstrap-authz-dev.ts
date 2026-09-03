@@ -8,6 +8,7 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'facility.create', name: 'Create Facility' },
   { code: 'facility.read', name: 'Read Facility' },
   { code: 'facility.update', name: 'Update Facility' },
+  { code: 'audit.read', name: 'Read Audit Events' },
 ]
 
 const roleCatalogue = [
@@ -20,6 +21,7 @@ const roleCatalogue = [
       'facility.create',
       'facility.read',
       'facility.update',
+      'audit.read',
     ],
   },
   {

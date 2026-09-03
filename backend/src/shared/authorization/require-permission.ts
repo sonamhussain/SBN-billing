@@ -26,6 +26,7 @@ export function requireOrganizationPermission(
       return
     }
 
+    res.locals.actorUserId = session.user.id
     next()
   }
 }
