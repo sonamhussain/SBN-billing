@@ -69,13 +69,13 @@ export async function updateOrganization(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'name is required' }
   }
 
-  const existing = await findOrganizationById(id)
-
-  if (!existing) {
-    return { ok: false, code: 'NOT_FOUND', message: 'organization not found' }
-  }
-
   const updated = await prisma.$transaction(async (tx) => {
+    const existing = await findOrganizationById(id, tx)
+
+    if (!existing) {
+      return null
+    }
+
     const record = await updateOrganizationRecord(id, name, tx)
 
     await recordAuditEvent(
@@ -93,6 +93,10 @@ export async function updateOrganization(
 
     return record
   })
+
+  if (!updated) {
+    return { ok: false, code: 'NOT_FOUND', message: 'organization not found' }
+  }
 
   return { ok: true, value: toDto(updated) }
 }

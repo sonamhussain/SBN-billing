@@ -67,10 +67,11 @@ export async function updateFacility(
   if (!isFacilityUuid(id)) return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid facility id' }
   const name = normalizeFacilityName(nameInput)
   if (!name) return { ok: false, code: 'VALIDATION_ERROR', message: 'name is required' }
-  const existing = await findFacilityById(id)
-  if (!existing) return { ok: false, code: 'NOT_FOUND', message: 'facility not found' }
 
   const updated = await prisma.$transaction(async (tx) => {
+    const existing = await findFacilityById(id, tx)
+    if (!existing) return null
+
     const record = await updateFacilityRecord(id, name, tx)
 
     await recordAuditEvent(
@@ -88,6 +89,8 @@ export async function updateFacility(
 
     return record
   })
+
+  if (!updated) return { ok: false, code: 'NOT_FOUND', message: 'facility not found' }
 
   return { ok: true, value: toDto(updated) }
 }
