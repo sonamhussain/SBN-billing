@@ -3,13 +3,14 @@ import { fromNodeHeaders } from 'better-auth/node'
 import { auth } from '../../shared/auth/auth.ts'
 import { getEffectivePermissions } from '../../shared/authorization/authorization.service.ts'
 import type { AccessProofResponse } from './access.types.ts'
+import { sendApiError } from '../../shared/errors/error-response.ts'
 
 const accessRouter = Router()
 
 accessRouter.get('/organizations/:organizationId', async (req, res) => {
   const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) })
   if (!session) {
-    res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'sign in required' } })
+    sendApiError(res, 401, 'UNAUTHENTICATED', 'sign in required')
     return
   }
 
@@ -17,7 +18,7 @@ accessRouter.get('/organizations/:organizationId', async (req, res) => {
   const access = await getEffectivePermissions(session.user.id, organizationId)
 
   if (!access) {
-    res.status(403).json({ error: { code: 'FORBIDDEN', message: 'no access to this organization' } })
+    sendApiError(res, 403, 'FORBIDDEN', 'no access to this organization')
     return
   }
 

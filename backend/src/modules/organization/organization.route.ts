@@ -1,11 +1,11 @@
-import { Router, type Response, type Request } from 'express'
-import type { ServiceErrorCode } from './organization.types.ts'
+import { Router, type Request } from 'express'
 import {
   createOrganization,
   getOrganization,
   updateOrganization,
 } from './organization.service.ts'
 import { requireOrganizationPermission } from '../../shared/authorization/require-permission.ts'
+import { sendApiError } from '../../shared/errors/error-response.ts'
 
 const organizationRouter = Router()
 
@@ -13,20 +13,15 @@ function organizationIdFromParams(req: Request): string {
   return String(req.params.id)
 }
 
-function sendError(
-  res: Response,
-  code: ServiceErrorCode,
-  message: string,
-) {
-  const status = code === 'NOT_FOUND' ? 404 : 400
-  res.status(status).json({ error: { code, message } })
+function statusForServiceError(code: 'VALIDATION_ERROR' | 'NOT_FOUND') {
+  return code === 'NOT_FOUND' ? 404 : 400
 }
 
 organizationRouter.post('/', async (req, res) => {
   const result = await createOrganization(req.body?.name)
 
   if (!result.ok) {
-    sendError(res, result.code, result.message)
+    sendApiError(res, statusForServiceError(result.code), result.code, result.message)
     return
   }
 
@@ -40,7 +35,7 @@ organizationRouter.get(
     const result = await getOrganization(organizationIdFromParams(req))
 
     if (!result.ok) {
-      sendError(res, result.code, result.message)
+      sendApiError(res, statusForServiceError(result.code), result.code, result.message)
       return
     }
 
@@ -59,7 +54,7 @@ organizationRouter.patch(
     )
 
     if (!result.ok) {
-      sendError(res, result.code, result.message)
+      sendApiError(res, statusForServiceError(result.code), result.code, result.message)
       return
     }
 
