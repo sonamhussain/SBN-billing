@@ -3,6 +3,7 @@ import { fromNodeHeaders } from 'better-auth/node'
 import { auth } from '../auth/auth.ts'
 import { hasPermission } from './authorization.service.ts'
 import type { PermissionCode } from './authorization.types.ts'
+import { sendApiError } from '../errors/error-response.ts'
 
 export function requireOrganizationPermission(
   getOrganizationId: (req: Request) => Promise<string | null> | string | null,
@@ -11,18 +12,18 @@ export function requireOrganizationPermission(
   return async (req: Request, res: Response, next: NextFunction) => {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) })
     if (!session) {
-      res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'sign in required' } })
+      sendApiError(res, 401, 'UNAUTHENTICATED', 'sign in required')
       return
     }
 
     const organizationId = await getOrganizationId(req)
     if (!organizationId) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'resource not found' } })
+      sendApiError(res, 404, 'NOT_FOUND', 'resource not found')
       return
     }
 
     if (!(await hasPermission(session.user.id, organizationId, permission))) {
-      res.status(403).json({ error: { code: 'FORBIDDEN', message: 'permission denied' } })
+      sendApiError(res, 403, 'FORBIDDEN', 'permission denied')
       return
     }
 

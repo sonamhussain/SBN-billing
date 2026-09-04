@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { fromNodeHeaders } from 'better-auth/node'
 import { auth } from '../shared/auth/auth.ts'
+import { sendApiError } from '../shared/errors/error-response.ts'
 
 const meRouter = Router()
 
@@ -10,9 +11,7 @@ meRouter.get('/me', async (req, res) => {
   })
 
   if (!session) {
-    res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'sign in required' },
-    })
+    sendApiError(res, 401, 'UNAUTHENTICATED', 'sign in required')
     return
   }
 

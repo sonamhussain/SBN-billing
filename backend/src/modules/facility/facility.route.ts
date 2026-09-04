@@ -1,14 +1,15 @@
-import { Router, type Response, type Request } from 'express'
+import { Router, type Request } from 'express'
 import type { FacilityErrorCode } from './facility.types.ts'
 import { createFacility, getFacility, updateFacility } from './facility.service.ts'
 import { findFacilityById } from './facility.repository.ts'
 import { requireOrganizationPermission } from '../../shared/authorization/require-permission.ts'
+import { sendApiError } from '../../shared/errors/error-response.ts'
 
 export const organizationFacilityRouter = Router()
 export const facilityRouter = Router()
 
-function sendError(res: Response, code: FacilityErrorCode, message: string) {
-  res.status(code === 'NOT_FOUND' ? 404 : 400).json({ error: { code, message } })
+function statusForFacilityError(code: FacilityErrorCode) {
+  return code === 'NOT_FOUND' ? 404 : 400
 }
 
 function organizationIdFromRouteParam(req: Request): string {
@@ -33,7 +34,10 @@ organizationFacilityRouter.post(
       req.body?.name,
       String(res.locals.actorUserId),
     )
-    if (!result.ok) { sendError(res, result.code, result.message); return }
+    if (!result.ok) {
+      sendApiError(res, statusForFacilityError(result.code), result.code, result.message)
+      return
+    }
     res.status(201).json(result.value)
   },
 )
@@ -43,7 +47,10 @@ facilityRouter.get(
   requireOrganizationPermission(organizationIdFromExistingFacility, 'facility.read'),
   async (req, res) => {
     const result = await getFacility(facilityIdFromParams(req))
-    if (!result.ok) { sendError(res, result.code, result.message); return }
+    if (!result.ok) {
+      sendApiError(res, statusForFacilityError(result.code), result.code, result.message)
+      return
+    }
     res.status(200).json(result.value)
   },
 )
@@ -57,7 +64,10 @@ facilityRouter.patch(
       req.body?.name,
       String(res.locals.actorUserId),
     )
-    if (!result.ok) { sendError(res, result.code, result.message); return }
+    if (!result.ok) {
+      sendApiError(res, statusForFacilityError(result.code), result.code, result.message)
+      return
+    }
     res.status(200).json(result.value)
   },
 )
