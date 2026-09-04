@@ -11,6 +11,12 @@ function log(message: string) {
   console.log(`[worker] ${message}`)
 }
 
+// Registering signal handlers does not by itself keep the Node.js event loop
+// alive. Without an active handle, the process would exit immediately after
+// reaching READY whenever there is no in-flight job. This interval is the
+// worker's "idle heartbeat" so it stays up to receive SIGINT/SIGTERM.
+const keepAlive = setInterval(() => {}, 2_147_483_647)
+
 async function runSyntheticDemo() {
   status = 'RUNNING'
   const job: JobEnvelope = {
@@ -39,6 +45,7 @@ async function shutdown(signal: string) {
 
   status = 'STOPPED'
   log('stopped')
+  clearInterval(keepAlive)
   process.exit(0)
 }
 
