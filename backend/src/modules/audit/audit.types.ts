@@ -4,10 +4,12 @@ export const auditActionCodes = [
   'facility.updated',
   'clinician.created',
   'clinician.updated',
+  'specialty.created',
+  'specialty.updated',
 ] as const
 
 export type AuditActionCode = (typeof auditActionCodes)[number]
-export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN'
+export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY'
 
 export type AuditWriteInput = {
   organizationId: string
