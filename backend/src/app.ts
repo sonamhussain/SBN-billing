@@ -10,6 +10,7 @@ import { organizationFacilityRouter, facilityRouter } from './modules/facility/f
 import meRouter from './routes/me.route.ts'
 import accessRouter from './modules/access/access.route.ts'
 import { auditRouter } from './modules/audit/audit.route.ts'
+import { organizationClinicianRouter, clinicianRouter } from './modules/clinician/clinician.route.ts'
 
 export const app = express()
 
@@ -38,6 +39,10 @@ app.use('/api/access', accessRouter)
 
 // A1.7
 app.use('/api/organizations', auditRouter)
+
+// A2.1
+app.use('/api/organizations', organizationClinicianRouter)
+app.use('/api/clinicians', clinicianRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
