@@ -6,6 +6,7 @@ import AuthSetup from '../modules/auth/AuthSetup.tsx'
 import AuthorizationCheck from '../modules/access/AuthorizationCheck.tsx'
 import AuditCheck from '../modules/audit/AuditCheck.tsx'
 import ClinicianCheck from '../modules/clinician/ClinicianCheck.tsx'
+import SpecialtyCheck from '../modules/specialty/SpecialtyCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -35,6 +36,7 @@ export default function App() {
         {apiStatus === 'online' && <AuthorizationCheck />}
         {apiStatus === 'online' && <AuditCheck />}
         {apiStatus === 'online' && <ClinicianCheck />}
+        {apiStatus === 'online' && <SpecialtyCheck />}
       </div>
     </main>
   )

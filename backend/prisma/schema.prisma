@@ -16,6 +16,7 @@ model Organization {
   memberships OrganizationMembership[]
   auditEvents AuditEvent[]
   clinicians  Clinician[]
+  specialties Specialty[]
 
   @@map("organizations")
 }
@@ -44,6 +45,19 @@ model Clinician {
 
   @@index([organizationId])
   @@map("clinicians")
+}
+
+model Specialty {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  displayName    String   @map("display_name") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@map("specialties")
 }
 
 model User {

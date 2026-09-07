@@ -12,7 +12,7 @@
     "db:status": "prisma migrate status",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
-    "test:unit": "node --test src/modules/organization/organization.validation.test.ts src/modules/facility/facility.validation.test.ts src/modules/clinician/clinician.validation.test.ts src/shared/errors/error.middleware.test.ts src/jobs/worker.runner.test.ts",
+    "test:unit": "node --test src/modules/organization/organization.validation.test.ts src/modules/facility/facility.validation.test.ts src/modules/clinician/clinician.validation.test.ts src/modules/specialty/specialty.validation.test.ts src/shared/errors/error.middleware.test.ts src/jobs/worker.runner.test.ts",
     "authz:bootstrap:dev": "node --env-file=.env src/scripts/bootstrap-authz-dev.ts",
     "worker:dev": "node --env-file=.env --watch src/jobs/worker.ts",
     "worker:start": "node --env-file=.env src/jobs/worker.ts",
