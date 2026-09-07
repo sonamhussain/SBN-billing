@@ -11,6 +11,9 @@ export const permissionCodes = [
   'specialty.create',
   'specialty.read',
   'specialty.update',
+  'payer.create',
+  'payer.read',
+  'payer.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
