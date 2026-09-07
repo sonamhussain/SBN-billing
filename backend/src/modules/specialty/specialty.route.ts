@@ -2,6 +2,7 @@ import { Router, type Request } from 'express'
 import type { SpecialtyErrorCode } from './specialty.types.ts'
 import { createSpecialty, getSpecialty, listSpecialties, updateSpecialty } from './specialty.service.ts'
 import { findSpecialtyById } from './specialty.repository.ts'
+import { isSpecialtyUuid } from './specialty.validation.ts'
 import { requireOrganizationPermission } from '../../shared/authorization/require-permission.ts'
 import { sendApiError } from '../../shared/errors/error-response.ts'
 
@@ -21,7 +22,9 @@ function specialtyIdFromParams(req: Request): string {
 }
 
 async function organizationIdFromExistingSpecialty(req: Request): Promise<string | null> {
-  const specialty = await findSpecialtyById(specialtyIdFromParams(req))
+  const id = specialtyIdFromParams(req)
+  if (!isSpecialtyUuid(id)) return null
+  const specialty = await findSpecialtyById(id)
   return specialty?.organizationId ?? null
 }
 

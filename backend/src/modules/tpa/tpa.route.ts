@@ -2,6 +2,7 @@ import { Router, type Request } from 'express'
 import type { TpaErrorCode } from './tpa.types.ts'
 import { createTpa, getTpa, listTpas, updateTpa } from './tpa.service.ts'
 import { findTpaById } from './tpa.repository.ts'
+import { isTpaUuid } from './tpa.validation.ts'
 import { requireOrganizationPermission } from '../../shared/authorization/require-permission.ts'
 import { sendApiError } from '../../shared/errors/error-response.ts'
 
@@ -21,7 +22,9 @@ function tpaIdFromParams(req: Request): string {
 }
 
 async function organizationIdFromExistingTpa(req: Request): Promise<string | null> {
-  const tpa = await findTpaById(tpaIdFromParams(req))
+  const id = tpaIdFromParams(req)
+  if (!isTpaUuid(id)) return null
+  const tpa = await findTpaById(id)
   return tpa?.organizationId ?? null
 }
 

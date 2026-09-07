@@ -2,6 +2,7 @@ import { Router, type Request } from 'express'
 import type { PayerErrorCode } from './payer.types.ts'
 import { createPayer, getPayer, listPayers, updatePayer } from './payer.service.ts'
 import { findPayerById } from './payer.repository.ts'
+import { isPayerUuid } from './payer.validation.ts'
 import { requireOrganizationPermission } from '../../shared/authorization/require-permission.ts'
 import { sendApiError } from '../../shared/errors/error-response.ts'
 
@@ -21,7 +22,9 @@ function payerIdFromParams(req: Request): string {
 }
 
 async function organizationIdFromExistingPayer(req: Request): Promise<string | null> {
-  const payer = await findPayerById(payerIdFromParams(req))
+  const id = payerIdFromParams(req)
+  if (!isPayerUuid(id)) return null
+  const payer = await findPayerById(id)
   return payer?.organizationId ?? null
 }
 

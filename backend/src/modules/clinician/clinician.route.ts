@@ -2,6 +2,7 @@ import { Router, type Request } from 'express'
 import type { ClinicianErrorCode } from './clinician.types.ts'
 import { createClinician, getClinician, listClinicians, updateClinician } from './clinician.service.ts'
 import { findClinicianById } from './clinician.repository.ts'
+import { isClinicianUuid } from './clinician.validation.ts'
 import { requireOrganizationPermission } from '../../shared/authorization/require-permission.ts'
 import { sendApiError } from '../../shared/errors/error-response.ts'
 
@@ -21,7 +22,9 @@ function clinicianIdFromParams(req: Request): string {
 }
 
 async function organizationIdFromExistingClinician(req: Request): Promise<string | null> {
-  const clinician = await findClinicianById(clinicianIdFromParams(req))
+  const id = clinicianIdFromParams(req)
+  if (!isClinicianUuid(id)) return null
+  const clinician = await findClinicianById(id)
   return clinician?.organizationId ?? null
 }
 
