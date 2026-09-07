@@ -12,6 +12,8 @@ import accessRouter from './modules/access/access.route.ts'
 import { auditRouter } from './modules/audit/audit.route.ts'
 import { organizationClinicianRouter, clinicianRouter } from './modules/clinician/clinician.route.ts'
 import { organizationSpecialtyRouter, specialtyRouter } from './modules/specialty/specialty.route.ts'
+import { organizationPayerRouter, payerRouter } from './modules/payer/payer.route.ts'
+import { organizationTpaRouter, tpaRouter } from './modules/tpa/tpa.route.ts'
 
 export const app = express()
 
@@ -48,6 +50,14 @@ app.use('/api/clinicians', clinicianRouter)
 // A2.2
 app.use('/api/organizations', organizationSpecialtyRouter)
 app.use('/api/specialties', specialtyRouter)
+
+// A2.3
+app.use('/api/organizations', organizationPayerRouter)
+app.use('/api/payers', payerRouter)
+
+// A2.4
+app.use('/api/organizations', organizationTpaRouter)
+app.use('/api/tpas', tpaRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

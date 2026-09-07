@@ -17,6 +17,8 @@ model Organization {
   auditEvents AuditEvent[]
   clinicians  Clinician[]
   specialties Specialty[]
+  payers      Payer[]
+  tpas        Tpa[]
 
   @@map("organizations")
 }
@@ -58,6 +60,32 @@ model Specialty {
 
   @@index([organizationId])
   @@map("specialties")
+}
+
+model Payer {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  displayName    String   @map("display_name") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@map("payers")
+}
+
+model Tpa {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  displayName    String   @map("display_name") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@map("tpas")
 }
 
 model User {

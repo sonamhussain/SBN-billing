@@ -20,3 +20,15 @@ export const specialtyAuditSnapshot = (x: { id: string; organizationId: string; 
   organizationId: x.organizationId,
   displayName: x.displayName,
 })
+
+export const payerAuditSnapshot = (x: { id: string; organizationId: string; displayName: string }) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  displayName: x.displayName,
+})
+
+export const tpaAuditSnapshot = (x: { id: string; organizationId: string; displayName: string }) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  displayName: x.displayName,
+})
