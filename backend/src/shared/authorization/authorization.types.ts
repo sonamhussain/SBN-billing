@@ -17,6 +17,9 @@ export const permissionCodes = [
   'tpa.create',
   'tpa.read',
   'tpa.update',
+  'network.create',
+  'network.read',
+  'network.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
