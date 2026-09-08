@@ -38,3 +38,15 @@ export const networkAuditSnapshot = (x: { id: string; organizationId: string; di
   organizationId: x.organizationId,
   displayName: x.displayName,
 })
+
+export const serviceAuditSnapshot = (x: {
+  id: string
+  organizationId: string
+  internalCode: string
+  displayName: string
+}) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  internalCode: x.internalCode,
+  displayName: x.displayName,
+})

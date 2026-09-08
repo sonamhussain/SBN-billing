@@ -20,6 +20,9 @@ export const permissionCodes = [
   'network.create',
   'network.read',
   'network.update',
+  'service.create',
+  'service.read',
+  'service.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
