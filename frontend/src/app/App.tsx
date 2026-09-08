@@ -9,6 +9,7 @@ import ClinicianCheck from '../modules/clinician/ClinicianCheck.tsx'
 import SpecialtyCheck from '../modules/specialty/SpecialtyCheck.tsx'
 import PayerCheck from '../modules/payer/PayerCheck.tsx'
 import TpaCheck from '../modules/tpa/TpaCheck.tsx'
+import NetworkCheck from '../modules/network/NetworkCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -41,6 +42,7 @@ export default function App() {
         {apiStatus === 'online' && <SpecialtyCheck />}
         {apiStatus === 'online' && <PayerCheck />}
         {apiStatus === 'online' && <TpaCheck />}
+        {apiStatus === 'online' && <NetworkCheck />}
       </div>
     </main>
   )

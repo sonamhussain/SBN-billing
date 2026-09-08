@@ -21,6 +21,9 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'tpa.create', name: 'Create TPA' },
   { code: 'tpa.read', name: 'Read TPA' },
   { code: 'tpa.update', name: 'Update TPA' },
+  { code: 'network.create', name: 'Create Network' },
+  { code: 'network.read', name: 'Read Network' },
+  { code: 'network.update', name: 'Update Network' },
 ]
 
 const roleCatalogue = [
@@ -46,12 +49,15 @@ const roleCatalogue = [
       'tpa.create',
       'tpa.read',
       'tpa.update',
+      'network.create',
+      'network.read',
+      'network.update',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read'],
   },
 ] as const
 

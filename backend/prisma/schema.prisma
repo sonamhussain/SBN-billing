@@ -19,6 +19,7 @@ model Organization {
   specialties Specialty[]
   payers      Payer[]
   tpas        Tpa[]
+  networks    Network[]
 
   @@map("organizations")
 }
@@ -86,6 +87,19 @@ model Tpa {
 
   @@index([organizationId])
   @@map("tpas")
+}
+
+model Network {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  displayName    String   @map("display_name") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@map("networks")
 }
 
 model User {
