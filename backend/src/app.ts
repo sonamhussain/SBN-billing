@@ -16,6 +16,7 @@ import { organizationPayerRouter, payerRouter } from './modules/payer/payer.rout
 import { organizationTpaRouter, tpaRouter } from './modules/tpa/tpa.route.ts'
 import { organizationNetworkRouter, networkRouter } from './modules/network/network.route.ts'
 import { organizationServiceRouter, serviceRouter } from './modules/service/service.route.ts'
+import { organizationProcedureCodeRouter, procedureCodeRouter } from './modules/procedure-code/procedure-code.route.ts'
 
 export const app = express()
 
@@ -68,6 +69,10 @@ app.use('/api/networks', networkRouter)
 // A2.6
 app.use('/api/organizations', organizationServiceRouter)
 app.use('/api/services', serviceRouter)
+
+// A2.7
+app.use('/api/organizations', organizationProcedureCodeRouter)
+app.use('/api/procedure-codes', procedureCodeRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
