@@ -17,6 +17,7 @@ import { organizationTpaRouter, tpaRouter } from './modules/tpa/tpa.route.ts'
 import { organizationNetworkRouter, networkRouter } from './modules/network/network.route.ts'
 import { organizationServiceRouter, serviceRouter } from './modules/service/service.route.ts'
 import { organizationProcedureCodeRouter, procedureCodeRouter } from './modules/procedure-code/procedure-code.route.ts'
+import { organizationDiagnosisCodeRouter, diagnosisCodeRouter } from './modules/diagnosis-code/diagnosis-code.route.ts'
 
 export const app = express()
 
@@ -73,6 +74,10 @@ app.use('/api/services', serviceRouter)
 // A2.7
 app.use('/api/organizations', organizationProcedureCodeRouter)
 app.use('/api/procedure-codes', procedureCodeRouter)
+
+// A2.8
+app.use('/api/organizations', organizationDiagnosisCodeRouter)
+app.use('/api/diagnosis-codes', diagnosisCodeRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

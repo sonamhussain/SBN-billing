@@ -26,6 +26,9 @@ export const permissionCodes = [
   'procedure_code.create',
   'procedure_code.read',
   'procedure_code.update',
+  'diagnosisCode.create',
+  'diagnosisCode.read',
+  'diagnosisCode.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

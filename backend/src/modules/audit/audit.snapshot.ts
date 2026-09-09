@@ -66,3 +66,15 @@ export const procedureCodeAuditSnapshot = (x: {
   codeSystem: x.codeSystem,
   externalCode: x.externalCode,
 })
+
+export const diagnosisCodeAuditSnapshot = (x: {
+  id: string
+  organizationId: string
+  code: string
+  displayName: string
+}) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  code: x.code,
+  displayName: x.displayName,
+})

@@ -22,6 +22,7 @@ model Organization {
   networks    Network[]
   services    Service[]
   procedureCodes ProcedureCode[]
+  diagnosisCodes DiagnosisCode[]
 
   @@map("organizations")
 }
@@ -134,6 +135,21 @@ model ProcedureCode {
   @@unique([organizationId, internalCode])
   @@index([organizationId])
   @@map("procedure_codes")
+}
+
+model DiagnosisCode {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  code           String   @db.Text
+  displayName    String   @map("display_name") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("diagnosis_codes")
 }
 
 model User {
