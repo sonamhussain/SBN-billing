@@ -23,6 +23,9 @@ export const permissionCodes = [
   'service.create',
   'service.read',
   'service.update',
+  'procedure_code.create',
+  'procedure_code.read',
+  'procedure_code.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

@@ -50,3 +50,19 @@ export const serviceAuditSnapshot = (x: {
   internalCode: x.internalCode,
   displayName: x.displayName,
 })
+
+export const procedureCodeAuditSnapshot = (x: {
+  id: string
+  organizationId: string
+  internalCode: string
+  displayName: string
+  codeSystem: string | null
+  externalCode: string | null
+}) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  internalCode: x.internalCode,
+  displayName: x.displayName,
+  codeSystem: x.codeSystem,
+  externalCode: x.externalCode,
+})
