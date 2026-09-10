@@ -13,6 +13,7 @@ import NetworkCheck from '../modules/network/NetworkCheck.tsx'
 import ServiceCheck from '../modules/service/ServiceCheck.tsx'
 import ProcedureCodeCheck from '../modules/procedure-code/ProcedureCodeCheck.tsx'
 import DiagnosisCodeCheck from '../modules/diagnosis-code/DiagnosisCodeCheck.tsx'
+import ExternalIdentifierCheck from '../modules/external-identifier/ExternalIdentifierCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -49,6 +50,7 @@ export default function App() {
         {apiStatus === 'online' && <ServiceCheck />}
         {apiStatus === 'online' && <ProcedureCodeCheck />}
         {apiStatus === 'online' && <DiagnosisCodeCheck />}
+        {apiStatus === 'online' && <ExternalIdentifierCheck />}
       </div>
     </main>
   )

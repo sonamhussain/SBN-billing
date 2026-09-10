@@ -1,3 +1,5 @@
+import { deriveTargetFromRecord } from '../external-identifier/external-identifier.target.ts'
+
 export const organizationAuditSnapshot = (x: { id: string; name: string }) => ({
   id: x.id,
   name: x.name,
@@ -78,3 +80,30 @@ export const diagnosisCodeAuditSnapshot = (x: {
   code: x.code,
   displayName: x.displayName,
 })
+
+export const externalIdentifierAuditSnapshot = (x: {
+  id: string
+  organizationId: string
+  sourceSystem: string
+  externalValue: string
+  organizationTargetId: string | null
+  facilityId: string | null
+  clinicianId: string | null
+  specialtyId: string | null
+  payerId: string | null
+  tpaId: string | null
+  networkId: string | null
+  serviceId: string | null
+  procedureCodeId: string | null
+  diagnosisCodeId: string | null
+}) => {
+  const target = deriveTargetFromRecord(x)
+  return {
+    id: x.id,
+    organizationId: x.organizationId,
+    sourceSystem: x.sourceSystem,
+    externalValue: x.externalValue,
+    targetType: target.type,
+    targetId: target.id,
+  }
+}

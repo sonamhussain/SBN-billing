@@ -29,6 +29,9 @@ export const permissionCodes = [
   'diagnosisCode.create',
   'diagnosisCode.read',
   'diagnosisCode.update',
+  'external_identifier.create',
+  'external_identifier.read',
+  'external_identifier.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
