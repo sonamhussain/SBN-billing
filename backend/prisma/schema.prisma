@@ -23,6 +23,8 @@ model Organization {
   services    Service[]
   procedureCodes ProcedureCode[]
   diagnosisCodes DiagnosisCode[]
+  externalIdentifiers       ExternalIdentifier[] @relation("ExternalIdentifierOwner")
+  externalIdentifierTargets ExternalIdentifier[] @relation("ExternalIdentifierOrganizationTarget")
 
   @@map("organizations")
 }
@@ -35,6 +37,7 @@ model Facility {
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id])
+  externalIdentifiers ExternalIdentifier[]
 
   @@index([organizationId])
   @@map("facilities")
@@ -48,6 +51,7 @@ model Clinician {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  externalIdentifiers ExternalIdentifier[]
 
   @@index([organizationId])
   @@map("clinicians")
@@ -61,6 +65,7 @@ model Specialty {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  externalIdentifiers ExternalIdentifier[]
 
   @@index([organizationId])
   @@map("specialties")
@@ -74,6 +79,7 @@ model Payer {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  externalIdentifiers ExternalIdentifier[]
 
   @@index([organizationId])
   @@map("payers")
@@ -87,6 +93,7 @@ model Tpa {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  externalIdentifiers ExternalIdentifier[]
 
   @@index([organizationId])
   @@map("tpas")
@@ -100,6 +107,7 @@ model Network {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  externalIdentifiers ExternalIdentifier[]
 
   @@index([organizationId])
   @@map("networks")
@@ -114,6 +122,7 @@ model Service {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  externalIdentifiers ExternalIdentifier[]
 
   @@unique([organizationId, internalCode])
   @@index([organizationId])
@@ -131,6 +140,7 @@ model ProcedureCode {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  externalIdentifiers ExternalIdentifier[]
 
   @@unique([organizationId, internalCode])
   @@index([organizationId])
@@ -146,10 +156,48 @@ model DiagnosisCode {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  externalIdentifiers ExternalIdentifier[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
   @@map("diagnosis_codes")
+}
+
+model ExternalIdentifier {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  sourceSystem   String   @map("source_system") @db.Text
+  externalValue  String   @map("external_value") @db.Text
+
+  organizationTargetId String? @map("organization_target_id") @db.Uuid
+  facilityId           String? @map("facility_id") @db.Uuid
+  clinicianId          String? @map("clinician_id") @db.Uuid
+  specialtyId          String? @map("specialty_id") @db.Uuid
+  payerId              String? @map("payer_id") @db.Uuid
+  tpaId                String? @map("tpa_id") @db.Uuid
+  networkId            String? @map("network_id") @db.Uuid
+  serviceId            String? @map("service_id") @db.Uuid
+  procedureCodeId      String? @map("procedure_code_id") @db.Uuid
+  diagnosisCodeId      String? @map("diagnosis_code_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization       Organization   @relation("ExternalIdentifierOwner", fields: [organizationId], references: [id], onDelete: Restrict)
+  organizationTarget Organization?  @relation("ExternalIdentifierOrganizationTarget", fields: [organizationTargetId], references: [id], onDelete: Restrict)
+  facility           Facility?      @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  clinician          Clinician?     @relation(fields: [clinicianId], references: [id], onDelete: Restrict)
+  specialty          Specialty?     @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  payer              Payer?         @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                Tpa?           @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network            Network?       @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  service            Service?       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  procedureCode      ProcedureCode? @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
+  diagnosisCode      DiagnosisCode? @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, sourceSystem, externalValue])
+  @@index([organizationId])
+  @@map("external_identifiers")
 }
 
 model User {

@@ -33,6 +33,9 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'diagnosisCode.create', name: 'Create Diagnosis Code' },
   { code: 'diagnosisCode.read', name: 'Read Diagnosis Code' },
   { code: 'diagnosisCode.update', name: 'Update Diagnosis Code' },
+  { code: 'external_identifier.create', name: 'Create External Identifier' },
+  { code: 'external_identifier.read', name: 'Read External Identifier' },
+  { code: 'external_identifier.update', name: 'Update External Identifier' },
 ]
 
 const roleCatalogue = [
@@ -70,12 +73,15 @@ const roleCatalogue = [
       'diagnosisCode.create',
       'diagnosisCode.read',
       'diagnosisCode.update',
+      'external_identifier.create',
+      'external_identifier.read',
+      'external_identifier.update',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read'],
   },
 ] as const
 

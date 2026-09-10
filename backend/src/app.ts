@@ -18,6 +18,7 @@ import { organizationNetworkRouter, networkRouter } from './modules/network/netw
 import { organizationServiceRouter, serviceRouter } from './modules/service/service.route.ts'
 import { organizationProcedureCodeRouter, procedureCodeRouter } from './modules/procedure-code/procedure-code.route.ts'
 import { organizationDiagnosisCodeRouter, diagnosisCodeRouter } from './modules/diagnosis-code/diagnosis-code.route.ts'
+import { organizationExternalIdentifierRouter, externalIdentifierRouter } from './modules/external-identifier/external-identifier.route.ts'
 
 export const app = express()
 
@@ -78,6 +79,10 @@ app.use('/api/procedure-codes', procedureCodeRouter)
 // A2.8
 app.use('/api/organizations', organizationDiagnosisCodeRouter)
 app.use('/api/diagnosis-codes', diagnosisCodeRouter)
+
+// A2.9
+app.use('/api/organizations', organizationExternalIdentifierRouter)
+app.use('/api/external-identifiers', externalIdentifierRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
