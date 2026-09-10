@@ -12,6 +12,7 @@ import TpaCheck from '../modules/tpa/TpaCheck.tsx'
 import NetworkCheck from '../modules/network/NetworkCheck.tsx'
 import ServiceCheck from '../modules/service/ServiceCheck.tsx'
 import ProcedureCodeCheck from '../modules/procedure-code/ProcedureCodeCheck.tsx'
+import DiagnosisCodeCheck from '../modules/diagnosis-code/DiagnosisCodeCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -47,6 +48,7 @@ export default function App() {
         {apiStatus === 'online' && <NetworkCheck />}
         {apiStatus === 'online' && <ServiceCheck />}
         {apiStatus === 'online' && <ProcedureCodeCheck />}
+        {apiStatus === 'online' && <DiagnosisCodeCheck />}
       </div>
     </main>
   )
