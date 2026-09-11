@@ -19,6 +19,7 @@ import { organizationServiceRouter, serviceRouter } from './modules/service/serv
 import { organizationProcedureCodeRouter, procedureCodeRouter } from './modules/procedure-code/procedure-code.route.ts'
 import { organizationDiagnosisCodeRouter, diagnosisCodeRouter } from './modules/diagnosis-code/diagnosis-code.route.ts'
 import { organizationExternalIdentifierRouter, externalIdentifierRouter } from './modules/external-identifier/external-identifier.route.ts'
+import { organizationRuleSourceRouter, ruleSourceRouter } from './modules/rule-source/rule-source.route.ts'
 
 export const app = express()
 
@@ -83,6 +84,10 @@ app.use('/api/diagnosis-codes', diagnosisCodeRouter)
 // A2.9
 app.use('/api/organizations', organizationExternalIdentifierRouter)
 app.use('/api/external-identifiers', externalIdentifierRouter)
+
+// A3.1
+app.use('/api/organizations', organizationRuleSourceRouter)
+app.use('/api/rule-sources', ruleSourceRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

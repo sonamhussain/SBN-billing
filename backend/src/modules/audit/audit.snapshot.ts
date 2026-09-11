@@ -81,6 +81,26 @@ export const diagnosisCodeAuditSnapshot = (x: {
   displayName: x.displayName,
 })
 
+export const ruleSourceAuditSnapshot = (x: {
+  id: string
+  organizationId: string | null
+  jurisdictionCode: string
+  issuingAuthority: string
+  sourceCategory: string
+  referenceNumber: string
+  title: string
+  ownershipScope: string
+}) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  jurisdictionCode: x.jurisdictionCode,
+  issuingAuthority: x.issuingAuthority,
+  sourceCategory: x.sourceCategory,
+  referenceNumber: x.referenceNumber,
+  title: x.title,
+  ownershipScope: x.ownershipScope,
+})
+
 export const externalIdentifierAuditSnapshot = (x: {
   id: string
   organizationId: string
