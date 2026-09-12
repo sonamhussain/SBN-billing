@@ -32,6 +32,9 @@ export const permissionCodes = [
   'external_identifier.create',
   'external_identifier.read',
   'external_identifier.update',
+  'rule_source.create',
+  'rule_source.read',
+  'rule_source.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

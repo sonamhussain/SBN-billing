@@ -25,6 +25,7 @@ model Organization {
   diagnosisCodes DiagnosisCode[]
   externalIdentifiers       ExternalIdentifier[] @relation("ExternalIdentifierOwner")
   externalIdentifierTargets ExternalIdentifier[] @relation("ExternalIdentifierOrganizationTarget")
+  ruleSources RuleSource[]
 
   @@map("organizations")
 }
@@ -198,6 +199,26 @@ model ExternalIdentifier {
   @@unique([organizationId, sourceSystem, externalValue])
   @@index([organizationId])
   @@map("external_identifiers")
+}
+
+model RuleSource {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String?  @map("organization_id") @db.Uuid
+  jurisdictionCode String   @map("jurisdiction_code") @db.Text
+  issuingAuthority String   @map("issuing_authority") @db.Text
+  sourceCategory   String   @map("source_category") @db.Text
+  referenceNumber  String   @map("reference_number") @db.Text
+  title            String   @db.Text
+  ownershipScope   String   @map("ownership_scope") @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([jurisdictionCode])
+  @@index([sourceCategory])
+  @@map("rule_sources")
 }
 
 model User {
