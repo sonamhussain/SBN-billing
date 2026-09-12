@@ -213,12 +213,46 @@ model RuleSource {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization?       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  versions     RuleSourceVersion[]
 
   @@index([organizationId])
   @@index([jurisdictionCode])
   @@index([sourceCategory])
   @@map("rule_sources")
+}
+
+model RuleSourceVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  sourceId       String   @map("source_id") @db.Uuid
+  version        String   @db.Text
+  rawEvidenceRef String   @map("raw_evidence_ref") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  source          RuleSource             @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  interpretations SourceInterpretation[]
+
+  @@unique([sourceId, version])
+  @@index([sourceId])
+  @@map("rule_source_versions")
+}
+
+model SourceInterpretation {
+  id                          String    @id @default(uuid()) @db.Uuid
+  sourceVersionId             String    @map("source_version_id") @db.Uuid
+  interpretationVersion       String    @map("interpretation_version") @db.Text
+  normalizedInterpretationRef String    @map("normalized_interpretation_ref") @db.Text
+  verificationStatus          String    @map("verification_status") @db.Text
+  verifiedAt                  DateTime? @map("verified_at") @db.Timestamptz(6)
+  createdAt                   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sourceVersion RuleSourceVersion @relation(fields: [sourceVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceVersionId, interpretationVersion])
+  @@index([sourceVersionId])
+  @@map("source_interpretations")
 }
 
 model User {
