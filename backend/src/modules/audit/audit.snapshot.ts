@@ -101,6 +101,34 @@ export const ruleSourceAuditSnapshot = (x: {
   ownershipScope: x.ownershipScope,
 })
 
+export const ruleSourceVersionAuditSnapshot = (x: {
+  id: string
+  sourceId: string
+  version: string
+  rawEvidenceRef: string
+}) => ({
+  id: x.id,
+  sourceId: x.sourceId,
+  version: x.version,
+  rawEvidenceRef: x.rawEvidenceRef,
+})
+
+export const sourceInterpretationAuditSnapshot = (x: {
+  id: string
+  sourceVersionId: string
+  interpretationVersion: string
+  normalizedInterpretationRef: string
+  verificationStatus: string
+  verifiedAt: Date | null
+}) => ({
+  id: x.id,
+  sourceVersionId: x.sourceVersionId,
+  interpretationVersion: x.interpretationVersion,
+  normalizedInterpretationRef: x.normalizedInterpretationRef,
+  verificationStatus: x.verificationStatus,
+  verifiedAt: x.verifiedAt ? x.verifiedAt.toISOString() : null,
+})
+
 export const externalIdentifierAuditSnapshot = (x: {
   id: string
   organizationId: string

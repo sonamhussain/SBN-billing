@@ -20,6 +20,8 @@ import { organizationProcedureCodeRouter, procedureCodeRouter } from './modules/
 import { organizationDiagnosisCodeRouter, diagnosisCodeRouter } from './modules/diagnosis-code/diagnosis-code.route.ts'
 import { organizationExternalIdentifierRouter, externalIdentifierRouter } from './modules/external-identifier/external-identifier.route.ts'
 import { organizationRuleSourceRouter, ruleSourceRouter } from './modules/rule-source/rule-source.route.ts'
+import { sourceVersionsRouter, ruleSourceVersionRouter } from './modules/rule-source-version/rule-source-version.route.ts'
+import { versionInterpretationsRouter, sourceInterpretationRouter } from './modules/source-interpretation/source-interpretation.route.ts'
 
 export const app = express()
 
@@ -88,6 +90,12 @@ app.use('/api/external-identifiers', externalIdentifierRouter)
 // A3.1
 app.use('/api/organizations', organizationRuleSourceRouter)
 app.use('/api/rule-sources', ruleSourceRouter)
+
+// A3.2
+app.use('/api/rule-sources', sourceVersionsRouter)
+app.use('/api/rule-source-versions', ruleSourceVersionRouter)
+app.use('/api/rule-source-versions', versionInterpretationsRouter)
+app.use('/api/source-interpretations', sourceInterpretationRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

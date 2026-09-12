@@ -22,10 +22,13 @@ export const auditActionCodes = [
   'external_identifier.updated',
   'rule_source.created',
   'rule_source.updated',
+  'rule_source_version.created',
+  'source_interpretation.created',
+  'source_interpretation.updated',
 ] as const
 
 export type AuditActionCode = (typeof auditActionCodes)[number]
-export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE'
+export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION'
 
 export type AuditWriteInput = {
   organizationId: string
