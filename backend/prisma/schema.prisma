@@ -227,6 +227,23 @@ model RuleSourceVersion {
   sourceId       String   @map("source_id") @db.Uuid
   version        String   @db.Text
   rawEvidenceRef String   @map("raw_evidence_ref") @db.Text
+
+  publicationStatus String    @default("DRAFT") @map("publication_status") @db.Text
+  publicationDate   DateTime? @map("publication_date") @db.Date
+
+  effectiveFrom DateTime? @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  verificationStatus String    @default("UNVERIFIED") @map("verification_status") @db.Text
+  verifiedAt         DateTime? @map("verified_at") @db.Timestamptz(6)
+
+  activationStatus   String    @default("INACTIVE") @map("activation_status") @db.Text
+  activationBlockers String[]  @default([]) @map("activation_blockers")
+  activatedAt        DateTime? @map("activated_at") @db.Timestamptz(6)
+  suspendedAt        DateTime? @map("suspended_at") @db.Timestamptz(6)
+  supersededAt       DateTime? @map("superseded_at") @db.Timestamptz(6)
+  retiredAt          DateTime? @map("retired_at") @db.Timestamptz(6)
+
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

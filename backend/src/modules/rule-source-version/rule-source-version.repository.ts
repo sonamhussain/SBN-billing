@@ -22,3 +22,32 @@ export async function findRuleSourceVersionWithOrganization(id: string, db: DbCl
     include: { source: { select: { organizationId: true } } },
   })
 }
+
+export async function findRuleSourceVersionForActivation(id: string, db: DbClient = prisma) {
+  return db.ruleSourceVersion.findUnique({
+    where: { id },
+    include: { source: true, interpretations: true },
+  })
+}
+
+export type RuleSourceVersionLifecycleUpdate = {
+  publicationStatus?: string
+  publicationDate?: Date | null
+  effectiveFrom?: Date | null
+  effectiveTo?: Date | null
+  verificationStatus?: string
+  verifiedAt?: Date | null
+  activationStatus?: string
+  activationBlockers?: string[]
+  activatedAt?: Date | null
+  suspendedAt?: Date | null
+  retiredAt?: Date | null
+}
+
+export async function updateRuleSourceVersionLifecycle(
+  id: string,
+  data: RuleSourceVersionLifecycleUpdate,
+  db: DbClient = prisma,
+) {
+  return db.ruleSourceVersion.update({ where: { id }, data })
+}
