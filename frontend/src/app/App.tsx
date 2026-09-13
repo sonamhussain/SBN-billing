@@ -15,6 +15,8 @@ import ProcedureCodeCheck from '../modules/procedure-code/ProcedureCodeCheck.tsx
 import DiagnosisCodeCheck from '../modules/diagnosis-code/DiagnosisCodeCheck.tsx'
 import ExternalIdentifierCheck from '../modules/external-identifier/ExternalIdentifierCheck.tsx'
 import RuleSourceCheck from '../modules/rule-source/RuleSourceCheck.tsx'
+import RuleSourceVersionCheck from '../modules/rule-source-version/RuleSourceVersionCheck.tsx'
+import SourceInterpretationCheck from '../modules/source-interpretation/SourceInterpretationCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -53,6 +55,8 @@ export default function App() {
         {apiStatus === 'online' && <DiagnosisCodeCheck />}
         {apiStatus === 'online' && <ExternalIdentifierCheck />}
         {apiStatus === 'online' && <RuleSourceCheck />}
+        {apiStatus === 'online' && <RuleSourceVersionCheck />}
+        {apiStatus === 'online' && <SourceInterpretationCheck />}
       </div>
     </main>
   )
