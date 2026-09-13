@@ -119,3 +119,35 @@ test('multiple failures return unique sorted blockers', () => {
   assert.ok(blockers.includes('AUTHORITY_UNVERIFIED'))
   assert.ok(blockers.includes('INTERPRETATION_UNVERIFIED'))
 })
+
+test('no relationship signals yields no relationship blockers', () => {
+  const blockers = evaluateActivationBlockers(publishedVersion, source, verifiedInterpretation, context)
+  assert.ok(!blockers.includes('DEPENDENCY_UNRESOLVED'))
+  assert.ok(!blockers.includes('SOURCE_CONFLICT'))
+})
+
+test('unresolved dependency yields DEPENDENCY_UNRESOLVED', () => {
+  const blockers = evaluateActivationBlockers(publishedVersion, source, verifiedInterpretation, context, {
+    hasUnresolvedDependency: true,
+    hasConflict: false,
+  })
+  assert.ok(blockers.includes('DEPENDENCY_UNRESOLVED'))
+  assert.ok(!blockers.includes('SOURCE_CONFLICT'))
+})
+
+test('conflict edge yields SOURCE_CONFLICT', () => {
+  const blockers = evaluateActivationBlockers(publishedVersion, source, verifiedInterpretation, context, {
+    hasUnresolvedDependency: false,
+    hasConflict: true,
+  })
+  assert.ok(blockers.includes('SOURCE_CONFLICT'))
+  assert.ok(!blockers.includes('DEPENDENCY_UNRESOLVED'))
+})
+
+test('both relationship blockers can appear together, unique and sorted', () => {
+  const blockers = evaluateActivationBlockers(publishedVersion, source, verifiedInterpretation, context, {
+    hasUnresolvedDependency: true,
+    hasConflict: true,
+  })
+  assert.deepEqual(blockers, ['DEPENDENCY_UNRESOLVED', 'SOURCE_CONFLICT'])
+})

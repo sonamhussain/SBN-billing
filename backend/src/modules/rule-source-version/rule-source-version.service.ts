@@ -18,8 +18,11 @@ import {
   findRuleSourceVersionsBySourceId,
   updateRuleSourceVersionLifecycle,
 } from './rule-source-version.repository.ts'
+import { findOutgoingSupersedesTargets } from '../rule-source-relationship/rule-source-relationship.repository.ts'
+import { computeActivationRelationshipSignals } from '../rule-source-relationship/rule-source-relationship.service.ts'
 import { prisma } from '../../shared/database/prisma.ts'
 import { Prisma } from '../../../generated/prisma/client.ts'
+import type { DbClient } from '../../shared/database/database.types.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
 import { ruleSourceVersionAuditSnapshot } from '../audit/audit.snapshot.ts'
 
@@ -72,6 +75,42 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 }
 
 const activationLockedStatuses: readonly string[] = ['ACTIVE', 'SUSPENDED', 'RETIRED', 'SUPERSEDED']
+
+// A3.4 safe supersession transition: only runs after FROM successfully becomes ACTIVE, inside
+// the same transaction. Targets already SUPERSEDED or RETIRED are left untouched (historical
+// preservation) — idempotent-safe, never overwrites an existing supersededAt/retiredAt.
+async function supersedeDirectTargets(
+  fromVersionId: string,
+  actorUserId: string,
+  fallbackOrganizationId: string,
+  tx: DbClient,
+): Promise<void> {
+  const targets = await findOutgoingSupersedesTargets(fromVersionId, tx)
+  for (const { toSourceVersionId } of targets) {
+    const target = await findRuleSourceVersionForActivation(toSourceVersionId, tx)
+    if (!target) continue
+    if (target.activationStatus === 'SUPERSEDED' || target.activationStatus === 'RETIRED') continue
+
+    const updated = await updateRuleSourceVersionLifecycle(
+      toSourceVersionId,
+      { activationStatus: 'SUPERSEDED', supersededAt: new Date() },
+      tx,
+    )
+
+    await recordAuditEvent(
+      {
+        organizationId: (target.source.organizationId ?? fallbackOrganizationId) as string,
+        actorUserId,
+        actionCode: 'rule_source_version.superseded',
+        entityType: 'RULE_SOURCE_VERSION',
+        entityId: toSourceVersionId,
+        beforeState: ruleSourceVersionAuditSnapshot(target),
+        afterState: ruleSourceVersionAuditSnapshot(updated),
+      },
+      tx,
+    )
+  }
+}
 
 export async function createRuleSourceVersion(
   sourceId: string,
@@ -319,11 +358,15 @@ export async function evaluateRuleSourceVersionActivation(
   const existing = await findRuleSourceVersionForActivation(id)
   if (!existing) return { ok: false, code: 'NOT_FOUND', message: 'rule source version not found' }
 
-  const blockers = evaluateActivationBlockers(existing, existing.source, existing.interpretations, {
-    businessDate,
-    jurisdictionCode,
-    requestingOrganizationId: existing.source.organizationId,
-  })
+  const relationshipSignals = await computeActivationRelationshipSignals(id)
+
+  const blockers = evaluateActivationBlockers(
+    existing,
+    existing.source,
+    existing.interpretations,
+    { businessDate, jurisdictionCode, requestingOrganizationId: existing.source.organizationId },
+    relationshipSignals,
+  )
 
   return { ok: true, value: { blockers } }
 }
@@ -351,11 +394,15 @@ export async function activateRuleSourceVersion(
     if (existing.activationStatus !== 'INACTIVE' && existing.activationStatus !== 'BLOCKED')
       return { kind: 'terminal' as const, message: 'activate is only allowed from INACTIVE or BLOCKED' }
 
-    const blockers = evaluateActivationBlockers(existing, existing.source, existing.interpretations, {
-      businessDate,
-      jurisdictionCode,
-      requestingOrganizationId: existing.source.organizationId,
-    })
+    const relationshipSignals = await computeActivationRelationshipSignals(id, tx)
+
+    const blockers = evaluateActivationBlockers(
+      existing,
+      existing.source,
+      existing.interpretations,
+      { businessDate, jurisdictionCode, requestingOrganizationId: existing.source.organizationId },
+      relationshipSignals,
+    )
 
     const becameActive = blockers.length === 0
     const record = await updateRuleSourceVersionLifecycle(
@@ -378,6 +425,10 @@ export async function activateRuleSourceVersion(
       },
       tx,
     )
+
+    if (becameActive) {
+      await supersedeDirectTargets(id, actorUserId, existing.source.organizationId as string, tx)
+    }
 
     return { kind: 'updated' as const, record }
   })
@@ -448,11 +499,15 @@ export async function resumeRuleSourceVersion(
     if (existing.activationStatus !== 'SUSPENDED')
       return { kind: 'terminal' as const, message: 'resume is only allowed from SUSPENDED' }
 
-    const blockers = evaluateActivationBlockers(existing, existing.source, existing.interpretations, {
-      businessDate,
-      jurisdictionCode,
-      requestingOrganizationId: existing.source.organizationId,
-    })
+    const relationshipSignals = await computeActivationRelationshipSignals(id, tx)
+
+    const blockers = evaluateActivationBlockers(
+      existing,
+      existing.source,
+      existing.interpretations,
+      { businessDate, jurisdictionCode, requestingOrganizationId: existing.source.organizationId },
+      relationshipSignals,
+    )
 
     const becameActive = blockers.length === 0
     const record = await updateRuleSourceVersionLifecycle(
@@ -475,6 +530,10 @@ export async function resumeRuleSourceVersion(
       },
       tx,
     )
+
+    if (becameActive) {
+      await supersedeDirectTargets(id, actorUserId, existing.source.organizationId as string, tx)
+    }
 
     return { kind: 'updated' as const, record }
   })

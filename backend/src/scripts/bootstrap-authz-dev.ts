@@ -45,6 +45,8 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'source_interpretation.read', name: 'Read Source Interpretation' },
   { code: 'source_interpretation.update', name: 'Update Source Interpretation' },
   { code: 'rule_source_version.lifecycle', name: 'Manage Rule Source Version Lifecycle' },
+  { code: 'rule_source_relationship.create', name: 'Create Rule Source Relationship' },
+  { code: 'rule_source_relationship.read', name: 'Read Rule Source Relationship' },
 ]
 
 const roleCatalogue = [
@@ -94,12 +96,14 @@ const roleCatalogue = [
       'source_interpretation.read',
       'source_interpretation.update',
       'rule_source_version.lifecycle',
+      'rule_source_relationship.create',
+      'rule_source_relationship.read',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read'],
   },
 ] as const
 
