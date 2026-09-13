@@ -25,6 +25,14 @@ export const auditActionCodes = [
   'rule_source_version.created',
   'source_interpretation.created',
   'source_interpretation.updated',
+  'rule_source_version.lifecycle_updated',
+  'rule_source_version.published',
+  'rule_source_version.verification_updated',
+  'rule_source_version.activation_blocked',
+  'rule_source_version.activated',
+  'rule_source_version.suspended',
+  'rule_source_version.resumed',
+  'rule_source_version.retired',
 ] as const
 
 export type AuditActionCode = (typeof auditActionCodes)[number]

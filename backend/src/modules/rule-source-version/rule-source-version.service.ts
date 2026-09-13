@@ -1,10 +1,22 @@
 import { findRuleSourceById } from '../rule-source/rule-source.repository.ts'
-import type { RuleSourceVersionDto, RuleSourceVersionResult } from './rule-source-version.types.ts'
-import { isRuleSourceVersionUuid, normalizeRawEvidenceRef, normalizeVersion } from './rule-source-version.validation.ts'
+import type { ActivationEvaluationDto, RuleSourceVersionDto, RuleSourceVersionResult } from './rule-source-version.types.ts'
+import {
+  isRuleSourceVersionUuid,
+  isSourceVerificationStatus,
+  normalizeBusinessDate,
+  normalizeContextJurisdictionCode,
+  normalizeDateOnlyField,
+  normalizeRawEvidenceRef,
+  normalizeVersion,
+  formatDateOnly,
+} from './rule-source-version.validation.ts'
+import { evaluateActivationBlockers } from './rule-source-version.activation.ts'
 import {
   createRuleSourceVersionRecord,
   findRuleSourceVersionById,
+  findRuleSourceVersionForActivation,
   findRuleSourceVersionsBySourceId,
+  updateRuleSourceVersionLifecycle,
 } from './rule-source-version.repository.ts'
 import { prisma } from '../../shared/database/prisma.ts'
 import { Prisma } from '../../../generated/prisma/client.ts'
@@ -16,6 +28,18 @@ type RuleSourceVersionRecord = {
   sourceId: string
   version: string
   rawEvidenceRef: string
+  publicationStatus: string
+  publicationDate: Date | null
+  effectiveFrom: Date | null
+  effectiveTo: Date | null
+  verificationStatus: string
+  verifiedAt: Date | null
+  activationStatus: string
+  activationBlockers: string[]
+  activatedAt: Date | null
+  suspendedAt: Date | null
+  supersededAt: Date | null
+  retiredAt: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -26,6 +50,18 @@ function toDto(record: RuleSourceVersionRecord): RuleSourceVersionDto {
     sourceId: record.sourceId,
     version: record.version,
     rawEvidenceRef: record.rawEvidenceRef,
+    publicationStatus: record.publicationStatus,
+    publicationDate: formatDateOnly(record.publicationDate),
+    effectiveFrom: formatDateOnly(record.effectiveFrom),
+    effectiveTo: formatDateOnly(record.effectiveTo),
+    verificationStatus: record.verificationStatus,
+    verifiedAt: record.verifiedAt ? record.verifiedAt.toISOString() : null,
+    activationStatus: record.activationStatus,
+    activationBlockers: record.activationBlockers,
+    activatedAt: record.activatedAt ? record.activatedAt.toISOString() : null,
+    suspendedAt: record.suspendedAt ? record.suspendedAt.toISOString() : null,
+    supersededAt: record.supersededAt ? record.supersededAt.toISOString() : null,
+    retiredAt: record.retiredAt ? record.retiredAt.toISOString() : null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   }
@@ -34,6 +70,8 @@ function toDto(record: RuleSourceVersionRecord): RuleSourceVersionDto {
 function isUniqueConstraintViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
 }
+
+const activationLockedStatuses: readonly string[] = ['ACTIVE', 'SUSPENDED', 'RETIRED', 'SUPERSEDED']
 
 export async function createRuleSourceVersion(
   sourceId: string,
@@ -98,4 +136,388 @@ export async function listRuleSourceVersions(sourceId: string): Promise<RuleSour
 
   const records = await findRuleSourceVersionsBySourceId(sourceId)
   return { ok: true, value: records.map(toDto) }
+}
+
+// A3.3 lifecycle & activation control
+
+export async function updateLifecycleMetadata(
+  id: string,
+  publicationDateInput: unknown,
+  effectiveFromInput: unknown,
+  effectiveToInput: unknown,
+  actorUserId: string,
+): Promise<RuleSourceVersionResult<RuleSourceVersionDto>> {
+  if (!isRuleSourceVersionUuid(id))
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
+
+  const publicationDateField = normalizeDateOnlyField(publicationDateInput)
+  const effectiveFromField = normalizeDateOnlyField(effectiveFromInput)
+  const effectiveToField = normalizeDateOnlyField(effectiveToInput)
+
+  if (publicationDateField.present && !publicationDateField.valid)
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'publicationDate must be a YYYY-MM-DD date or null' }
+  if (effectiveFromField.present && !effectiveFromField.valid)
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'effectiveFrom must be a YYYY-MM-DD date or null' }
+  if (effectiveToField.present && !effectiveToField.valid)
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'effectiveTo must be a YYYY-MM-DD date or null' }
+
+  if (!publicationDateField.present && !effectiveFromField.present && !effectiveToField.present)
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'at least one field is required' }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await findRuleSourceVersionForActivation(id, tx)
+    if (!existing) return { kind: 'not_found' as const }
+    if (existing.activationStatus === 'RETIRED')
+      return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
+
+    if (publicationDateField.present && existing.publicationStatus === 'PUBLISHED')
+      return { kind: 'terminal' as const, message: 'publicationDate is immutable once published' }
+
+    if ((effectiveFromField.present || effectiveToField.present) && activationLockedStatuses.includes(existing.activationStatus))
+      return {
+        kind: 'terminal' as const,
+        message: 'effective dates are immutable once activated; create a new source version instead',
+      }
+
+    const nextEffectiveFrom = effectiveFromField.present && effectiveFromField.valid ? effectiveFromField.value : existing.effectiveFrom
+    const nextEffectiveTo = effectiveToField.present && effectiveToField.valid ? effectiveToField.value : existing.effectiveTo
+    if (nextEffectiveFrom && nextEffectiveTo && nextEffectiveFrom.getTime() > nextEffectiveTo.getTime())
+      return { kind: 'terminal' as const, message: 'effectiveFrom must not be after effectiveTo' }
+
+    const record = await updateRuleSourceVersionLifecycle(
+      id,
+      {
+        ...(publicationDateField.present && publicationDateField.valid ? { publicationDate: publicationDateField.value } : {}),
+        ...(effectiveFromField.present && effectiveFromField.valid ? { effectiveFrom: effectiveFromField.value } : {}),
+        ...(effectiveToField.present && effectiveToField.valid ? { effectiveTo: effectiveToField.value } : {}),
+      },
+      tx,
+    )
+
+    await recordAuditEvent(
+      {
+        organizationId: existing.source.organizationId as string,
+        actorUserId,
+        actionCode: 'rule_source_version.lifecycle_updated',
+        entityType: 'RULE_SOURCE_VERSION',
+        entityId: id,
+        beforeState: ruleSourceVersionAuditSnapshot(existing),
+        afterState: ruleSourceVersionAuditSnapshot(record),
+      },
+      tx,
+    )
+
+    return { kind: 'updated' as const, record }
+  })
+
+  if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source version not found' }
+  if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
+  return { ok: true, value: toDto(outcome.record) }
+}
+
+export async function publishRuleSourceVersion(
+  id: string,
+  actorUserId: string,
+): Promise<RuleSourceVersionResult<RuleSourceVersionDto>> {
+  if (!isRuleSourceVersionUuid(id))
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await findRuleSourceVersionForActivation(id, tx)
+    if (!existing) return { kind: 'not_found' as const }
+    if (existing.activationStatus === 'RETIRED')
+      return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
+    if (existing.publicationStatus !== 'DRAFT')
+      return { kind: 'terminal' as const, message: 'only a DRAFT source version can be published' }
+    if (!existing.publicationDate)
+      return { kind: 'terminal' as const, message: 'publicationDate must be set before publishing' }
+
+    // Publication never touches activationStatus — publish != activate.
+    const record = await updateRuleSourceVersionLifecycle(id, { publicationStatus: 'PUBLISHED' }, tx)
+
+    await recordAuditEvent(
+      {
+        organizationId: existing.source.organizationId as string,
+        actorUserId,
+        actionCode: 'rule_source_version.published',
+        entityType: 'RULE_SOURCE_VERSION',
+        entityId: id,
+        beforeState: ruleSourceVersionAuditSnapshot(existing),
+        afterState: ruleSourceVersionAuditSnapshot(record),
+      },
+      tx,
+    )
+
+    return { kind: 'updated' as const, record }
+  })
+
+  if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source version not found' }
+  if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
+  return { ok: true, value: toDto(outcome.record) }
+}
+
+export async function updateSourceVerification(
+  id: string,
+  verificationStatusInput: unknown,
+  actorUserId: string,
+): Promise<RuleSourceVersionResult<RuleSourceVersionDto>> {
+  if (!isRuleSourceVersionUuid(id))
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
+
+  if (!isSourceVerificationStatus(verificationStatusInput) || verificationStatusInput === 'UNVERIFIED')
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'verificationStatus must be IN_REVIEW, VERIFIED, or REJECTED' }
+  const nextStatus = verificationStatusInput
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await findRuleSourceVersionForActivation(id, tx)
+    if (!existing) return { kind: 'not_found' as const }
+    if (existing.activationStatus === 'RETIRED')
+      return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
+    if (existing.verificationStatus === 'VERIFIED' || existing.verificationStatus === 'REJECTED')
+      return { kind: 'terminal' as const, message: 'source verification is already VERIFIED or REJECTED and cannot be changed' }
+
+    // Activation never auto-follows source verification — verified != active.
+    const verifiedAt = nextStatus === 'VERIFIED' ? new Date() : null
+    const record = await updateRuleSourceVersionLifecycle(id, { verificationStatus: nextStatus, verifiedAt }, tx)
+
+    await recordAuditEvent(
+      {
+        organizationId: existing.source.organizationId as string,
+        actorUserId,
+        actionCode: 'rule_source_version.verification_updated',
+        entityType: 'RULE_SOURCE_VERSION',
+        entityId: id,
+        beforeState: ruleSourceVersionAuditSnapshot(existing),
+        afterState: ruleSourceVersionAuditSnapshot(record),
+      },
+      tx,
+    )
+
+    return { kind: 'updated' as const, record }
+  })
+
+  if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source version not found' }
+  if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
+  return { ok: true, value: toDto(outcome.record) }
+}
+
+export async function evaluateRuleSourceVersionActivation(
+  id: string,
+  businessDateInput: unknown,
+  jurisdictionCodeInput: unknown,
+): Promise<RuleSourceVersionResult<ActivationEvaluationDto>> {
+  if (!isRuleSourceVersionUuid(id))
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
+
+  const businessDate = normalizeBusinessDate(businessDateInput)
+  if (!businessDate) return { ok: false, code: 'VALIDATION_ERROR', message: 'businessDate must be a YYYY-MM-DD date' }
+
+  const jurisdictionCode = normalizeContextJurisdictionCode(jurisdictionCodeInput)
+  if (!jurisdictionCode) return { ok: false, code: 'VALIDATION_ERROR', message: 'jurisdictionCode is required' }
+
+  // Non-mutating preview: plain read, no transaction, no audit event.
+  const existing = await findRuleSourceVersionForActivation(id)
+  if (!existing) return { ok: false, code: 'NOT_FOUND', message: 'rule source version not found' }
+
+  const blockers = evaluateActivationBlockers(existing, existing.source, existing.interpretations, {
+    businessDate,
+    jurisdictionCode,
+    requestingOrganizationId: existing.source.organizationId,
+  })
+
+  return { ok: true, value: { blockers } }
+}
+
+export async function activateRuleSourceVersion(
+  id: string,
+  businessDateInput: unknown,
+  jurisdictionCodeInput: unknown,
+  actorUserId: string,
+): Promise<RuleSourceVersionResult<RuleSourceVersionDto>> {
+  if (!isRuleSourceVersionUuid(id))
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
+
+  const businessDate = normalizeBusinessDate(businessDateInput)
+  if (!businessDate) return { ok: false, code: 'VALIDATION_ERROR', message: 'businessDate must be a YYYY-MM-DD date' }
+
+  const jurisdictionCode = normalizeContextJurisdictionCode(jurisdictionCodeInput)
+  if (!jurisdictionCode) return { ok: false, code: 'VALIDATION_ERROR', message: 'jurisdictionCode is required' }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await findRuleSourceVersionForActivation(id, tx)
+    if (!existing) return { kind: 'not_found' as const }
+    if (existing.activationStatus === 'RETIRED')
+      return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
+    if (existing.activationStatus !== 'INACTIVE' && existing.activationStatus !== 'BLOCKED')
+      return { kind: 'terminal' as const, message: 'activate is only allowed from INACTIVE or BLOCKED' }
+
+    const blockers = evaluateActivationBlockers(existing, existing.source, existing.interpretations, {
+      businessDate,
+      jurisdictionCode,
+      requestingOrganizationId: existing.source.organizationId,
+    })
+
+    const becameActive = blockers.length === 0
+    const record = await updateRuleSourceVersionLifecycle(
+      id,
+      becameActive
+        ? { activationStatus: 'ACTIVE', activatedAt: new Date(), activationBlockers: [] }
+        : { activationStatus: 'BLOCKED', activatedAt: null, activationBlockers: blockers },
+      tx,
+    )
+
+    await recordAuditEvent(
+      {
+        organizationId: existing.source.organizationId as string,
+        actorUserId,
+        actionCode: becameActive ? 'rule_source_version.activated' : 'rule_source_version.activation_blocked',
+        entityType: 'RULE_SOURCE_VERSION',
+        entityId: id,
+        beforeState: ruleSourceVersionAuditSnapshot(existing),
+        afterState: ruleSourceVersionAuditSnapshot(record),
+      },
+      tx,
+    )
+
+    return { kind: 'updated' as const, record }
+  })
+
+  if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source version not found' }
+  if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
+  return { ok: true, value: toDto(outcome.record) }
+}
+
+export async function suspendRuleSourceVersion(
+  id: string,
+  actorUserId: string,
+): Promise<RuleSourceVersionResult<RuleSourceVersionDto>> {
+  if (!isRuleSourceVersionUuid(id))
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await findRuleSourceVersionForActivation(id, tx)
+    if (!existing) return { kind: 'not_found' as const }
+    if (existing.activationStatus === 'RETIRED')
+      return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
+    if (existing.activationStatus !== 'ACTIVE')
+      return { kind: 'terminal' as const, message: 'suspend is only allowed from ACTIVE' }
+
+    const record = await updateRuleSourceVersionLifecycle(id, { activationStatus: 'SUSPENDED', suspendedAt: new Date() }, tx)
+
+    await recordAuditEvent(
+      {
+        organizationId: existing.source.organizationId as string,
+        actorUserId,
+        actionCode: 'rule_source_version.suspended',
+        entityType: 'RULE_SOURCE_VERSION',
+        entityId: id,
+        beforeState: ruleSourceVersionAuditSnapshot(existing),
+        afterState: ruleSourceVersionAuditSnapshot(record),
+      },
+      tx,
+    )
+
+    return { kind: 'updated' as const, record }
+  })
+
+  if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source version not found' }
+  if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
+  return { ok: true, value: toDto(outcome.record) }
+}
+
+export async function resumeRuleSourceVersion(
+  id: string,
+  businessDateInput: unknown,
+  jurisdictionCodeInput: unknown,
+  actorUserId: string,
+): Promise<RuleSourceVersionResult<RuleSourceVersionDto>> {
+  if (!isRuleSourceVersionUuid(id))
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
+
+  const businessDate = normalizeBusinessDate(businessDateInput)
+  if (!businessDate) return { ok: false, code: 'VALIDATION_ERROR', message: 'businessDate must be a YYYY-MM-DD date' }
+
+  const jurisdictionCode = normalizeContextJurisdictionCode(jurisdictionCodeInput)
+  if (!jurisdictionCode) return { ok: false, code: 'VALIDATION_ERROR', message: 'jurisdictionCode is required' }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await findRuleSourceVersionForActivation(id, tx)
+    if (!existing) return { kind: 'not_found' as const }
+    if (existing.activationStatus === 'RETIRED')
+      return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
+    if (existing.activationStatus !== 'SUSPENDED')
+      return { kind: 'terminal' as const, message: 'resume is only allowed from SUSPENDED' }
+
+    const blockers = evaluateActivationBlockers(existing, existing.source, existing.interpretations, {
+      businessDate,
+      jurisdictionCode,
+      requestingOrganizationId: existing.source.organizationId,
+    })
+
+    const becameActive = blockers.length === 0
+    const record = await updateRuleSourceVersionLifecycle(
+      id,
+      becameActive
+        ? { activationStatus: 'ACTIVE', activatedAt: new Date(), activationBlockers: [] }
+        : { activationStatus: 'BLOCKED', activatedAt: null, activationBlockers: blockers },
+      tx,
+    )
+
+    await recordAuditEvent(
+      {
+        organizationId: existing.source.organizationId as string,
+        actorUserId,
+        actionCode: 'rule_source_version.resumed',
+        entityType: 'RULE_SOURCE_VERSION',
+        entityId: id,
+        beforeState: ruleSourceVersionAuditSnapshot(existing),
+        afterState: ruleSourceVersionAuditSnapshot(record),
+      },
+      tx,
+    )
+
+    return { kind: 'updated' as const, record }
+  })
+
+  if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source version not found' }
+  if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
+  return { ok: true, value: toDto(outcome.record) }
+}
+
+export async function retireRuleSourceVersion(
+  id: string,
+  actorUserId: string,
+): Promise<RuleSourceVersionResult<RuleSourceVersionDto>> {
+  if (!isRuleSourceVersionUuid(id))
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await findRuleSourceVersionForActivation(id, tx)
+    if (!existing) return { kind: 'not_found' as const }
+    if (existing.activationStatus === 'RETIRED')
+      return { kind: 'terminal' as const, message: 'source version is already retired' }
+    if (existing.activationStatus === 'SUPERSEDED')
+      return { kind: 'terminal' as const, message: 'superseded source versions cannot be retired through this API' }
+
+    const record = await updateRuleSourceVersionLifecycle(id, { activationStatus: 'RETIRED', retiredAt: new Date() }, tx)
+
+    await recordAuditEvent(
+      {
+        organizationId: existing.source.organizationId as string,
+        actorUserId,
+        actionCode: 'rule_source_version.retired',
+        entityType: 'RULE_SOURCE_VERSION',
+        entityId: id,
+        beforeState: ruleSourceVersionAuditSnapshot(existing),
+        afterState: ruleSourceVersionAuditSnapshot(record),
+      },
+      tx,
+    )
+
+    return { kind: 'updated' as const, record }
+  })
+
+  if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source version not found' }
+  if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
+  return { ok: true, value: toDto(outcome.record) }
 }

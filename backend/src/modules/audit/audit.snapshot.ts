@@ -106,11 +106,35 @@ export const ruleSourceVersionAuditSnapshot = (x: {
   sourceId: string
   version: string
   rawEvidenceRef: string
+  publicationStatus: string
+  publicationDate: Date | null
+  effectiveFrom: Date | null
+  effectiveTo: Date | null
+  verificationStatus: string
+  verifiedAt: Date | null
+  activationStatus: string
+  activationBlockers: string[]
+  activatedAt: Date | null
+  suspendedAt: Date | null
+  supersededAt: Date | null
+  retiredAt: Date | null
 }) => ({
   id: x.id,
   sourceId: x.sourceId,
   version: x.version,
   rawEvidenceRef: x.rawEvidenceRef,
+  publicationStatus: x.publicationStatus,
+  publicationDate: x.publicationDate ? x.publicationDate.toISOString().slice(0, 10) : null,
+  effectiveFrom: x.effectiveFrom ? x.effectiveFrom.toISOString().slice(0, 10) : null,
+  effectiveTo: x.effectiveTo ? x.effectiveTo.toISOString().slice(0, 10) : null,
+  verificationStatus: x.verificationStatus,
+  verifiedAt: x.verifiedAt ? x.verifiedAt.toISOString() : null,
+  activationStatus: x.activationStatus,
+  activationBlockers: x.activationBlockers,
+  activatedAt: x.activatedAt ? x.activatedAt.toISOString() : null,
+  suspendedAt: x.suspendedAt ? x.suspendedAt.toISOString() : null,
+  supersededAt: x.supersededAt ? x.supersededAt.toISOString() : null,
+  retiredAt: x.retiredAt ? x.retiredAt.toISOString() : null,
 })
 
 export const sourceInterpretationAuditSnapshot = (x: {

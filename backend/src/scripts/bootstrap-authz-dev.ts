@@ -44,6 +44,7 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'source_interpretation.create', name: 'Create Source Interpretation' },
   { code: 'source_interpretation.read', name: 'Read Source Interpretation' },
   { code: 'source_interpretation.update', name: 'Update Source Interpretation' },
+  { code: 'rule_source_version.lifecycle', name: 'Manage Rule Source Version Lifecycle' },
 ]
 
 const roleCatalogue = [
@@ -92,6 +93,7 @@ const roleCatalogue = [
       'source_interpretation.create',
       'source_interpretation.read',
       'source_interpretation.update',
+      'rule_source_version.lifecycle',
     ],
   },
   {

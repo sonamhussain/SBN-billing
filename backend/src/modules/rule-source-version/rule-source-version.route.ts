@@ -1,6 +1,18 @@
 import { Router, type Request } from 'express'
 import type { RuleSourceVersionErrorCode } from './rule-source-version.types.ts'
-import { createRuleSourceVersion, getRuleSourceVersion, listRuleSourceVersions } from './rule-source-version.service.ts'
+import {
+  activateRuleSourceVersion,
+  createRuleSourceVersion,
+  evaluateRuleSourceVersionActivation,
+  getRuleSourceVersion,
+  listRuleSourceVersions,
+  publishRuleSourceVersion,
+  resumeRuleSourceVersion,
+  retireRuleSourceVersion,
+  suspendRuleSourceVersion,
+  updateLifecycleMetadata,
+  updateSourceVerification,
+} from './rule-source-version.service.ts'
 import { findRuleSourceVersionWithOrganization } from './rule-source-version.repository.ts'
 import { findRuleSourceById } from '../rule-source/rule-source.repository.ts'
 import { isRuleSourceVersionUuid } from './rule-source-version.validation.ts'
@@ -72,6 +84,136 @@ ruleSourceVersionRouter.get(
   requireOrganizationPermission(organizationIdFromExistingVersion, 'rule_source_version.read'),
   async (req, res) => {
     const result = await getRuleSourceVersion(ruleSourceVersionIdFromParams(req))
+    if (!result.ok) {
+      sendApiError(res, statusForRuleSourceVersionError(result.code), result.code, result.message)
+      return
+    }
+    res.status(200).json(result.value)
+  },
+)
+
+// A3.3 lifecycle & activation control
+
+ruleSourceVersionRouter.patch(
+  '/:id/lifecycle',
+  requireOrganizationPermission(organizationIdFromExistingVersion, 'rule_source_version.lifecycle'),
+  async (req, res) => {
+    const result = await updateLifecycleMetadata(
+      ruleSourceVersionIdFromParams(req),
+      req.body?.publicationDate,
+      req.body?.effectiveFrom,
+      req.body?.effectiveTo,
+      String(res.locals.actorUserId),
+    )
+    if (!result.ok) {
+      sendApiError(res, statusForRuleSourceVersionError(result.code), result.code, result.message)
+      return
+    }
+    res.status(200).json(result.value)
+  },
+)
+
+ruleSourceVersionRouter.post(
+  '/:id/publish',
+  requireOrganizationPermission(organizationIdFromExistingVersion, 'rule_source_version.lifecycle'),
+  async (req, res) => {
+    const result = await publishRuleSourceVersion(ruleSourceVersionIdFromParams(req), String(res.locals.actorUserId))
+    if (!result.ok) {
+      sendApiError(res, statusForRuleSourceVersionError(result.code), result.code, result.message)
+      return
+    }
+    res.status(200).json(result.value)
+  },
+)
+
+ruleSourceVersionRouter.post(
+  '/:id/verification',
+  requireOrganizationPermission(organizationIdFromExistingVersion, 'rule_source_version.lifecycle'),
+  async (req, res) => {
+    const result = await updateSourceVerification(
+      ruleSourceVersionIdFromParams(req),
+      req.body?.verificationStatus,
+      String(res.locals.actorUserId),
+    )
+    if (!result.ok) {
+      sendApiError(res, statusForRuleSourceVersionError(result.code), result.code, result.message)
+      return
+    }
+    res.status(200).json(result.value)
+  },
+)
+
+ruleSourceVersionRouter.post(
+  '/:id/activation/evaluate',
+  requireOrganizationPermission(organizationIdFromExistingVersion, 'rule_source_version.read'),
+  async (req, res) => {
+    const result = await evaluateRuleSourceVersionActivation(
+      ruleSourceVersionIdFromParams(req),
+      req.body?.businessDate,
+      req.body?.jurisdictionCode,
+    )
+    if (!result.ok) {
+      sendApiError(res, statusForRuleSourceVersionError(result.code), result.code, result.message)
+      return
+    }
+    res.status(200).json(result.value)
+  },
+)
+
+ruleSourceVersionRouter.post(
+  '/:id/activate',
+  requireOrganizationPermission(organizationIdFromExistingVersion, 'rule_source_version.lifecycle'),
+  async (req, res) => {
+    const result = await activateRuleSourceVersion(
+      ruleSourceVersionIdFromParams(req),
+      req.body?.businessDate,
+      req.body?.jurisdictionCode,
+      String(res.locals.actorUserId),
+    )
+    if (!result.ok) {
+      sendApiError(res, statusForRuleSourceVersionError(result.code), result.code, result.message)
+      return
+    }
+    res.status(200).json(result.value)
+  },
+)
+
+ruleSourceVersionRouter.post(
+  '/:id/suspend',
+  requireOrganizationPermission(organizationIdFromExistingVersion, 'rule_source_version.lifecycle'),
+  async (req, res) => {
+    const result = await suspendRuleSourceVersion(ruleSourceVersionIdFromParams(req), String(res.locals.actorUserId))
+    if (!result.ok) {
+      sendApiError(res, statusForRuleSourceVersionError(result.code), result.code, result.message)
+      return
+    }
+    res.status(200).json(result.value)
+  },
+)
+
+ruleSourceVersionRouter.post(
+  '/:id/resume',
+  requireOrganizationPermission(organizationIdFromExistingVersion, 'rule_source_version.lifecycle'),
+  async (req, res) => {
+    const result = await resumeRuleSourceVersion(
+      ruleSourceVersionIdFromParams(req),
+      req.body?.businessDate,
+      req.body?.jurisdictionCode,
+      String(res.locals.actorUserId),
+    )
+    if (!result.ok) {
+      sendApiError(res, statusForRuleSourceVersionError(result.code), result.code, result.message)
+      return
+    }
+    res.status(200).json(result.value)
+  },
+)
+
+ruleSourceVersionRouter.post(
+  '/:id/retire',
+  requireOrganizationPermission(organizationIdFromExistingVersion, 'rule_source_version.lifecycle'),
+  async (req, res) => {
+    const result = await retireRuleSourceVersion(ruleSourceVersionIdFromParams(req), String(res.locals.actorUserId))
     if (!result.ok) {
       sendApiError(res, statusForRuleSourceVersionError(result.code), result.code, result.message)
       return
