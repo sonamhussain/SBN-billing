@@ -17,7 +17,8 @@
     "worker:dev": "node --env-file=.env --watch src/jobs/worker.ts",
     "worker:start": "node --env-file=.env src/jobs/worker.ts",
     "test:a1:integration": "node --env-file=.env src/integration/a1-foundation/a1-foundation.integration.ts",
-    "test:a2:integration": "node --env-file=.env src/integration/a2-master-data/a2-master-data.integration.ts"
+    "test:a2:integration": "node --env-file=.env src/integration/a2-master-data/a2-master-data.integration.ts",
+    "test:a3:concurrency": "node --env-file=.env src/scripts/test-supersedes-concurrency.ts"
   },
   "keywords": [],
   "author": "",
