@@ -26,6 +26,7 @@ model Organization {
   externalIdentifiers       ExternalIdentifier[] @relation("ExternalIdentifierOwner")
   externalIdentifierTargets ExternalIdentifier[] @relation("ExternalIdentifierOrganizationTarget")
   ruleSources RuleSource[]
+  ruleDefinitions RuleDefinition[]
 
   @@map("organizations")
 }
@@ -290,6 +291,44 @@ model SourceInterpretation {
   @@unique([sourceVersionId, interpretationVersion])
   @@index([sourceVersionId])
   @@map("source_interpretations")
+}
+
+model RuleDefinition {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String?  @map("organization_id") @db.Uuid
+  ruleKey          String   @map("rule_key") @db.Text
+  displayName      String   @map("display_name") @db.Text
+  jurisdictionCode String   @map("jurisdiction_code") @db.Text
+  ownershipScope   String   @map("ownership_scope") @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  versions     RuleVersion[]
+
+  @@index([organizationId])
+  @@index([jurisdictionCode])
+  @@map("rule_definitions")
+}
+
+model RuleVersion {
+  id                 String    @id @default(uuid()) @db.Uuid
+  ruleId             String    @map("rule_id") @db.Uuid
+  version            String    @db.Text
+  effectType         String    @map("effect_type") @db.Text
+  effectiveFrom      DateTime? @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+  verificationStatus String    @default("UNVERIFIED") @map("verification_status") @db.Text
+  verifiedAt         DateTime? @map("verified_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  rule RuleDefinition @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+
+  @@unique([ruleId, version])
+  @@index([ruleId])
+  @@index([effectType])
+  @@map("rule_versions")
 }
 
 model User {

@@ -165,6 +165,42 @@ export const ruleSourceRelationshipAuditSnapshot = (x: {
   relationshipType: x.relationshipType,
 })
 
+export const ruleDefinitionAuditSnapshot = (x: {
+  id: string
+  organizationId: string | null
+  ruleKey: string
+  displayName: string
+  jurisdictionCode: string
+  ownershipScope: string
+}) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  ruleKey: x.ruleKey,
+  displayName: x.displayName,
+  jurisdictionCode: x.jurisdictionCode,
+  ownershipScope: x.ownershipScope,
+})
+
+export const ruleVersionAuditSnapshot = (x: {
+  id: string
+  ruleId: string
+  version: string
+  effectType: string
+  effectiveFrom: Date | null
+  effectiveTo: Date | null
+  verificationStatus: string
+  verifiedAt: Date | null
+}) => ({
+  id: x.id,
+  ruleId: x.ruleId,
+  version: x.version,
+  effectType: x.effectType,
+  effectiveFrom: x.effectiveFrom ? x.effectiveFrom.toISOString().slice(0, 10) : null,
+  effectiveTo: x.effectiveTo ? x.effectiveTo.toISOString().slice(0, 10) : null,
+  verificationStatus: x.verificationStatus,
+  verifiedAt: x.verifiedAt ? x.verifiedAt.toISOString() : null,
+})
+
 export const externalIdentifierAuditSnapshot = (x: {
   id: string
   organizationId: string
