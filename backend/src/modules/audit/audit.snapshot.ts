@@ -201,6 +201,26 @@ export const ruleVersionAuditSnapshot = (x: {
   verifiedAt: x.verifiedAt ? x.verifiedAt.toISOString() : null,
 })
 
+export const ruleApplicabilityAuditSnapshot = (x: {
+  id: string
+  ruleVersionId: string
+  payerId: string | null
+  tpaId: string | null
+  networkId: string | null
+  serviceId: string | null
+  procedureCodeId: string | null
+  diagnosisCodeId: string | null
+}) => ({
+  id: x.id,
+  ruleVersionId: x.ruleVersionId,
+  payerId: x.payerId,
+  tpaId: x.tpaId,
+  networkId: x.networkId,
+  serviceId: x.serviceId,
+  procedureCodeId: x.procedureCodeId,
+  diagnosisCodeId: x.diagnosisCodeId,
+})
+
 export const externalIdentifierAuditSnapshot = (x: {
   id: string
   organizationId: string

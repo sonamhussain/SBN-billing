@@ -82,6 +82,7 @@ model Payer {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
+  ruleApplicabilities RuleApplicability[]
 
   @@index([organizationId])
   @@map("payers")
@@ -96,6 +97,7 @@ model Tpa {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
+  ruleApplicabilities RuleApplicability[]
 
   @@index([organizationId])
   @@map("tpas")
@@ -110,6 +112,7 @@ model Network {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
+  ruleApplicabilities RuleApplicability[]
 
   @@index([organizationId])
   @@map("networks")
@@ -125,6 +128,7 @@ model Service {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
+  ruleApplicabilities RuleApplicability[]
 
   @@unique([organizationId, internalCode])
   @@index([organizationId])
@@ -143,6 +147,7 @@ model ProcedureCode {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
+  ruleApplicabilities RuleApplicability[]
 
   @@unique([organizationId, internalCode])
   @@index([organizationId])
@@ -159,6 +164,7 @@ model DiagnosisCode {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
+  ruleApplicabilities RuleApplicability[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -324,11 +330,41 @@ model RuleVersion {
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   rule RuleDefinition @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  applicabilities RuleApplicability[]
 
   @@unique([ruleId, version])
   @@index([ruleId])
   @@index([effectType])
   @@map("rule_versions")
+}
+
+model RuleApplicability {
+  id              String   @id @default(uuid()) @db.Uuid
+  ruleVersionId   String   @map("rule_version_id") @db.Uuid
+  payerId         String?  @map("payer_id") @db.Uuid
+  tpaId           String?  @map("tpa_id") @db.Uuid
+  networkId       String?  @map("network_id") @db.Uuid
+  serviceId       String?  @map("service_id") @db.Uuid
+  procedureCodeId String?  @map("procedure_code_id") @db.Uuid
+  diagnosisCodeId String?  @map("diagnosis_code_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ruleVersion   RuleVersion    @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
+  payer         Payer?         @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa           Tpa?           @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network       Network?       @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  service       Service?       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  procedureCode ProcedureCode? @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
+  diagnosisCode DiagnosisCode? @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
+
+  @@index([ruleVersionId])
+  @@index([payerId])
+  @@index([tpaId])
+  @@index([networkId])
+  @@index([serviceId])
+  @@index([procedureCodeId])
+  @@index([diagnosisCodeId])
+  @@map("rule_applicabilities")
 }
 
 model User {
