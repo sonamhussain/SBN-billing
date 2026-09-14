@@ -22,6 +22,7 @@ import { organizationExternalIdentifierRouter, externalIdentifierRouter } from '
 import { organizationRuleSourceRouter, ruleSourceRouter } from './modules/rule-source/rule-source.route.ts'
 import { sourceVersionsRouter, ruleSourceVersionRouter } from './modules/rule-source-version/rule-source-version.route.ts'
 import { versionInterpretationsRouter, sourceInterpretationRouter } from './modules/source-interpretation/source-interpretation.route.ts'
+import { versionRelationshipsRouter, ruleSourceRelationshipRouter } from './modules/rule-source-relationship/rule-source-relationship.route.ts'
 
 export const app = express()
 
@@ -96,6 +97,10 @@ app.use('/api/rule-sources', sourceVersionsRouter)
 app.use('/api/rule-source-versions', ruleSourceVersionRouter)
 app.use('/api/rule-source-versions', versionInterpretationsRouter)
 app.use('/api/source-interpretations', sourceInterpretationRouter)
+
+// A3.4
+app.use('/api/rule-source-versions', versionRelationshipsRouter)
+app.use('/api/rule-source-relationships', ruleSourceRelationshipRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

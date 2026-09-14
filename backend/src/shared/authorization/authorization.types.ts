@@ -41,6 +41,8 @@ export const permissionCodes = [
   'source_interpretation.read',
   'source_interpretation.update',
   'rule_source_version.lifecycle',
+  'rule_source_relationship.create',
+  'rule_source_relationship.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

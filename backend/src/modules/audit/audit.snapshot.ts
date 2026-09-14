@@ -153,6 +153,18 @@ export const sourceInterpretationAuditSnapshot = (x: {
   verifiedAt: x.verifiedAt ? x.verifiedAt.toISOString() : null,
 })
 
+export const ruleSourceRelationshipAuditSnapshot = (x: {
+  id: string
+  fromSourceVersionId: string
+  toSourceVersionId: string
+  relationshipType: string
+}) => ({
+  id: x.id,
+  fromSourceVersionId: x.fromSourceVersionId,
+  toSourceVersionId: x.toSourceVersionId,
+  relationshipType: x.relationshipType,
+})
+
 export const externalIdentifierAuditSnapshot = (x: {
   id: string
   organizationId: string

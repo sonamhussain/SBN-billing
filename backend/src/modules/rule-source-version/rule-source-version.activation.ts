@@ -7,6 +7,8 @@ export const activationBlockerCodes = [
   'CONTRADICTORY_DATES',
   'JURISDICTION_INCOMPATIBLE',
   'OWNERSHIP_MISMATCH',
+  'DEPENDENCY_UNRESOLVED',
+  'SOURCE_CONFLICT',
 ] as const
 
 export type ActivationBlockerCode = (typeof activationBlockerCodes)[number]
@@ -33,6 +35,13 @@ export type ActivationContext = {
   requestingOrganizationId: string | null
 }
 
+// Computed by the caller from RuleSourceRelationship edges (A3.4) — the evaluator itself
+// stays pure/no-I/O, so relationship graph lookups happen before this function is called.
+export type ActivationRelationshipSignals = {
+  hasUnresolvedDependency: boolean
+  hasConflict: boolean
+}
+
 export function isEffective(effectiveFrom: Date | null, effectiveTo: Date | null, businessDate: Date): boolean {
   if (!effectiveFrom) return false
   if (businessDate.getTime() < effectiveFrom.getTime()) return false
@@ -50,6 +59,7 @@ export function evaluateActivationBlockers(
   source: ActivationEvaluationSource,
   interpretations: ActivationEvaluationInterpretation[],
   context: ActivationContext,
+  relationshipSignals?: ActivationRelationshipSignals,
 ): ActivationBlockerCode[] {
   const blockers = new Set<ActivationBlockerCode>()
 
@@ -77,6 +87,9 @@ export function evaluateActivationBlockers(
   }
 
   if (source.organizationId !== context.requestingOrganizationId) blockers.add('OWNERSHIP_MISMATCH')
+
+  if (relationshipSignals?.hasUnresolvedDependency) blockers.add('DEPENDENCY_UNRESOLVED')
+  if (relationshipSignals?.hasConflict) blockers.add('SOURCE_CONFLICT')
 
   return [...blockers].sort()
 }

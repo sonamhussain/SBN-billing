@@ -250,9 +250,29 @@ model RuleSourceVersion {
   source          RuleSource             @relation(fields: [sourceId], references: [id], onDelete: Restrict)
   interpretations SourceInterpretation[]
 
+  outgoingRelationships RuleSourceRelationship[] @relation("SourceRelationshipFrom")
+  incomingRelationships RuleSourceRelationship[] @relation("SourceRelationshipTo")
+
   @@unique([sourceId, version])
   @@index([sourceId])
   @@map("rule_source_versions")
+}
+
+model RuleSourceRelationship {
+  id                  String   @id @default(uuid()) @db.Uuid
+  fromSourceVersionId String   @map("from_source_version_id") @db.Uuid
+  toSourceVersionId   String   @map("to_source_version_id") @db.Uuid
+  relationshipType    String   @map("relationship_type") @db.Text
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  fromSourceVersion RuleSourceVersion @relation("SourceRelationshipFrom", fields: [fromSourceVersionId], references: [id], onDelete: Restrict)
+  toSourceVersion   RuleSourceVersion @relation("SourceRelationshipTo", fields: [toSourceVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([fromSourceVersionId, toSourceVersionId, relationshipType])
+  @@index([fromSourceVersionId])
+  @@index([toSourceVersionId])
+  @@index([relationshipType])
+  @@map("rule_source_relationships")
 }
 
 model SourceInterpretation {

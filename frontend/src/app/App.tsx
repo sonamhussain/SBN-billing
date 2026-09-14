@@ -17,6 +17,7 @@ import ExternalIdentifierCheck from '../modules/external-identifier/ExternalIden
 import RuleSourceCheck from '../modules/rule-source/RuleSourceCheck.tsx'
 import RuleSourceVersionCheck from '../modules/rule-source-version/RuleSourceVersionCheck.tsx'
 import SourceInterpretationCheck from '../modules/source-interpretation/SourceInterpretationCheck.tsx'
+import RuleSourceRelationshipCheck from '../modules/rule-source-relationship/RuleSourceRelationshipCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -57,6 +58,7 @@ export default function App() {
         {apiStatus === 'online' && <RuleSourceCheck />}
         {apiStatus === 'online' && <RuleSourceVersionCheck />}
         {apiStatus === 'online' && <SourceInterpretationCheck />}
+        {apiStatus === 'online' && <RuleSourceRelationshipCheck />}
       </div>
     </main>
   )
