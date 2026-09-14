@@ -18,6 +18,8 @@ import RuleSourceCheck from '../modules/rule-source/RuleSourceCheck.tsx'
 import RuleSourceVersionCheck from '../modules/rule-source-version/RuleSourceVersionCheck.tsx'
 import SourceInterpretationCheck from '../modules/source-interpretation/SourceInterpretationCheck.tsx'
 import RuleSourceRelationshipCheck from '../modules/rule-source-relationship/RuleSourceRelationshipCheck.tsx'
+import RuleDefinitionCheck from '../modules/rule-definition/RuleDefinitionCheck.tsx'
+import RuleVersionCheck from '../modules/rule-version/RuleVersionCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -59,6 +61,8 @@ export default function App() {
         {apiStatus === 'online' && <RuleSourceVersionCheck />}
         {apiStatus === 'online' && <SourceInterpretationCheck />}
         {apiStatus === 'online' && <RuleSourceRelationshipCheck />}
+        {apiStatus === 'online' && <RuleDefinitionCheck />}
+        {apiStatus === 'online' && <RuleVersionCheck />}
       </div>
     </main>
   )

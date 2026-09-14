@@ -47,6 +47,13 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'rule_source_version.lifecycle', name: 'Manage Rule Source Version Lifecycle' },
   { code: 'rule_source_relationship.create', name: 'Create Rule Source Relationship' },
   { code: 'rule_source_relationship.read', name: 'Read Rule Source Relationship' },
+  { code: 'rule_definition.create', name: 'Create Rule Definition' },
+  { code: 'rule_definition.read', name: 'Read Rule Definition' },
+  { code: 'rule_definition.update', name: 'Update Rule Definition' },
+  { code: 'rule_version.create', name: 'Create Rule Version' },
+  { code: 'rule_version.read', name: 'Read Rule Version' },
+  { code: 'rule_version.update', name: 'Update Rule Version' },
+  { code: 'rule_version.verify', name: 'Verify Rule Version' },
 ]
 
 const roleCatalogue = [
@@ -98,12 +105,19 @@ const roleCatalogue = [
       'rule_source_version.lifecycle',
       'rule_source_relationship.create',
       'rule_source_relationship.read',
+      'rule_definition.create',
+      'rule_definition.read',
+      'rule_definition.update',
+      'rule_version.create',
+      'rule_version.read',
+      'rule_version.update',
+      'rule_version.verify',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read'],
   },
 ] as const
 
