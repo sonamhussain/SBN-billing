@@ -10,9 +10,15 @@ const S1 = '33333333-3333-4333-8333-333333333333'
 function row(overrides: Partial<ApplicabilityRow>): ApplicabilityRow {
   return {
     id: 'row-id',
+    facilityId: null,
+    facilityRegulatoryProfileId: null,
     payerId: null,
     tpaId: null,
     networkId: null,
+    insuranceProductId: null,
+    providerContractId: null,
+    tariffScheduleId: null,
+    tariffScheduleVersionId: null,
     serviceId: null,
     procedureCodeId: null,
     diagnosisCodeId: null,
@@ -68,4 +74,18 @@ test('matchedApplicabilityIds returns only matching row ids', () => {
 test('null in explicit undefined context field never matches non-null row requirement', () => {
   assert.equal(rowMatches(row({ payerId: P1 }), { payerId: undefined }), false)
   assert.equal(rowMatches(row({ payerId: P1 }), { payerId: null }), false)
+})
+
+test('REF-01 / R5: facilityId dimension matches exactly like any other dimension', () => {
+  const F1 = '44444444-4444-4444-8444-444444444444'
+  assert.equal(rowMatches(row({ facilityId: F1 }), { facilityId: F1 }), true)
+  assert.equal(rowMatches(row({ facilityId: F1 }), {}), false)
+})
+
+test('REF-01 / R5: providerContractId and tariffScheduleVersionId both required (AND)', () => {
+  const C1 = '55555555-5555-4555-8555-555555555555'
+  const V1 = '66666666-6666-4666-8666-666666666666'
+  const r = row({ providerContractId: C1, tariffScheduleVersionId: V1 })
+  assert.equal(rowMatches(r, { providerContractId: C1, tariffScheduleVersionId: V1 }), true)
+  assert.equal(rowMatches(r, { providerContractId: C1 }), false)
 })

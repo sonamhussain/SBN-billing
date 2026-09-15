@@ -22,9 +22,15 @@ import { ruleApplicabilityAuditSnapshot } from '../audit/audit.snapshot.ts'
 type RuleApplicabilityRecord = {
   id: string
   ruleVersionId: string
+  facilityId: string | null
+  facilityRegulatoryProfileId: string | null
   payerId: string | null
   tpaId: string | null
   networkId: string | null
+  insuranceProductId: string | null
+  providerContractId: string | null
+  tariffScheduleId: string | null
+  tariffScheduleVersionId: string | null
   serviceId: string | null
   procedureCodeId: string | null
   diagnosisCodeId: string | null
@@ -32,9 +38,15 @@ type RuleApplicabilityRecord = {
 }
 
 const dimensionLabels: Record<ApplicabilityDimensionKey, string> = {
+  facilityId: 'facility',
+  facilityRegulatoryProfileId: 'facility regulatory profile',
   payerId: 'payer',
   tpaId: 'tpa',
   networkId: 'network',
+  insuranceProductId: 'insurance product',
+  providerContractId: 'provider contract',
+  tariffScheduleId: 'tariff schedule',
+  tariffScheduleVersionId: 'tariff schedule version',
   serviceId: 'service',
   procedureCodeId: 'procedure code',
   diagnosisCodeId: 'diagnosis code',
@@ -46,9 +58,15 @@ function toDto(record: RuleApplicabilityRecord): RuleApplicabilityDto {
   return {
     id: record.id,
     ruleVersionId: record.ruleVersionId,
+    facilityId: record.facilityId,
+    facilityRegulatoryProfileId: record.facilityRegulatoryProfileId,
     payerId: record.payerId,
     tpaId: record.tpaId,
     networkId: record.networkId,
+    insuranceProductId: record.insuranceProductId,
+    providerContractId: record.providerContractId,
+    tariffScheduleId: record.tariffScheduleId,
+    tariffScheduleVersionId: record.tariffScheduleVersionId,
     serviceId: record.serviceId,
     procedureCodeId: record.procedureCodeId,
     diagnosisCodeId: record.diagnosisCodeId,
@@ -73,9 +91,15 @@ export async function createRuleApplicability(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'unknown fields are not allowed' }
 
   const normalized: Record<ApplicabilityDimensionKey, string | null> = {
+    facilityId: null,
+    facilityRegulatoryProfileId: null,
     payerId: null,
     tpaId: null,
     networkId: null,
+    insuranceProductId: null,
+    providerContractId: null,
+    tariffScheduleId: null,
+    tariffScheduleVersionId: null,
     serviceId: null,
     procedureCodeId: null,
     diagnosisCodeId: null,

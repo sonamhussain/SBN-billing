@@ -45,6 +45,7 @@ model Facility {
   regulatoryProfiles FacilityRegulatoryProfile[]
   contractFacilities ContractFacility[]
   ruleSourceScopes RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
 
   @@index([organizationId])
   @@map("facilities")
@@ -353,28 +354,46 @@ model RuleVersion {
 }
 
 model RuleApplicability {
-  id              String   @id @default(uuid()) @db.Uuid
-  ruleVersionId   String   @map("rule_version_id") @db.Uuid
-  payerId         String?  @map("payer_id") @db.Uuid
-  tpaId           String?  @map("tpa_id") @db.Uuid
-  networkId       String?  @map("network_id") @db.Uuid
-  serviceId       String?  @map("service_id") @db.Uuid
-  procedureCodeId String?  @map("procedure_code_id") @db.Uuid
-  diagnosisCodeId String?  @map("diagnosis_code_id") @db.Uuid
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                        String   @id @default(uuid()) @db.Uuid
+  ruleVersionId             String   @map("rule_version_id") @db.Uuid
+  facilityId                String?  @map("facility_id") @db.Uuid
+  facilityRegulatoryProfileId String? @map("facility_regulatory_profile_id") @db.Uuid
+  payerId                   String?  @map("payer_id") @db.Uuid
+  tpaId                     String?  @map("tpa_id") @db.Uuid
+  networkId                 String?  @map("network_id") @db.Uuid
+  insuranceProductId        String?  @map("insurance_product_id") @db.Uuid
+  providerContractId        String?  @map("provider_contract_id") @db.Uuid
+  tariffScheduleId          String?  @map("tariff_schedule_id") @db.Uuid
+  tariffScheduleVersionId   String?  @map("tariff_schedule_version_id") @db.Uuid
+  serviceId                 String?  @map("service_id") @db.Uuid
+  procedureCodeId           String?  @map("procedure_code_id") @db.Uuid
+  diagnosisCodeId           String?  @map("diagnosis_code_id") @db.Uuid
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  ruleVersion   RuleVersion    @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
-  payer         Payer?         @relation(fields: [payerId], references: [id], onDelete: Restrict)
-  tpa           Tpa?           @relation(fields: [tpaId], references: [id], onDelete: Restrict)
-  network       Network?       @relation(fields: [networkId], references: [id], onDelete: Restrict)
-  service       Service?       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  procedureCode ProcedureCode? @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
-  diagnosisCode DiagnosisCode? @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
+  ruleVersion             RuleVersion                @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
+  facility                Facility?                  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  facilityRegulatoryProfile FacilityRegulatoryProfile? @relation(fields: [facilityRegulatoryProfileId], references: [id], onDelete: Restrict)
+  payer                   Payer?                     @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                     Tpa?                       @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network                 Network?                   @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  insuranceProduct        InsuranceProduct?          @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  providerContract        ProviderContract?          @relation(fields: [providerContractId], references: [id], onDelete: Restrict)
+  tariffSchedule          TariffSchedule?            @relation(fields: [tariffScheduleId], references: [id], onDelete: Restrict)
+  tariffScheduleVersion   TariffScheduleVersion?     @relation(fields: [tariffScheduleVersionId], references: [id], onDelete: Restrict)
+  service                 Service?                   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  procedureCode           ProcedureCode?             @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
+  diagnosisCode           DiagnosisCode?             @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
 
   @@index([ruleVersionId])
+  @@index([facilityId])
+  @@index([facilityRegulatoryProfileId])
   @@index([payerId])
   @@index([tpaId])
   @@index([networkId])
+  @@index([insuranceProductId])
+  @@index([providerContractId])
+  @@index([tariffScheduleId])
+  @@index([tariffScheduleVersionId])
   @@index([serviceId])
   @@index([procedureCodeId])
   @@index([diagnosisCodeId])
@@ -412,6 +431,7 @@ model FacilityRegulatoryProfile {
   updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  ruleApplicabilities RuleApplicability[]
 
   @@index([facilityId])
   @@index([status])
@@ -434,6 +454,7 @@ model InsuranceProduct {
   productNetworks    ProductNetwork[]
   providerContracts  ProviderContract[]
   ruleSourceScopes   RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
 
   @@unique([organizationId, productCode])
   @@index([organizationId])
@@ -473,6 +494,7 @@ model ProviderContract {
   contractFacilities ContractFacility[]
   tariffSchedules    TariffSchedule[]
   ruleSourceScopes   RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
 
   @@unique([organizationId, contractKey])
   @@index([organizationId])
@@ -507,6 +529,7 @@ model TariffSchedule {
   providerContract ProviderContract        @relation(fields: [providerContractId], references: [id], onDelete: Restrict)
   versions         TariffScheduleVersion[]
   ruleSourceScopes RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
 
   @@unique([providerContractId, tariffKey])
   @@index([providerContractId])
@@ -526,6 +549,7 @@ model TariffScheduleVersion {
 
   tariffSchedule   TariffSchedule    @relation(fields: [tariffScheduleId], references: [id], onDelete: Restrict)
   ruleSourceScopes RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
 
   @@unique([tariffScheduleId, version])
   @@index([tariffScheduleId])

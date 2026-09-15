@@ -204,18 +204,30 @@ export const ruleVersionAuditSnapshot = (x: {
 export const ruleApplicabilityAuditSnapshot = (x: {
   id: string
   ruleVersionId: string
+  facilityId: string | null
+  facilityRegulatoryProfileId: string | null
   payerId: string | null
   tpaId: string | null
   networkId: string | null
+  insuranceProductId: string | null
+  providerContractId: string | null
+  tariffScheduleId: string | null
+  tariffScheduleVersionId: string | null
   serviceId: string | null
   procedureCodeId: string | null
   diagnosisCodeId: string | null
 }) => ({
   id: x.id,
   ruleVersionId: x.ruleVersionId,
+  facilityId: x.facilityId,
+  facilityRegulatoryProfileId: x.facilityRegulatoryProfileId,
   payerId: x.payerId,
   tpaId: x.tpaId,
   networkId: x.networkId,
+  insuranceProductId: x.insuranceProductId,
+  providerContractId: x.providerContractId,
+  tariffScheduleId: x.tariffScheduleId,
+  tariffScheduleVersionId: x.tariffScheduleVersionId,
   serviceId: x.serviceId,
   procedureCodeId: x.procedureCodeId,
   diagnosisCodeId: x.diagnosisCodeId,
