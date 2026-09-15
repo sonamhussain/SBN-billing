@@ -233,6 +233,120 @@ export const ruleSourceBindingAuditSnapshot = (x: {
   sourceRole: x.sourceRole,
 })
 
+export const facilityRegulatoryProfileAuditSnapshot = (x: {
+  id: string
+  facilityId: string
+  jurisdictionCode: string
+  regulatoryAuthorityCode: string
+  effectiveFrom: Date
+  effectiveTo: Date | null
+  status: string
+}) => ({
+  id: x.id,
+  facilityId: x.facilityId,
+  jurisdictionCode: x.jurisdictionCode,
+  regulatoryAuthorityCode: x.regulatoryAuthorityCode,
+  effectiveFrom: x.effectiveFrom.toISOString().slice(0, 10),
+  effectiveTo: x.effectiveTo ? x.effectiveTo.toISOString().slice(0, 10) : null,
+  status: x.status,
+})
+
+export const insuranceProductAuditSnapshot = (x: {
+  id: string
+  organizationId: string
+  payerId: string
+  productCode: string
+  displayName: string
+}) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  payerId: x.payerId,
+  productCode: x.productCode,
+  displayName: x.displayName,
+})
+
+export const productNetworkAuditSnapshot = (x: { id: string; insuranceProductId: string; networkId: string }) => ({
+  id: x.id,
+  insuranceProductId: x.insuranceProductId,
+  networkId: x.networkId,
+})
+
+export const providerContractAuditSnapshot = (x: {
+  id: string
+  organizationId: string
+  insuranceProductId: string | null
+  productNetworkId: string | null
+  contractKey: string
+  displayName: string
+}) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  insuranceProductId: x.insuranceProductId,
+  productNetworkId: x.productNetworkId,
+  contractKey: x.contractKey,
+  displayName: x.displayName,
+})
+
+export const contractFacilityAuditSnapshot = (x: { id: string; providerContractId: string; facilityId: string }) => ({
+  id: x.id,
+  providerContractId: x.providerContractId,
+  facilityId: x.facilityId,
+})
+
+export const tariffScheduleAuditSnapshot = (x: {
+  id: string
+  providerContractId: string
+  tariffKey: string
+  displayName: string
+}) => ({
+  id: x.id,
+  providerContractId: x.providerContractId,
+  tariffKey: x.tariffKey,
+  displayName: x.displayName,
+})
+
+export const tariffScheduleVersionAuditSnapshot = (x: {
+  id: string
+  tariffScheduleId: string
+  version: string
+  effectiveFrom: Date | null
+  effectiveTo: Date | null
+  verificationStatus: string
+  verifiedAt: Date | null
+}) => ({
+  id: x.id,
+  tariffScheduleId: x.tariffScheduleId,
+  version: x.version,
+  effectiveFrom: x.effectiveFrom ? x.effectiveFrom.toISOString().slice(0, 10) : null,
+  effectiveTo: x.effectiveTo ? x.effectiveTo.toISOString().slice(0, 10) : null,
+  verificationStatus: x.verificationStatus,
+  verifiedAt: x.verifiedAt ? x.verifiedAt.toISOString() : null,
+})
+
+export const ruleSourceScopeAuditSnapshot = (x: {
+  id: string
+  sourceId: string
+  facilityId: string | null
+  payerId: string | null
+  tpaId: string | null
+  networkId: string | null
+  insuranceProductId: string | null
+  providerContractId: string | null
+  tariffScheduleId: string | null
+  tariffScheduleVersionId: string | null
+}) => ({
+  id: x.id,
+  sourceId: x.sourceId,
+  facilityId: x.facilityId,
+  payerId: x.payerId,
+  tpaId: x.tpaId,
+  networkId: x.networkId,
+  insuranceProductId: x.insuranceProductId,
+  providerContractId: x.providerContractId,
+  tariffScheduleId: x.tariffScheduleId,
+  tariffScheduleVersionId: x.tariffScheduleVersionId,
+})
+
 export const externalIdentifierAuditSnapshot = (x: {
   id: string
   organizationId: string
