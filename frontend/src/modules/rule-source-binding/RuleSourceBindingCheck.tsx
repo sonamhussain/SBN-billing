@@ -15,9 +15,14 @@ export default function RuleSourceBindingCheck() {
   const [sourceRole, setSourceRole] = useState<SourceRole>('GOVERNING')
   const [bindings, setBindings] = useState<RuleSourceBinding[] | null>(null)
   const [businessDate, setBusinessDate] = useState('2026-10-15')
+  const [facilityId, setFacilityId] = useState('')
   const [payerId, setPayerId] = useState('')
   const [tpaId, setTpaId] = useState('')
   const [networkId, setNetworkId] = useState('')
+  const [insuranceProductId, setInsuranceProductId] = useState('')
+  const [providerContractId, setProviderContractId] = useState('')
+  const [tariffScheduleId, setTariffScheduleId] = useState('')
+  const [tariffScheduleVersionId, setTariffScheduleVersionId] = useState('')
   const [serviceId, setServiceId] = useState('')
   const [procedureCodeId, setProcedureCodeId] = useState('')
   const [diagnosisCodeId, setDiagnosisCodeId] = useState('')
@@ -59,9 +64,14 @@ export default function RuleSourceBindingCheck() {
     try {
       setEvaluation(
         await evaluateExecutability(ruleVersionId, businessDate, {
+          facilityId,
           payerId,
           tpaId,
           networkId,
+          insuranceProductId,
+          providerContractId,
+          tariffScheduleId,
+          tariffScheduleVersionId,
           serviceId,
           procedureCodeId,
           diagnosisCodeId,
@@ -133,9 +143,14 @@ export default function RuleSourceBindingCheck() {
           placeholder="businessDate (YYYY-MM-DD)"
           aria-label="Business date"
         />
+        <input className="rounded-md border border-slate-300 px-3 py-2" value={facilityId} onChange={(e) => setFacilityId(e.target.value)} placeholder="facilityId (optional; resolves facilityRegulatoryProfileId server-side)" aria-label="Facility id" />
         <input className="rounded-md border border-slate-300 px-3 py-2" value={payerId} onChange={(e) => setPayerId(e.target.value)} placeholder="payerId (optional)" aria-label="Payer id" />
         <input className="rounded-md border border-slate-300 px-3 py-2" value={tpaId} onChange={(e) => setTpaId(e.target.value)} placeholder="tpaId (optional)" aria-label="Tpa id" />
         <input className="rounded-md border border-slate-300 px-3 py-2" value={networkId} onChange={(e) => setNetworkId(e.target.value)} placeholder="networkId (optional)" aria-label="Network id" />
+        <input className="rounded-md border border-slate-300 px-3 py-2" value={insuranceProductId} onChange={(e) => setInsuranceProductId(e.target.value)} placeholder="insuranceProductId (optional)" aria-label="Insurance product id" />
+        <input className="rounded-md border border-slate-300 px-3 py-2" value={providerContractId} onChange={(e) => setProviderContractId(e.target.value)} placeholder="providerContractId (optional)" aria-label="Provider contract id" />
+        <input className="rounded-md border border-slate-300 px-3 py-2" value={tariffScheduleId} onChange={(e) => setTariffScheduleId(e.target.value)} placeholder="tariffScheduleId (optional)" aria-label="Tariff schedule id" />
+        <input className="rounded-md border border-slate-300 px-3 py-2" value={tariffScheduleVersionId} onChange={(e) => setTariffScheduleVersionId(e.target.value)} placeholder="tariffScheduleVersionId (optional)" aria-label="Tariff schedule version id" />
         <input className="rounded-md border border-slate-300 px-3 py-2" value={serviceId} onChange={(e) => setServiceId(e.target.value)} placeholder="serviceId (optional)" aria-label="Service id" />
         <input className="rounded-md border border-slate-300 px-3 py-2" value={procedureCodeId} onChange={(e) => setProcedureCodeId(e.target.value)} placeholder="procedureCodeId (optional)" aria-label="Procedure code id" />
         <input className="rounded-md border border-slate-300 px-3 py-2" value={diagnosisCodeId} onChange={(e) => setDiagnosisCodeId(e.target.value)} placeholder="diagnosisCodeId (optional)" aria-label="Diagnosis code id" />
@@ -149,7 +164,8 @@ export default function RuleSourceBindingCheck() {
       {evaluation && (
         <div className="mt-3 rounded-md bg-slate-100 p-3 text-sm">
           <p>
-            gateStatus: <strong>{evaluation.gateStatus}</strong> — policy: {evaluation.compatibilityPolicyVersion}
+            gateStatus: <strong>{evaluation.gateStatus}</strong> — nextGate: <strong>{evaluation.nextGate ?? 'null'}</strong> — policy:{' '}
+            {evaluation.compatibilityPolicyVersion}
           </p>
           <p>blockers: {evaluation.blockers.join(', ') || 'none'}</p>
           <p>governingBindingIds: {evaluation.governingBindingIds.join(', ') || 'none'}</p>

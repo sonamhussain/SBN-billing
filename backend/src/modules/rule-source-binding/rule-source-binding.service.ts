@@ -6,6 +6,10 @@ import { normalizeBusinessDate } from '../rule-source-version/rule-source-versio
 import { evaluateActivationBlockers, isEffective } from '../rule-source-version/rule-source-version.activation.ts'
 import { computeActivationRelationshipSignals } from '../rule-source-relationship/rule-source-relationship.service.ts'
 import { compatibilityPolicyVersion, isCompatibleGoverningEffect } from './rule-source-binding.compatibility.ts'
+import { findActiveFacilityRegulatoryProfileForDate } from '../facility-regulatory/facility-regulatory.repository.ts'
+import { findRuleSourceScopesBySourceId } from '../rule-source-scope/rule-source-scope.repository.ts'
+import { sourceScopeMatches, type ScopeContext } from '../rule-source-scope/rule-source-scope.matcher.ts'
+import { categoryRequiresScope } from '../rule-source-scope/rule-source-scope.validation.ts'
 import {
   isExecutabilityBlockerCode,
   isRuleSourceBindingUuid,
@@ -166,6 +170,13 @@ export async function evaluateExecutability(
     context[key] = field.value
   }
 
+  // facilityRegulatoryProfileId is server-derived from facilityId + businessDate and is never
+  // client-suppliable on this endpoint (REF-01 §10) — any client-supplied value above is
+  // unconditionally discarded and replaced here, exactly like jurisdictionCode below.
+  context.facilityRegulatoryProfileId = context.facilityId
+    ? ((await findActiveFacilityRegulatoryProfileForDate(context.facilityId, businessDate))?.id ?? null)
+    : null
+
   // Rule jurisdiction is authoritative from RuleDefinition — the client can never override it.
   const version = await findRuleVersionForExecutability(ruleVersionId)
   if (!version || version.rule.organizationId === null)
@@ -200,6 +211,19 @@ export async function evaluateExecutability(
         nextGate: null,
       },
     }
+  }
+
+  // RuleSourceScope's own dimension set is a strict subset of ApplicabilityContextV2 — built
+  // once, reused for every governing candidate whose category requires typed scope proof.
+  const scopeContext: ScopeContext = {
+    facilityId: context.facilityId,
+    payerId: context.payerId,
+    tpaId: context.tpaId,
+    networkId: context.networkId,
+    insuranceProductId: context.insuranceProductId,
+    providerContractId: context.providerContractId,
+    tariffScheduleId: context.tariffScheduleId,
+    tariffScheduleVersionId: context.tariffScheduleVersionId,
   }
 
   const bindings = await findRuleSourceBindingsForEvaluation(ruleVersionId)
@@ -250,6 +274,16 @@ export async function evaluateExecutability(
 
     if (!isCompatibleGoverningEffect(source.sourceCategory, version.effectType)) {
       bindingBlockers.add('SOURCE_EFFECT_INCOMPATIBLE')
+    }
+
+    // REF-01 / R6: PAYER_POLICY/TPA_POLICY/PROVIDER_CONTRACT/TARIFF sources must prove — via a
+    // typed RuleSourceScope row — which specific payer/TPA/contract/tariff they govern. Zero
+    // scope rows or no matching row both fail closed; categories that never need scope skip this.
+    if (categoryRequiresScope(source.sourceCategory)) {
+      const scopeRows = await findRuleSourceScopesBySourceId(source.id)
+      if (!sourceScopeMatches(scopeRows, scopeContext)) {
+        bindingBlockers.add('SOURCE_CONTEXT_INCOMPATIBLE')
+      }
     }
 
     if (bindingBlockers.size === 0) {

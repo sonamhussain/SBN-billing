@@ -37,6 +37,24 @@ export async function findActiveProfilesForFacility(facilityId: string, excludeI
   })
 }
 
+// A3.7 server-side resolution (REF-01 / R6): the single ACTIVE profile for this facility whose
+// effective range covers businessDate, if any. Non-overlapping ACTIVE ranges (enforced at
+// activation time) guarantee at most one match.
+export async function findActiveFacilityRegulatoryProfileForDate(
+  facilityId: string,
+  businessDate: Date,
+  db: DbClient = prisma,
+) {
+  return db.facilityRegulatoryProfile.findFirst({
+    where: {
+      facilityId,
+      status: 'ACTIVE',
+      effectiveFrom: { lte: businessDate },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: businessDate } }],
+    },
+  })
+}
+
 export type FacilityRegulatoryProfileUpdate = {
   jurisdictionCode?: string
   regulatoryAuthorityCode?: string

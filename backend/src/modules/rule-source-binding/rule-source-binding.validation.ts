@@ -40,6 +40,7 @@ export const executabilityBlockerCodes = [
   'JURISDICTION_INCOMPATIBLE',
   'OWNERSHIP_MISMATCH',
   'SOURCE_EFFECT_INCOMPATIBLE',
+  'SOURCE_CONTEXT_INCOMPATIBLE',
 ] as const
 
 export type ExecutabilityBlockerCode = (typeof executabilityBlockerCodes)[number]

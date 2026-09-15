@@ -8,9 +8,15 @@ import {
 } from './rule-applicability.api.ts'
 
 const emptyDimensions: ApplicabilityDimensions = {
+  facilityId: '',
+  facilityRegulatoryProfileId: '',
   payerId: '',
   tpaId: '',
   networkId: '',
+  insuranceProductId: '',
+  providerContractId: '',
+  tariffScheduleId: '',
+  tariffScheduleVersionId: '',
   serviceId: '',
   procedureCodeId: '',
   diagnosisCodeId: '',
@@ -69,9 +75,15 @@ export default function RuleApplicabilityCheck() {
   }
 
   const dimensionFields: { key: keyof ApplicabilityDimensions; label: string }[] = [
+    { key: 'facilityId', label: 'Facility UUID (blank = wildcard)' },
+    { key: 'facilityRegulatoryProfileId', label: 'Facility Regulatory Profile UUID (blank = wildcard)' },
     { key: 'payerId', label: 'Payer UUID (blank = wildcard)' },
     { key: 'tpaId', label: 'TPA UUID (blank = wildcard)' },
     { key: 'networkId', label: 'Network UUID (blank = wildcard)' },
+    { key: 'insuranceProductId', label: 'Insurance Product UUID (blank = wildcard)' },
+    { key: 'providerContractId', label: 'Provider Contract UUID (blank = wildcard)' },
+    { key: 'tariffScheduleId', label: 'Tariff Schedule UUID (blank = wildcard)' },
+    { key: 'tariffScheduleVersionId', label: 'Tariff Schedule Version UUID (blank = wildcard)' },
     { key: 'serviceId', label: 'Service UUID (blank = wildcard)' },
     { key: 'procedureCodeId', label: 'Procedure Code UUID (blank = wildcard)' },
     { key: 'diagnosisCodeId', label: 'Diagnosis Code UUID (blank = wildcard)' },
@@ -142,7 +154,10 @@ export default function RuleApplicabilityCheck() {
           {applicabilities.map((item) => (
             <div key={item.id} className="rounded-md bg-slate-100 p-3 text-sm">
               <p>
-                payer={item.payerId ?? 'null'} tpa={item.tpaId ?? 'null'} network={item.networkId ?? 'null'} service=
+                facility={item.facilityId ?? 'null'} regProfile={item.facilityRegulatoryProfileId ?? 'null'} payer=
+                {item.payerId ?? 'null'} tpa={item.tpaId ?? 'null'} network={item.networkId ?? 'null'} product=
+                {item.insuranceProductId ?? 'null'} contract={item.providerContractId ?? 'null'} tariffSchedule=
+                {item.tariffScheduleId ?? 'null'} tariffVersion={item.tariffScheduleVersionId ?? 'null'} service=
                 {item.serviceId ?? 'null'} procedure={item.procedureCodeId ?? 'null'} diagnosis={item.diagnosisCodeId ?? 'null'} — {item.id}
               </p>
             </div>

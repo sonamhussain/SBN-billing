@@ -36,7 +36,7 @@ test('normalizeSourceRole rejects non-string', () => {
   assert.equal(normalizeSourceRole(42), null)
 })
 
-test('all 14 A3.7 blocker codes are recognized', () => {
+test('all 15 A3.7/REF-01 blocker codes are recognized', () => {
   const codes = [
     'RULE_UNVERIFIED',
     'RULE_NOT_EFFECTIVE',
@@ -52,6 +52,7 @@ test('all 14 A3.7 blocker codes are recognized', () => {
     'JURISDICTION_INCOMPATIBLE',
     'OWNERSHIP_MISMATCH',
     'SOURCE_EFFECT_INCOMPATIBLE',
+    'SOURCE_CONTEXT_INCOMPATIBLE',
   ]
   for (const code of codes) assert.equal(isExecutabilityBlockerCode(code), true, code)
 })
