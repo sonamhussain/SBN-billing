@@ -293,6 +293,7 @@ model SourceInterpretation {
   updatedAt                   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   sourceVersion RuleSourceVersion @relation(fields: [sourceVersionId], references: [id], onDelete: Restrict)
+  bindings      RuleSourceBinding[]
 
   @@unique([sourceVersionId, interpretationVersion])
   @@index([sourceVersionId])
@@ -331,6 +332,7 @@ model RuleVersion {
 
   rule RuleDefinition @relation(fields: [ruleId], references: [id], onDelete: Restrict)
   applicabilities RuleApplicability[]
+  sourceBindings  RuleSourceBinding[]
 
   @@unique([ruleId, version])
   @@index([ruleId])
@@ -365,6 +367,23 @@ model RuleApplicability {
   @@index([procedureCodeId])
   @@index([diagnosisCodeId])
   @@map("rule_applicabilities")
+}
+
+model RuleSourceBinding {
+  id                     String   @id @default(uuid()) @db.Uuid
+  ruleVersionId          String   @map("rule_version_id") @db.Uuid
+  sourceInterpretationId String   @map("source_interpretation_id") @db.Uuid
+  sourceRole             String   @map("source_role") @db.Text
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ruleVersion          RuleVersion          @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
+  sourceInterpretation SourceInterpretation @relation(fields: [sourceInterpretationId], references: [id], onDelete: Restrict)
+
+  @@unique([ruleVersionId, sourceInterpretationId])
+  @@index([ruleVersionId])
+  @@index([sourceInterpretationId])
+  @@index([sourceRole])
+  @@map("rule_source_bindings")
 }
 
 model User {

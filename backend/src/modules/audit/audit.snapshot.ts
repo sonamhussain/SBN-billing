@@ -221,6 +221,18 @@ export const ruleApplicabilityAuditSnapshot = (x: {
   diagnosisCodeId: x.diagnosisCodeId,
 })
 
+export const ruleSourceBindingAuditSnapshot = (x: {
+  id: string
+  ruleVersionId: string
+  sourceInterpretationId: string
+  sourceRole: string
+}) => ({
+  id: x.id,
+  ruleVersionId: x.ruleVersionId,
+  sourceInterpretationId: x.sourceInterpretationId,
+  sourceRole: x.sourceRole,
+})
+
 export const externalIdentifierAuditSnapshot = (x: {
   id: string
   organizationId: string

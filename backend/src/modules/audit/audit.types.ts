@@ -41,10 +41,11 @@ export const auditActionCodes = [
   'rule_version.updated',
   'rule_version.verification_updated',
   'rule_applicability.created',
+  'rule_source_binding.created',
 ] as const
 
 export type AuditActionCode = (typeof auditActionCodes)[number]
-export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY'
+export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY' | 'RULE_SOURCE_BINDING'
 
 export type AuditWriteInput = {
   organizationId: string

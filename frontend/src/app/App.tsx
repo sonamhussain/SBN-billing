@@ -21,6 +21,7 @@ import RuleSourceRelationshipCheck from '../modules/rule-source-relationship/Rul
 import RuleDefinitionCheck from '../modules/rule-definition/RuleDefinitionCheck.tsx'
 import RuleVersionCheck from '../modules/rule-version/RuleVersionCheck.tsx'
 import RuleApplicabilityCheck from '../modules/rule-applicability/RuleApplicabilityCheck.tsx'
+import RuleSourceBindingCheck from '../modules/rule-source-binding/RuleSourceBindingCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -65,6 +66,7 @@ export default function App() {
         {apiStatus === 'online' && <RuleDefinitionCheck />}
         {apiStatus === 'online' && <RuleVersionCheck />}
         {apiStatus === 'online' && <RuleApplicabilityCheck />}
+        {apiStatus === 'online' && <RuleSourceBindingCheck />}
       </div>
     </main>
   )
