@@ -56,6 +56,9 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'rule_version.verify', name: 'Verify Rule Version' },
   { code: 'rule_applicability.create', name: 'Create Rule Applicability' },
   { code: 'rule_applicability.read', name: 'Read Rule Applicability' },
+  { code: 'rule_source_binding.create', name: 'Create Rule Source Binding' },
+  { code: 'rule_source_binding.read', name: 'Read Rule Source Binding' },
+  { code: 'rule_executability.evaluate', name: 'Evaluate Rule Executability' },
 ]
 
 const roleCatalogue = [
@@ -116,12 +119,15 @@ const roleCatalogue = [
       'rule_version.verify',
       'rule_applicability.create',
       'rule_applicability.read',
+      'rule_source_binding.create',
+      'rule_source_binding.read',
+      'rule_executability.evaluate',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate'],
   },
 ] as const
 

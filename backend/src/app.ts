@@ -26,6 +26,7 @@ import { versionRelationshipsRouter, ruleSourceRelationshipRouter } from './modu
 import { organizationRuleDefinitionRouter, ruleDefinitionRouter } from './modules/rule-definition/rule-definition.route.ts'
 import { ruleVersionsForRuleRouter, ruleVersionRouter } from './modules/rule-version/rule-version.route.ts'
 import { versionApplicabilitiesRouter, ruleApplicabilityRouter } from './modules/rule-applicability/rule-applicability.route.ts'
+import { versionSourceBindingsRouter, ruleSourceBindingRouter } from './modules/rule-source-binding/rule-source-binding.route.ts'
 
 export const app = express()
 
@@ -114,6 +115,10 @@ app.use('/api/rule-versions', ruleVersionRouter)
 // A3.6
 app.use('/api/rule-versions', versionApplicabilitiesRouter)
 app.use('/api/rule-applicabilities', ruleApplicabilityRouter)
+
+// A3.7
+app.use('/api/rule-versions', versionSourceBindingsRouter)
+app.use('/api/rule-source-bindings', ruleSourceBindingRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
