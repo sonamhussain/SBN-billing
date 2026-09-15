@@ -196,7 +196,8 @@ export async function evaluateExecutability(
         governingBindingIds: [],
         supportingBindingIds: [],
         candidateSourceInterpretationIds: [],
-        nextGate: 'A3.8_PRECEDENCE',
+        // REFERENCE_ONLY is deliberately non-executable — it never advances to A3.8 precedence.
+        nextGate: null,
       },
     }
   }
@@ -269,6 +270,10 @@ export async function evaluateExecutability(
   const gateStatus: ExecutabilityGateStatus =
     ruleLevelBlockers.size === 0 && anyGoverningPassed ? 'POTENTIALLY_ALLOWED' : 'BLOCKED'
 
+  // Only a rule that has actually passed this gate may advance to A3.8 precedence —
+  // BLOCKED has not passed, and REFERENCE_ONLY (handled above) is deliberately non-executable.
+  const nextGate = gateStatus === 'POTENTIALLY_ALLOWED' ? 'A3.8_PRECEDENCE' : null
+
   return {
     ok: true,
     value: {
@@ -279,7 +284,7 @@ export async function evaluateExecutability(
       governingBindingIds,
       supportingBindingIds,
       candidateSourceInterpretationIds,
-      nextGate: 'A3.8_PRECEDENCE',
+      nextGate,
     },
   }
 }

@@ -19,7 +19,7 @@ export type ExecutabilityEvaluation = {
   governingBindingIds: string[]
   supportingBindingIds: string[]
   candidateSourceInterpretationIds: string[]
-  nextGate: string
+  nextGate: string | null
 }
 
 async function handle<T>(response: Response): Promise<T> {

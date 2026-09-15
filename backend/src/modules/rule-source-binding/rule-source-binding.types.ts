@@ -20,7 +20,7 @@ export type ExecutabilityEvaluationDto = {
   governingBindingIds: string[]
   supportingBindingIds: string[]
   candidateSourceInterpretationIds: string[]
-  nextGate: 'A3.8_PRECEDENCE'
+  nextGate: 'A3.8_PRECEDENCE' | null
 }
 
 export type RuleSourceBindingErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND' | 'FORBIDDEN'
