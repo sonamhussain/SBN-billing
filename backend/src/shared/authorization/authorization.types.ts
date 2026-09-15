@@ -50,6 +50,8 @@ export const permissionCodes = [
   'rule_version.read',
   'rule_version.update',
   'rule_version.verify',
+  'rule_applicability.create',
+  'rule_applicability.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
