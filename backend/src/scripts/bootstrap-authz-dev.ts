@@ -82,6 +82,7 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'reference_dataset.read', name: 'Read Reference Dataset' },
   { code: 'rule_source_scope.create', name: 'Create Rule Source Scope' },
   { code: 'rule_source_scope.read', name: 'Read Rule Source Scope' },
+  { code: 'rule_resolution.read', name: 'Read Deterministic Rule Resolution' },
 ]
 
 const roleCatalogue = [
@@ -168,12 +169,13 @@ const roleCatalogue = [
       'reference_dataset.read',
       'rule_source_scope.create',
       'rule_source_scope.read',
+      'rule_resolution.read',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read', 'rule_resolution.read'],
   },
 ] as const
 

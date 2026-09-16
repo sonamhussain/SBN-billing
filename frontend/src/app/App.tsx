@@ -26,6 +26,7 @@ import FacilityRegulatoryProfileCheck from '../modules/facility-regulatory/Facil
 import CommercialCoverageCheck from '../modules/commercial-coverage/CommercialCoverageCheck.tsx'
 import ReferenceDatasetCheck from '../modules/reference-dataset/ReferenceDatasetCheck.tsx'
 import RuleSourceScopeCheck from '../modules/rule-source-scope/RuleSourceScopeCheck.tsx'
+import RuleResolutionCheck from '../modules/rule-resolution/RuleResolutionCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -75,6 +76,7 @@ export default function App() {
         {apiStatus === 'online' && <CommercialCoverageCheck />}
         {apiStatus === 'online' && <ReferenceDatasetCheck />}
         {apiStatus === 'online' && <RuleSourceScopeCheck />}
+        {apiStatus === 'online' && <RuleResolutionCheck />}
       </div>
     </main>
   )

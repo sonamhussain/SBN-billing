@@ -274,6 +274,8 @@ export async function evaluateExecutability(
 
     governingBindingIds.push(binding.id)
 
+    // A3.8 §14: A3.8's historical resolver reuses this same per-candidate gate. 'CURRENT'
+    // preserves A3.7's behaviour exactly.
     const bindingBlockers = await evaluateGoverningCandidateBlockers(
       binding.sourceInterpretation,
       {
@@ -282,6 +284,7 @@ export async function evaluateExecutability(
         ruleEffectType: version.effectType,
         businessDate,
         scopeContext,
+        mode: 'CURRENT',
       },
       internal,
     )

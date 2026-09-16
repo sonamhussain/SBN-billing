@@ -8,6 +8,20 @@ import { toExecutabilityBlockerCodes } from './rule-source-binding.validation.ts
 
 // The per-candidate governing checks of A3.7's executability gate, extracted from the service so
 // the logic lives in one place and can be reused rather than copied by later modules.
+//
+// A3.8 §14 reuses this exact logic instead of copying A3.7's orchestration. A3.7 calls it with
+// mode 'CURRENT', which is byte-for-byte the behaviour it had before A3.8 existed.
+//
+// CURRENT    — a governing source version must be ACTIVE right now (A3.7's safety gate).
+// HISTORICAL — a version that has since been SUPERSEDED may still be evaluated, because it can
+//              have been the applicable version for a past businessDate (A3.8 §13). Every other
+//              check (publication, effective dates, verification, jurisdiction, ownership,
+//              dependency, conflict, effect compatibility, typed scope) is unchanged, so a
+//              historical candidate is never held to a weaker standard than a current one.
+//
+// Upstream A3.3 blocker codes are translated only through toExecutabilityBlockerCodes (audit F01),
+// which fails closed on anything unmapped. A3.8 carries no alias table of its own.
+export type CandidateEvaluationMode = 'CURRENT' | 'HISTORICAL'
 
 export type CandidateSourceVersion = {
   id: string
@@ -43,6 +57,12 @@ export type GoverningCandidateParams = {
   ruleEffectType: string
   businessDate: Date
   scopeContext: ScopeContext
+  mode: CandidateEvaluationMode
+}
+
+function activationAcceptable(activationStatus: string, mode: CandidateEvaluationMode): boolean {
+  if (activationStatus === 'ACTIVE') return true
+  return mode === 'HISTORICAL' && activationStatus === 'SUPERSEDED'
 }
 
 // Returns the blocker codes for one GOVERNING candidate. An empty set means the candidate passed
@@ -65,7 +85,7 @@ export async function evaluateGoverningCandidateBlockers(
 
   // Stored activation status alone is not trusted — see the live re-evaluation below, which
   // can surface a new dependency/conflict even though activationStatus still reads ACTIVE.
-  if (sourceVersion.activationStatus !== 'ACTIVE') bindingBlockers.add('SOURCE_NOT_ACTIVE')
+  if (!activationAcceptable(sourceVersion.activationStatus, params.mode)) bindingBlockers.add('SOURCE_NOT_ACTIVE')
 
   const relationshipSignals = await computeActivationRelationshipSignals(sourceVersion.id)
   // Passing [interpretation] (not the full interpretation list) makes the reused evaluator's
