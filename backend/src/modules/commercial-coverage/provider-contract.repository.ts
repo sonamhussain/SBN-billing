@@ -4,10 +4,14 @@ import type { DbClient } from '../../shared/database/database.types.ts'
 export async function createProviderContractRecord(
   data: {
     organizationId: string
+    payerId: string
+    tpaId: string | null
+    networkId: string | null
     insuranceProductId: string | null
-    productNetworkId: string | null
     contractKey: string
     displayName: string
+    effectiveFrom: Date
+    effectiveTo: Date | null
   },
   db: DbClient = prisma,
 ) {
@@ -46,4 +50,14 @@ export async function findContractFacilityWithContract(id: string, db: DbClient 
 
 export async function findContractFacilitiesByContractId(providerContractId: string, db: DbClient = prisma) {
   return db.contractFacility.findMany({ where: { providerContractId }, orderBy: { createdAt: 'asc' } })
+}
+
+// REF-01 §9 (A3.6 context coherence): does this exact contract/facility pair already
+// participate together — used to validate "facility participates in contract" for applicability.
+export async function findContractFacilityByContractAndFacility(
+  providerContractId: string,
+  facilityId: string,
+  db: DbClient = prisma,
+) {
+  return db.contractFacility.findFirst({ where: { providerContractId, facilityId } })
 }

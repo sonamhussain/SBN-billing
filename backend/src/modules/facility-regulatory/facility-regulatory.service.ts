@@ -17,6 +17,7 @@ import {
   updateFacilityRegulatoryProfileRecord,
 } from './facility-regulatory.repository.ts'
 import { prisma } from '../../shared/database/prisma.ts'
+import { Prisma } from '../../../generated/prisma/client.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
 import { facilityRegulatoryProfileAuditSnapshot } from '../audit/audit.snapshot.ts'
 
@@ -30,6 +31,15 @@ type FacilityRegulatoryProfileRecord = {
   status: string
   createdAt: Date
   updatedAt: Date
+}
+
+// T21: concurrent overlapping activations must not both commit — mirrors A3.4's SUPERSEDES
+// hardening exactly. The overlap check reads other rows for the same facility, so it needs
+// SERIALIZABLE isolation + bounded retry instead of the default isolation level.
+const MAX_ACTIVATE_RETRIES = 3
+
+function isSerializationConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034'
 }
 
 function toDto(record: FacilityRegulatoryProfileRecord): FacilityRegulatoryProfileDto {
@@ -241,41 +251,59 @@ export async function activateFacilityRegulatoryProfile(
   if (!isFacilityRegulatoryProfileUuid(id))
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid facility regulatory profile id' }
 
-  const outcome = await prisma.$transaction(async (tx) => {
-    const existing = await findFacilityRegulatoryProfileById(id, tx)
-    if (!existing) return { kind: 'not_found' as const }
-    if (existing.status !== 'INACTIVE')
-      return { kind: 'terminal' as const, message: 'activate is only allowed from INACTIVE' }
+  for (let attempt = 1; attempt <= MAX_ACTIVATE_RETRIES; attempt += 1) {
+    try {
+      const outcome = await prisma.$transaction(
+        async (tx) => {
+          const existing = await findFacilityRegulatoryProfileById(id, tx)
+          if (!existing) return { kind: 'not_found' as const }
+          if (existing.status !== 'INACTIVE')
+            return { kind: 'terminal' as const, message: 'activate is only allowed from INACTIVE' }
 
-    const activeSiblings = await findActiveProfilesForFacility(existing.facilityId, id, tx)
-    const overlaps = activeSiblings.some((sibling) =>
-      rangesOverlap(existing.effectiveFrom, existing.effectiveTo, sibling.effectiveFrom, sibling.effectiveTo),
-    )
-    if (overlaps)
-      return {
-        kind: 'terminal' as const,
-        message: 'overlaps with an existing ACTIVE regulatory profile for this facility',
+          const activeSiblings = await findActiveProfilesForFacility(existing.facilityId, id, tx)
+          const overlaps = activeSiblings.some((sibling) =>
+            rangesOverlap(existing.effectiveFrom, existing.effectiveTo, sibling.effectiveFrom, sibling.effectiveTo),
+          )
+          if (overlaps)
+            return {
+              kind: 'terminal' as const,
+              message: 'overlaps with an existing ACTIVE regulatory profile for this facility',
+            }
+
+          const record = await updateFacilityRegulatoryProfileRecord(id, { status: 'ACTIVE' }, tx)
+
+          await recordAuditEvent(
+            {
+              organizationId: (await findFacilityById(existing.facilityId, tx))?.organizationId as string,
+              actorUserId,
+              actionCode: 'facility_regulatory_profile.activated',
+              entityType: 'FACILITY_REGULATORY_PROFILE',
+              entityId: id,
+              beforeState: facilityRegulatoryProfileAuditSnapshot(existing),
+              afterState: facilityRegulatoryProfileAuditSnapshot(record),
+            },
+            tx,
+          )
+
+          return { kind: 'updated' as const, record }
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      )
+
+      if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'facility regulatory profile not found' }
+      if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
+      return { ok: true, value: toDto(outcome.record) }
+    } catch (error) {
+      if (isSerializationConflict(error) && attempt < MAX_ACTIVATE_RETRIES) {
+        console.warn(`[facility-regulatory] SERIALIZABLE conflict on activate (attempt ${attempt}/${MAX_ACTIVATE_RETRIES}) — retrying`)
+        continue
       }
+      if (isSerializationConflict(error))
+        return { ok: false, code: 'VALIDATION_ERROR', message: 'this profile could not be activated due to a concurrent conflict; please retry' }
+      throw error
+    }
+  }
 
-    const record = await updateFacilityRegulatoryProfileRecord(id, { status: 'ACTIVE' }, tx)
-
-    await recordAuditEvent(
-      {
-        organizationId: (await findFacilityById(existing.facilityId, tx))?.organizationId as string,
-        actorUserId,
-        actionCode: 'facility_regulatory_profile.activated',
-        entityType: 'FACILITY_REGULATORY_PROFILE',
-        entityId: id,
-        beforeState: facilityRegulatoryProfileAuditSnapshot(existing),
-        afterState: facilityRegulatoryProfileAuditSnapshot(record),
-      },
-      tx,
-    )
-
-    return { kind: 'updated' as const, record }
-  })
-
-  if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'facility regulatory profile not found' }
-  if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
-  return { ok: true, value: toDto(outcome.record) }
+  // Unreachable: the loop above always returns or throws within MAX_ACTIVATE_RETRIES attempts.
+  return { ok: false, code: 'VALIDATION_ERROR', message: 'activation failed after repeated concurrent conflicts' }
 }

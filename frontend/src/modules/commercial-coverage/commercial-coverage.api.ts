@@ -1,7 +1,18 @@
 import { readApiError } from '../../shared/api-error.ts'
 
 export type InsuranceProduct = { id: string; organizationId: string; payerId: string; productCode: string; displayName: string }
-export type ProviderContract = { id: string; organizationId: string; insuranceProductId: string | null; contractKey: string; displayName: string }
+export type ProviderContract = {
+  id: string
+  organizationId: string
+  payerId: string
+  tpaId: string | null
+  networkId: string | null
+  insuranceProductId: string | null
+  contractKey: string
+  displayName: string
+  effectiveFrom: string
+  effectiveTo: string | null
+}
 export type ContractFacility = { id: string; providerContractId: string; facilityId: string }
 export type TariffSchedule = { id: string; providerContractId: string; tariffKey: string; displayName: string }
 export type TariffScheduleVersion = { id: string; tariffScheduleId: string; version: string; verificationStatus: string }
@@ -28,13 +39,15 @@ export async function createProviderContract(
   organizationId: string,
   contractKey: string,
   displayName: string,
+  payerId: string,
   insuranceProductId: string,
+  effectiveFrom: string,
 ): Promise<ProviderContract> {
   return handle(
     await fetch(`/api/organizations/${organizationId}/provider-contracts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contractKey, displayName, insuranceProductId: insuranceProductId || null }),
+      body: JSON.stringify({ contractKey, displayName, payerId, insuranceProductId: insuranceProductId || null, effectiveFrom }),
     }),
   )
 }

@@ -1,5 +1,6 @@
 import { findRuleSourceById } from '../rule-source/rule-source.repository.ts'
 import { normalizeOptionalUuidField } from '../rule-applicability/rule-applicability.validation.ts'
+import { validateApplicabilityContextCoherence } from '../rule-applicability/rule-applicability.context-coherence.ts'
 import type { RuleSourceScopeDto, RuleSourceScopeResult } from './rule-source-scope.types.ts'
 import { isRuleSourceScopeUuid, scopeDimensionKeys, type ScopeDimensionKey } from './rule-source-scope.validation.ts'
 import {
@@ -101,6 +102,16 @@ export async function createRuleSourceScope(
           return { kind: 'forbidden' as const, message: `${dimensionLabels[key]} belongs to a different organization` }
       }
 
+      // REF-01 §8 T67: product/network/contract/tariff hierarchy contradictions rejected —
+      // reuses A3.6's own coherence validator since RuleSourceScope's 8 dimensions are a strict
+      // subset of ApplicabilityContextV2 (unset fields are skipped, never checked).
+      const coherence = await validateApplicabilityContextCoherence(normalized, source.organizationId as string, tx)
+      if (!coherence.ok) {
+        if (coherence.code === 'NOT_FOUND') return { kind: 'not_found' as const, message: coherence.message }
+        if (coherence.code === 'FORBIDDEN') return { kind: 'forbidden' as const, message: coherence.message }
+        return { kind: 'terminal' as const, message: coherence.message }
+      }
+
       const record = await createRuleSourceScopeRecord({ sourceId, ...normalized }, tx)
 
       await recordAuditEvent(
@@ -121,6 +132,7 @@ export async function createRuleSourceScope(
 
     if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: outcome.message }
     if (outcome.kind === 'forbidden') return { ok: false, code: 'FORBIDDEN', message: outcome.message }
+    if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
 
     return { ok: true, value: toDto(outcome.record) }
   } catch (error) {

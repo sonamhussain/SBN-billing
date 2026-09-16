@@ -1,10 +1,14 @@
 export type ProviderContractDto = {
   id: string
   organizationId: string
+  payerId: string
+  tpaId: string | null
+  networkId: string | null
   insuranceProductId: string | null
-  productNetworkId: string | null
   contractKey: string
   displayName: string
+  effectiveFrom: string
+  effectiveTo: string | null
   createdAt: string
   updatedAt: string
 }

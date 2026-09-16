@@ -31,3 +31,22 @@ export const sourceCategoriesRequiringScope: readonly string[] = [
 export function categoryRequiresScope(sourceCategory: string): boolean {
   return sourceCategoriesRequiringScope.includes(sourceCategory)
 }
+
+// REF-01 §8 T61-T65: a matching scope row is not enough by itself — the matched row must also
+// carry the category's own minimum proof dimension(s) (OR semantics within the list). A row that
+// matches only through unrelated narrowing dimensions does not prove the required scope.
+export const categoryMinimumScopeKeys: Readonly<Record<string, readonly ScopeDimensionKey[]>> = {
+  PAYER_POLICY: ['payerId'],
+  TPA_POLICY: ['tpaId'],
+  PROVIDER_CONTRACT: ['providerContractId'],
+  TARIFF: ['tariffScheduleId', 'tariffScheduleVersionId'],
+}
+
+export function categoryMinimumScopeSatisfied(
+  sourceCategory: string,
+  matchedRows: readonly Record<ScopeDimensionKey, string | null>[],
+): boolean {
+  const requiredKeys = categoryMinimumScopeKeys[sourceCategory]
+  if (!requiredKeys) return true
+  return matchedRows.some((row) => requiredKeys.some((key) => row[key] !== null))
+}

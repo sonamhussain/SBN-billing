@@ -26,7 +26,7 @@ export default function CommercialCoverageCheck() {
     setLog([])
     try {
       const product = await createInsuranceProduct(organizationId, payerId, productCode, `${productCode} plan`)
-      const contract = await createProviderContract(organizationId, contractKey, `${contractKey} contract`, product.id)
+      const contract = await createProviderContract(organizationId, contractKey, `${contractKey} contract`, payerId, product.id, '2026-01-01')
       const contractFacility = await createContractFacility(contract.id, facilityId)
       const schedule = await createTariffSchedule(contract.id, tariffKey, `${tariffKey} schedule`)
       const version = await createTariffScheduleVersion(schedule.id, tariffVersion)

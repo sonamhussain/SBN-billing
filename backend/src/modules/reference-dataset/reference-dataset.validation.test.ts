@@ -52,7 +52,7 @@ test('invalid UUID rejected', () => {
 })
 
 test('all approved validation statuses are recognized', () => {
-  for (const status of ['PENDING', 'VALID', 'INVALID']) {
+  for (const status of ['UNVALIDATED', 'VALIDATED', 'REJECTED']) {
     assert.equal(isReferenceDatasetValidationStatus(status), true)
   }
 })

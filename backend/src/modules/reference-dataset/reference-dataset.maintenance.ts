@@ -10,6 +10,7 @@ import {
   createReferenceDatasetRecord,
   createReferenceDatasetVersionRecord,
   findActiveVersionForDataset,
+  findReferenceDatasetById,
   findReferenceDatasetVersionById,
   updateReferenceDatasetVersionRecord,
 } from './reference-dataset.repository.ts'
@@ -67,14 +68,36 @@ export async function importReferenceDatasetVersion(input: {
   const effectiveFromField = normalizeDateOnlyField(input.effectiveFrom)
   const effectiveToField = normalizeDateOnlyField(input.effectiveTo)
 
+  const effectiveFrom = effectiveFromField.present && effectiveFromField.valid ? effectiveFromField.value : null
+  const effectiveTo = effectiveToField.present && effectiveToField.valid ? effectiveToField.value : null
+  // T50: contradictory effective dates rejected.
+  if (effectiveFrom && effectiveTo && effectiveFrom.getTime() > effectiveTo.getTime())
+    return { ok: false, message: 'effectiveFrom must not be after effectiveTo' }
+
+  const dataset = await findReferenceDatasetById(input.datasetId)
+  if (!dataset) return { ok: false, message: 'reference dataset not found' }
+
+  // T57: sourceVersionId, when supplied, must resolve an existing RuleSourceVersion whose
+  // parent RuleSource jurisdiction is compatible with this dataset's own jurisdiction.
+  const sourceVersionId = input.sourceVersionId ?? null
+  if (sourceVersionId) {
+    const sourceVersion = await prisma.ruleSourceVersion.findUnique({
+      where: { id: sourceVersionId },
+      select: { source: { select: { jurisdictionCode: true } } },
+    })
+    if (!sourceVersion) return { ok: false, message: 'sourceVersionId not found' }
+    if (sourceVersion.source.jurisdictionCode.trim().toUpperCase() !== dataset.jurisdictionCode.trim().toUpperCase())
+      return { ok: false, message: 'sourceVersionId jurisdiction is not compatible with this reference dataset' }
+  }
+
   const record = await createReferenceDatasetVersionRecord({
     datasetId: input.datasetId,
-    sourceVersionId: input.sourceVersionId ?? null,
+    sourceVersionId,
     version,
     retrievedAt,
     publicationDate: publicationDateField.present && publicationDateField.valid ? publicationDateField.value : null,
-    effectiveFrom: effectiveFromField.present && effectiveFromField.valid ? effectiveFromField.value : null,
-    effectiveTo: effectiveToField.present && effectiveToField.valid ? effectiveToField.value : null,
+    effectiveFrom,
+    effectiveTo,
     contentHash,
   })
   return { ok: true, value: { id: record.id } }
@@ -87,12 +110,15 @@ export async function validateReferenceDatasetVersion(
   validationStatusInput: unknown,
 ): Promise<MaintenanceResult<{ id: string; validationStatus: string }>> {
   if (!isReferenceDatasetValidationStatus(validationStatusInput))
-    return { ok: false, message: 'validationStatus must be PENDING, VALID, or INVALID' }
+    return { ok: false, message: 'validationStatus must be UNVALIDATED, VALIDATED, or REJECTED' }
 
   const existing = await findReferenceDatasetVersionById(id)
   if (!existing) return { ok: false, message: 'reference dataset version not found' }
   if (terminalActivationStatuses.includes(existing.activationStatus))
     return { ok: false, message: 'reference dataset version is retired and cannot be changed' }
+  // T51: REJECTED is terminal for validationStatus — no further transition is allowed.
+  if (existing.validationStatus === 'REJECTED')
+    return { ok: false, message: 'reference dataset version validation is already REJECTED and cannot be changed' }
 
   const record = await updateReferenceDatasetVersionRecord(id, { validationStatus: validationStatusInput })
   return { ok: true, value: { id: record.id, validationStatus: record.validationStatus } }
@@ -107,8 +133,8 @@ export async function activateReferenceDatasetVersion(id: string): Promise<Maint
     if (!existing) return { kind: 'not_found' as const }
     if (existing.activationStatus === 'RETIRED')
       return { kind: 'terminal' as const, message: 'reference dataset version is retired and cannot be changed' }
-    if (existing.validationStatus !== 'VALID')
-      return { kind: 'terminal' as const, message: 'only a VALID reference dataset version can be activated' }
+    if (existing.validationStatus !== 'VALIDATED')
+      return { kind: 'terminal' as const, message: 'only a VALIDATED reference dataset version can be activated' }
 
     const currentActive = await findActiveVersionForDataset(existing.datasetId, id, tx)
     if (currentActive) {

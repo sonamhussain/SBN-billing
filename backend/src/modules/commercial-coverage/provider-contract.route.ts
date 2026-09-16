@@ -58,8 +58,12 @@ organizationProviderContractRouter.post(
       organizationIdFromRouteParam(req),
       req.body?.contractKey,
       req.body?.displayName,
+      req.body?.payerId,
+      req.body?.tpaId,
+      req.body?.networkId,
       req.body?.insuranceProductId,
-      req.body?.productNetworkId,
+      req.body?.effectiveFrom,
+      req.body?.effectiveTo,
       String(res.locals.actorUserId),
     )
     if (!result.ok) {

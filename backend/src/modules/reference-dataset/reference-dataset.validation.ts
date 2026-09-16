@@ -35,7 +35,7 @@ export function normalizeReferenceDatasetVersion(value: unknown): string | null 
   return normalizeTrimmedString(value)
 }
 
-export const referenceDatasetValidationStatuses = ['PENDING', 'VALID', 'INVALID'] as const
+export const referenceDatasetValidationStatuses = ['UNVALIDATED', 'VALIDATED', 'REJECTED'] as const
 export type ReferenceDatasetValidationStatus = (typeof referenceDatasetValidationStatuses)[number]
 
 export function isReferenceDatasetValidationStatus(value: unknown): value is ReferenceDatasetValidationStatus {

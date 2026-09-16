@@ -41,3 +41,13 @@ export async function findProductNetworkWithProduct(id: string, db: DbClient = p
 export async function findProductNetworksByProductId(insuranceProductId: string, db: DbClient = prisma) {
   return db.productNetwork.findMany({ where: { insuranceProductId }, orderBy: { createdAt: 'asc' } })
 }
+
+// REF-01 §6 T36: a ProviderContract naming both an insuranceProduct and a network must use a
+// ProductNetwork relationship that actually exists between that exact pair.
+export async function findProductNetworkByProductAndNetwork(
+  insuranceProductId: string,
+  networkId: string,
+  db: DbClient = prisma,
+) {
+  return db.productNetwork.findUnique({ where: { insuranceProductId_networkId: { insuranceProductId, networkId } } })
+}

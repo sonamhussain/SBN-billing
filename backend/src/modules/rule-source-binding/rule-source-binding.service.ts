@@ -2,14 +2,15 @@ import { findRuleVersionWithOrganization } from '../rule-version/rule-version.re
 import { findRuleApplicabilitiesByVersionId } from '../rule-applicability/rule-applicability.repository.ts'
 import { applicabilityDimensionKeys, normalizeOptionalUuidField, type ApplicabilityDimensionKey } from '../rule-applicability/rule-applicability.validation.ts'
 import { matchedApplicabilityIds, ruleVersionMatches, type ApplicabilityContext } from '../rule-applicability/rule-applicability.matcher.ts'
+import { validateApplicabilityContextCoherence } from '../rule-applicability/rule-applicability.context-coherence.ts'
 import { normalizeBusinessDate } from '../rule-source-version/rule-source-version.validation.ts'
 import { evaluateActivationBlockers, isEffective } from '../rule-source-version/rule-source-version.activation.ts'
 import { computeActivationRelationshipSignals } from '../rule-source-relationship/rule-source-relationship.service.ts'
 import { compatibilityPolicyVersion, isCompatibleGoverningEffect } from './rule-source-binding.compatibility.ts'
 import { findActiveFacilityRegulatoryProfileForDate } from '../facility-regulatory/facility-regulatory.repository.ts'
 import { findRuleSourceScopesBySourceId } from '../rule-source-scope/rule-source-scope.repository.ts'
-import { sourceScopeMatches, type ScopeContext } from '../rule-source-scope/rule-source-scope.matcher.ts'
-import { categoryRequiresScope } from '../rule-source-scope/rule-source-scope.validation.ts'
+import { matchedScopeRows, type ScopeContext } from '../rule-source-scope/rule-source-scope.matcher.ts'
+import { categoryMinimumScopeSatisfied, categoryRequiresScope } from '../rule-source-scope/rule-source-scope.validation.ts'
 import {
   isExecutabilityBlockerCode,
   isRuleSourceBindingUuid,
@@ -170,13 +171,6 @@ export async function evaluateExecutability(
     context[key] = field.value
   }
 
-  // facilityRegulatoryProfileId is server-derived from facilityId + businessDate and is never
-  // client-suppliable on this endpoint (REF-01 §10) — any client-supplied value above is
-  // unconditionally discarded and replaced here, exactly like jurisdictionCode below.
-  context.facilityRegulatoryProfileId = context.facilityId
-    ? ((await findActiveFacilityRegulatoryProfileForDate(context.facilityId, businessDate))?.id ?? null)
-    : null
-
   // Rule jurisdiction is authoritative from RuleDefinition — the client can never override it.
   const version = await findRuleVersionForExecutability(ruleVersionId)
   if (!version || version.rule.organizationId === null)
@@ -185,6 +179,17 @@ export async function evaluateExecutability(
   const ruleOrgId = version.rule.organizationId
   const ruleJurisdiction = version.rule.jurisdictionCode
 
+  // facilityRegulatoryProfileId is server-derived from facilityId + businessDate and is never
+  // client-suppliable on this endpoint (REF-01 §10) — any client-supplied value above is
+  // unconditionally discarded and replaced here, exactly like jurisdictionCode above.
+  const resolvedProfile = context.facilityId
+    ? await findActiveFacilityRegulatoryProfileForDate(context.facilityId, businessDate)
+    : null
+  context.facilityRegulatoryProfileId = resolvedProfile?.id ?? null
+
+  const coherence = await validateApplicabilityContextCoherence(context, ruleOrgId, prisma)
+  if (!coherence.ok) return { ok: false, code: coherence.code, message: coherence.message }
+
   const applicabilityRows = await findRuleApplicabilitiesByVersionId(ruleVersionId)
   const matchedIds = matchedApplicabilityIds(applicabilityRows, context)
   const applicabilityOk = ruleVersionMatches(applicabilityRows, context)
@@ -192,6 +197,11 @@ export async function evaluateExecutability(
   const ruleLevelBlockers = new Set<string>()
   if (version.verificationStatus !== 'VERIFIED') ruleLevelBlockers.add('RULE_UNVERIFIED')
   if (!isEffective(version.effectiveFrom, version.effectiveTo, businessDate)) ruleLevelBlockers.add('RULE_NOT_EFFECTIVE')
+  // REF-01 §10: the resolved facility regulatory profile's own jurisdiction must be compatible
+  // with the RuleDefinition's authoritative jurisdiction — reuses the exact same blocker code
+  // A3.3's governing-source jurisdiction check already uses, for a consistent contract.
+  if (resolvedProfile && resolvedProfile.jurisdictionCode.trim().toUpperCase() !== ruleJurisdiction.trim().toUpperCase())
+    ruleLevelBlockers.add('JURISDICTION_INCOMPATIBLE')
   if (!applicabilityOk) ruleLevelBlockers.add('APPLICABILITY_MISMATCH')
 
   // REFERENCE_ONLY is evaluated for verification/effective/applicability only — it can never
@@ -281,7 +291,9 @@ export async function evaluateExecutability(
     // scope rows or no matching row both fail closed; categories that never need scope skip this.
     if (categoryRequiresScope(source.sourceCategory)) {
       const scopeRows = await findRuleSourceScopesBySourceId(source.id)
-      if (!sourceScopeMatches(scopeRows, scopeContext)) {
+      const matchedRows = matchedScopeRows(scopeRows, scopeContext)
+      const satisfiesMinimum = matchedRows.length > 0 && categoryMinimumScopeSatisfied(source.sourceCategory, matchedRows)
+      if (!satisfiesMinimum) {
         bindingBlockers.add('SOURCE_CONTEXT_INCOMPATIBLE')
       }
     }

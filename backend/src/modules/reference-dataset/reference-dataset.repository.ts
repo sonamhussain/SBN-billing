@@ -30,7 +30,7 @@ export async function createReferenceDatasetVersionRecord(
   db: DbClient = prisma,
 ) {
   return db.referenceDatasetVersion.create({
-    data: { ...data, validationStatus: 'PENDING', activationStatus: 'INACTIVE' },
+    data: { ...data, validationStatus: 'UNVALIDATED', activationStatus: 'INACTIVE' },
   })
 }
 

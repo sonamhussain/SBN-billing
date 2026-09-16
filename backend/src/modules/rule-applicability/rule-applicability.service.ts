@@ -12,8 +12,8 @@ import {
   findRuleApplicabilityById,
   findRuleApplicabilitiesByVersionId,
   findRuleApplicabilityWithOrganization,
-  findTargetOrganizationId,
 } from './rule-applicability.repository.ts'
+import { validateApplicabilityContextCoherence } from './rule-applicability.context-coherence.ts'
 import { prisma } from '../../shared/database/prisma.ts'
 import { Prisma } from '../../../generated/prisma/client.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
@@ -35,21 +35,6 @@ type RuleApplicabilityRecord = {
   procedureCodeId: string | null
   diagnosisCodeId: string | null
   createdAt: Date
-}
-
-const dimensionLabels: Record<ApplicabilityDimensionKey, string> = {
-  facilityId: 'facility',
-  facilityRegulatoryProfileId: 'facility regulatory profile',
-  payerId: 'payer',
-  tpaId: 'tpa',
-  networkId: 'network',
-  insuranceProductId: 'insurance product',
-  providerContractId: 'provider contract',
-  tariffScheduleId: 'tariff schedule',
-  tariffScheduleVersionId: 'tariff schedule version',
-  serviceId: 'service',
-  procedureCodeId: 'procedure code',
-  diagnosisCodeId: 'diagnosis code',
 }
 
 const terminalVerificationStatuses: readonly string[] = ['VERIFIED', 'REJECTED']
@@ -126,14 +111,11 @@ export async function createRuleApplicability(
           message: 'rule version is VERIFIED or REJECTED; create a new rule version instead',
         }
 
-      for (const key of applicabilityDimensionKeys) {
-        const targetId = normalized[key]
-        if (targetId === null) continue
-        const targetOrgId = await findTargetOrganizationId(key, targetId, tx)
-        if (targetOrgId === null)
-          return { kind: 'not_found' as const, message: `${dimensionLabels[key]} not found` }
-        if (targetOrgId !== organizationId)
-          return { kind: 'forbidden' as const, message: `${dimensionLabels[key]} belongs to a different organization` }
+      const coherence = await validateApplicabilityContextCoherence(normalized, organizationId, tx)
+      if (!coherence.ok) {
+        if (coherence.code === 'NOT_FOUND') return { kind: 'not_found' as const, message: coherence.message }
+        if (coherence.code === 'FORBIDDEN') return { kind: 'forbidden' as const, message: coherence.message }
+        return { kind: 'terminal' as const, message: coherence.message }
       }
 
       const record = await createRuleApplicabilityRecord({ ruleVersionId, ...normalized }, tx)
@@ -202,6 +184,9 @@ export async function evaluateRuleApplicability(
     if (!field.valid) return { ok: false, code: 'VALIDATION_ERROR', message: `${key} must be a valid UUID or null` }
     context[key] = field.value
   }
+
+  const coherence = await validateApplicabilityContextCoherence(context, version.rule.organizationId, prisma)
+  if (!coherence.ok) return { ok: false, code: coherence.code, message: coherence.message }
 
   const rows = await findRuleApplicabilitiesByVersionId(ruleVersionId)
   const matches = ruleVersionMatches(rows, context)

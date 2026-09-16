@@ -91,6 +91,7 @@ model Payer {
   ruleApplicabilities RuleApplicability[]
   insuranceProducts InsuranceProduct[]
   ruleSourceScopes RuleSourceScope[]
+  providerContracts ProviderContract[]
 
   @@index([organizationId])
   @@map("payers")
@@ -107,6 +108,7 @@ model Tpa {
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
   ruleSourceScopes RuleSourceScope[]
+  providerContracts ProviderContract[]
 
   @@index([organizationId])
   @@map("tpas")
@@ -124,6 +126,7 @@ model Network {
   ruleApplicabilities RuleApplicability[]
   productNetworks ProductNetwork[]
   ruleSourceScopes RuleSourceScope[]
+  providerContracts ProviderContract[]
 
   @@index([organizationId])
   @@map("networks")
@@ -468,9 +471,8 @@ model ProductNetwork {
   networkId          String   @map("network_id") @db.Uuid
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  insuranceProduct  InsuranceProduct   @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
-  network           Network            @relation(fields: [networkId], references: [id], onDelete: Restrict)
-  providerContracts ProviderContract[]
+  insuranceProduct InsuranceProduct @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  network          Network          @relation(fields: [networkId], references: [id], onDelete: Restrict)
 
   @@unique([insuranceProductId, networkId])
   @@index([insuranceProductId])
@@ -479,18 +481,24 @@ model ProductNetwork {
 }
 
 model ProviderContract {
-  id                 String   @id @default(uuid()) @db.Uuid
-  organizationId     String   @map("organization_id") @db.Uuid
-  insuranceProductId String?  @map("insurance_product_id") @db.Uuid
-  productNetworkId   String?  @map("product_network_id") @db.Uuid
-  contractKey        String   @map("contract_key") @db.Text
-  displayName        String   @map("display_name") @db.Text
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  payerId            String    @map("payer_id") @db.Uuid
+  tpaId              String?   @map("tpa_id") @db.Uuid
+  networkId          String?   @map("network_id") @db.Uuid
+  insuranceProductId String?   @map("insurance_product_id") @db.Uuid
+  contractKey        String    @map("contract_key") @db.Text
+  displayName        String    @map("display_name") @db.Text
+  effectiveFrom      DateTime  @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  insuranceProduct   InsuranceProduct?  @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
-  productNetwork     ProductNetwork?    @relation(fields: [productNetworkId], references: [id], onDelete: Restrict)
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  payer              Payer               @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                Tpa?                @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network            Network?            @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  insuranceProduct   InsuranceProduct?   @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
   contractFacilities ContractFacility[]
   tariffSchedules    TariffSchedule[]
   ruleSourceScopes   RuleSourceScope[]
@@ -498,8 +506,10 @@ model ProviderContract {
 
   @@unique([organizationId, contractKey])
   @@index([organizationId])
+  @@index([payerId])
+  @@index([tpaId])
+  @@index([networkId])
   @@index([insuranceProductId])
-  @@index([productNetworkId])
   @@map("provider_contracts")
 }
 

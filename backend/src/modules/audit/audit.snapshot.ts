@@ -286,17 +286,25 @@ export const productNetworkAuditSnapshot = (x: { id: string; insuranceProductId:
 export const providerContractAuditSnapshot = (x: {
   id: string
   organizationId: string
+  payerId: string
+  tpaId: string | null
+  networkId: string | null
   insuranceProductId: string | null
-  productNetworkId: string | null
   contractKey: string
   displayName: string
+  effectiveFrom: Date
+  effectiveTo: Date | null
 }) => ({
   id: x.id,
   organizationId: x.organizationId,
+  payerId: x.payerId,
+  tpaId: x.tpaId,
+  networkId: x.networkId,
   insuranceProductId: x.insuranceProductId,
-  productNetworkId: x.productNetworkId,
   contractKey: x.contractKey,
   displayName: x.displayName,
+  effectiveFrom: x.effectiveFrom.toISOString().slice(0, 10),
+  effectiveTo: x.effectiveTo ? x.effectiveTo.toISOString().slice(0, 10) : null,
 })
 
 export const contractFacilityAuditSnapshot = (x: { id: string; providerContractId: string; facilityId: string }) => ({

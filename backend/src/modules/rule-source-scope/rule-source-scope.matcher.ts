@@ -44,3 +44,7 @@ export function sourceScopeMatches(rows: ScopeRow[], context: ScopeContext): boo
 export function matchedScopeIds(rows: ScopeRow[], context: ScopeContext): string[] {
   return rows.filter((row) => scopeRowMatches(row, context)).map((row) => row.id)
 }
+
+export function matchedScopeRows(rows: ScopeRow[], context: ScopeContext): ScopeRow[] {
+  return rows.filter((row) => scopeRowMatches(row, context))
+}

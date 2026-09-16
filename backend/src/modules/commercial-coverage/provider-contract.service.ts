@@ -1,6 +1,9 @@
 import { getOrganization } from '../organization/organization.service.ts'
 import { findFacilityById } from '../facility/facility.repository.ts'
-import { findInsuranceProductById, findProductNetworkById } from './insurance-product.repository.ts'
+import { findPayerById } from '../payer/payer.repository.ts'
+import { findTpaById } from '../tpa/tpa.repository.ts'
+import { findNetworkById } from '../network/network.repository.ts'
+import { findInsuranceProductById, findProductNetworkByProductAndNetwork } from './insurance-product.repository.ts'
 import type { ContractFacilityDto, ProviderContractDto, ProviderContractResult } from './provider-contract.types.ts'
 import {
   isCommercialContextUuid,
@@ -8,6 +11,7 @@ import {
   normalizeCommercialKey,
   normalizeOptionalCommercialUuidField,
 } from './commercial-context.validation.ts'
+import { normalizeDateOnlyField, normalizeBusinessDate, formatDateOnly } from '../rule-source-version/rule-source-version.validation.ts'
 import {
   createContractFacilityRecord,
   createProviderContractRecord,
@@ -25,10 +29,14 @@ import { contractFacilityAuditSnapshot, providerContractAuditSnapshot } from '..
 type ProviderContractRecord = {
   id: string
   organizationId: string
+  payerId: string
+  tpaId: string | null
+  networkId: string | null
   insuranceProductId: string | null
-  productNetworkId: string | null
   contractKey: string
   displayName: string
+  effectiveFrom: Date
+  effectiveTo: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -39,10 +47,14 @@ function toDto(record: ProviderContractRecord): ProviderContractDto {
   return {
     id: record.id,
     organizationId: record.organizationId,
+    payerId: record.payerId,
+    tpaId: record.tpaId,
+    networkId: record.networkId,
     insuranceProductId: record.insuranceProductId,
-    productNetworkId: record.productNetworkId,
     contractKey: record.contractKey,
     displayName: record.displayName,
+    effectiveFrom: formatDateOnly(record.effectiveFrom) as string,
+    effectiveTo: formatDateOnly(record.effectiveTo),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   }
@@ -65,8 +77,12 @@ export async function createProviderContract(
   organizationId: string,
   contractKeyInput: unknown,
   displayNameInput: unknown,
+  payerIdInput: unknown,
+  tpaIdInput: unknown,
+  networkIdInput: unknown,
   insuranceProductIdInput: unknown,
-  productNetworkIdInput: unknown,
+  effectiveFromInput: unknown,
+  effectiveToInput: unknown,
   actorUserId: string,
 ): Promise<ProviderContractResult<ProviderContractDto>> {
   if (!isCommercialContextUuid(organizationId))
@@ -78,51 +94,83 @@ export async function createProviderContract(
   const displayName = normalizeCommercialDisplayName(displayNameInput)
   if (!displayName) return { ok: false, code: 'VALIDATION_ERROR', message: 'displayName is required' }
 
+  if (typeof payerIdInput !== 'string' || !isCommercialContextUuid(payerIdInput))
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'payerId must be a valid UUID' }
+  const payerId = payerIdInput
+
+  const tpaIdField = normalizeOptionalCommercialUuidField(tpaIdInput)
+  if (!tpaIdField.valid) return { ok: false, code: 'VALIDATION_ERROR', message: 'tpaId must be a valid UUID or null' }
+
+  const networkIdField = normalizeOptionalCommercialUuidField(networkIdInput)
+  if (!networkIdField.valid) return { ok: false, code: 'VALIDATION_ERROR', message: 'networkId must be a valid UUID or null' }
+
   const insuranceProductIdField = normalizeOptionalCommercialUuidField(insuranceProductIdInput)
   if (!insuranceProductIdField.valid)
     return { ok: false, code: 'VALIDATION_ERROR', message: 'insuranceProductId must be a valid UUID or null' }
 
-  const productNetworkIdField = normalizeOptionalCommercialUuidField(productNetworkIdInput)
-  if (!productNetworkIdField.valid)
-    return { ok: false, code: 'VALIDATION_ERROR', message: 'productNetworkId must be a valid UUID or null' }
+  const effectiveFrom = normalizeBusinessDate(effectiveFromInput)
+  if (!effectiveFrom) return { ok: false, code: 'VALIDATION_ERROR', message: 'effectiveFrom must be a YYYY-MM-DD date' }
+
+  const effectiveToField = normalizeDateOnlyField(effectiveToInput)
+  if (effectiveToField.present && !effectiveToField.valid)
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'effectiveTo must be a YYYY-MM-DD date or null' }
+  const effectiveTo = effectiveToField.present && effectiveToField.valid ? effectiveToField.value : null
+
+  if (effectiveTo && effectiveFrom.getTime() > effectiveTo.getTime())
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'effectiveFrom must not be after effectiveTo' }
 
   const organization = await getOrganization(organizationId)
   if (!organization.ok) return { ok: false, code: organization.code, message: organization.message }
 
-  let insuranceProductId = insuranceProductIdField.value
-  const productNetworkId = productNetworkIdField.value
+  const payer = await findPayerById(payerId)
+  if (!payer) return { ok: false, code: 'NOT_FOUND', message: 'payer not found' }
+  if (payer.organizationId !== organizationId)
+    return { ok: false, code: 'FORBIDDEN', message: 'payer belongs to a different organization' }
 
+  const tpaId = tpaIdField.value
+  if (tpaId) {
+    const tpa = await findTpaById(tpaId)
+    if (!tpa) return { ok: false, code: 'NOT_FOUND', message: 'tpa not found' }
+    if (tpa.organizationId !== organizationId)
+      return { ok: false, code: 'FORBIDDEN', message: 'tpa belongs to a different organization' }
+  }
+
+  const networkId = networkIdField.value
+  if (networkId) {
+    const network = await findNetworkById(networkId)
+    if (!network) return { ok: false, code: 'NOT_FOUND', message: 'network not found' }
+    if (network.organizationId !== organizationId)
+      return { ok: false, code: 'FORBIDDEN', message: 'network belongs to a different organization' }
+  }
+
+  const insuranceProductId = insuranceProductIdField.value
   if (insuranceProductId) {
     const product = await findInsuranceProductById(insuranceProductId)
     if (!product) return { ok: false, code: 'NOT_FOUND', message: 'insurance product not found' }
     if (product.organizationId !== organizationId)
       return { ok: false, code: 'FORBIDDEN', message: 'insurance product belongs to a different organization' }
+    // T35: a product belonging to a different payer than the contract's own payer is rejected —
+    // the contract's payer is authoritative, the product must actually be that payer's product.
+    if (product.payerId !== payerId)
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'insuranceProductId belongs to a different payer than the contract' }
   }
 
-  if (productNetworkId) {
-    const productNetwork = await findProductNetworkById(productNetworkId)
-    if (!productNetwork) return { ok: false, code: 'NOT_FOUND', message: 'product network not found' }
-
-    const parentProduct = await findInsuranceProductById(productNetwork.insuranceProductId)
-    if (!parentProduct || parentProduct.organizationId !== organizationId)
-      return { ok: false, code: 'FORBIDDEN', message: 'product network belongs to a different organization' }
-
-    if (insuranceProductId && insuranceProductId !== productNetwork.insuranceProductId)
+  // T36: naming both a product and a network requires an actual ProductNetwork relationship
+  // between that exact pair — the contract may not invent a product/network combination.
+  if (insuranceProductId && networkId) {
+    const productNetwork = await findProductNetworkByProductAndNetwork(insuranceProductId, networkId)
+    if (!productNetwork)
       return {
         ok: false,
         code: 'VALIDATION_ERROR',
-        message: 'productNetworkId does not belong to the supplied insuranceProductId',
+        message: 'insuranceProductId and networkId have no existing ProductNetwork relationship',
       }
-
-    // A contract naming only a network derives its product from that ProductNetwork —
-    // the stored insuranceProductId always stays consistent with productNetworkId (REF-01 §6).
-    insuranceProductId = productNetwork.insuranceProductId
   }
 
   try {
     const created = await prisma.$transaction(async (tx) => {
       const record = await createProviderContractRecord(
-        { organizationId, insuranceProductId, productNetworkId, contractKey, displayName },
+        { organizationId, payerId, tpaId, networkId, insuranceProductId, contractKey, displayName, effectiveFrom, effectiveTo },
         tx,
       )
 
