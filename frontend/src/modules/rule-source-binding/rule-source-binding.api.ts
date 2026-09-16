@@ -51,17 +51,24 @@ export async function loadRuleSourceBindings(ruleVersionId: string): Promise<Rul
   return data.items
 }
 
+export type ExecutabilityContextInputs = {
+  facilityId: string
+  payerId: string
+  tpaId: string
+  networkId: string
+  insuranceProductId: string
+  providerContractId: string
+  tariffScheduleId: string
+  tariffScheduleVersionId: string
+  serviceId: string
+  procedureCodeId: string
+  diagnosisCodeId: string
+}
+
 export async function evaluateExecutability(
   ruleVersionId: string,
   businessDate: string,
-  dimensions: {
-    payerId: string
-    tpaId: string
-    networkId: string
-    serviceId: string
-    procedureCodeId: string
-    diagnosisCodeId: string
-  },
+  dimensions: ExecutabilityContextInputs,
 ): Promise<ExecutabilityEvaluation> {
   return handle(
     await fetch(`/api/rule-versions/${ruleVersionId}/executability/evaluate`, {
@@ -69,9 +76,16 @@ export async function evaluateExecutability(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         businessDate,
+        // facilityRegulatoryProfileId is intentionally never sent — the server resolves it from
+        // facilityId + businessDate (REF-01 §10).
+        facilityId: dimensions.facilityId || null,
         payerId: dimensions.payerId || null,
         tpaId: dimensions.tpaId || null,
         networkId: dimensions.networkId || null,
+        insuranceProductId: dimensions.insuranceProductId || null,
+        providerContractId: dimensions.providerContractId || null,
+        tariffScheduleId: dimensions.tariffScheduleId || null,
+        tariffScheduleVersionId: dimensions.tariffScheduleVersionId || null,
         serviceId: dimensions.serviceId || null,
         procedureCodeId: dimensions.procedureCodeId || null,
         diagnosisCodeId: dimensions.diagnosisCodeId || null,

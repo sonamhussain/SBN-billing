@@ -12,8 +12,8 @@ import {
   findRuleApplicabilityById,
   findRuleApplicabilitiesByVersionId,
   findRuleApplicabilityWithOrganization,
-  findTargetOrganizationId,
 } from './rule-applicability.repository.ts'
+import { validateApplicabilityContextCoherence } from './rule-applicability.context-coherence.ts'
 import { prisma } from '../../shared/database/prisma.ts'
 import { Prisma } from '../../../generated/prisma/client.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
@@ -22,22 +22,19 @@ import { ruleApplicabilityAuditSnapshot } from '../audit/audit.snapshot.ts'
 type RuleApplicabilityRecord = {
   id: string
   ruleVersionId: string
+  facilityId: string | null
+  facilityRegulatoryProfileId: string | null
   payerId: string | null
   tpaId: string | null
   networkId: string | null
+  insuranceProductId: string | null
+  providerContractId: string | null
+  tariffScheduleId: string | null
+  tariffScheduleVersionId: string | null
   serviceId: string | null
   procedureCodeId: string | null
   diagnosisCodeId: string | null
   createdAt: Date
-}
-
-const dimensionLabels: Record<ApplicabilityDimensionKey, string> = {
-  payerId: 'payer',
-  tpaId: 'tpa',
-  networkId: 'network',
-  serviceId: 'service',
-  procedureCodeId: 'procedure code',
-  diagnosisCodeId: 'diagnosis code',
 }
 
 const terminalVerificationStatuses: readonly string[] = ['VERIFIED', 'REJECTED']
@@ -46,9 +43,15 @@ function toDto(record: RuleApplicabilityRecord): RuleApplicabilityDto {
   return {
     id: record.id,
     ruleVersionId: record.ruleVersionId,
+    facilityId: record.facilityId,
+    facilityRegulatoryProfileId: record.facilityRegulatoryProfileId,
     payerId: record.payerId,
     tpaId: record.tpaId,
     networkId: record.networkId,
+    insuranceProductId: record.insuranceProductId,
+    providerContractId: record.providerContractId,
+    tariffScheduleId: record.tariffScheduleId,
+    tariffScheduleVersionId: record.tariffScheduleVersionId,
     serviceId: record.serviceId,
     procedureCodeId: record.procedureCodeId,
     diagnosisCodeId: record.diagnosisCodeId,
@@ -73,9 +76,15 @@ export async function createRuleApplicability(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'unknown fields are not allowed' }
 
   const normalized: Record<ApplicabilityDimensionKey, string | null> = {
+    facilityId: null,
+    facilityRegulatoryProfileId: null,
     payerId: null,
     tpaId: null,
     networkId: null,
+    insuranceProductId: null,
+    providerContractId: null,
+    tariffScheduleId: null,
+    tariffScheduleVersionId: null,
     serviceId: null,
     procedureCodeId: null,
     diagnosisCodeId: null,
@@ -102,14 +111,11 @@ export async function createRuleApplicability(
           message: 'rule version is VERIFIED or REJECTED; create a new rule version instead',
         }
 
-      for (const key of applicabilityDimensionKeys) {
-        const targetId = normalized[key]
-        if (targetId === null) continue
-        const targetOrgId = await findTargetOrganizationId(key, targetId, tx)
-        if (targetOrgId === null)
-          return { kind: 'not_found' as const, message: `${dimensionLabels[key]} not found` }
-        if (targetOrgId !== organizationId)
-          return { kind: 'forbidden' as const, message: `${dimensionLabels[key]} belongs to a different organization` }
+      const coherence = await validateApplicabilityContextCoherence(normalized, organizationId, tx)
+      if (!coherence.ok) {
+        if (coherence.code === 'NOT_FOUND') return { kind: 'not_found' as const, message: coherence.message }
+        if (coherence.code === 'FORBIDDEN') return { kind: 'forbidden' as const, message: coherence.message }
+        return { kind: 'terminal' as const, message: coherence.message }
       }
 
       const record = await createRuleApplicabilityRecord({ ruleVersionId, ...normalized }, tx)
@@ -178,6 +184,9 @@ export async function evaluateRuleApplicability(
     if (!field.valid) return { ok: false, code: 'VALIDATION_ERROR', message: `${key} must be a valid UUID or null` }
     context[key] = field.value
   }
+
+  const coherence = await validateApplicabilityContextCoherence(context, version.rule.organizationId, prisma)
+  if (!coherence.ok) return { ok: false, code: coherence.code, message: coherence.message }
 
   const rows = await findRuleApplicabilitiesByVersionId(ruleVersionId)
   const matches = ruleVersionMatches(rows, context)

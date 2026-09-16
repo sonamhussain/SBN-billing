@@ -42,10 +42,25 @@ export const auditActionCodes = [
   'rule_version.verification_updated',
   'rule_applicability.created',
   'rule_source_binding.created',
+  'facility_regulatory_profile.created',
+  'facility_regulatory_profile.updated',
+  'facility_regulatory_profile.activated',
+  'insurance_product.created',
+  'insurance_product.updated',
+  'product_network.created',
+  'provider_contract.created',
+  'provider_contract.updated',
+  'contract_facility.created',
+  'tariff_schedule.created',
+  'tariff_schedule.updated',
+  'tariff_schedule_version.created',
+  'tariff_schedule_version.lifecycle_updated',
+  'tariff_schedule_version.verification_updated',
+  'rule_source_scope.created',
 ] as const
 
 export type AuditActionCode = (typeof auditActionCodes)[number]
-export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY' | 'RULE_SOURCE_BINDING'
+export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY' | 'RULE_SOURCE_BINDING' | 'FACILITY_REGULATORY_PROFILE' | 'INSURANCE_PRODUCT' | 'PRODUCT_NETWORK' | 'PROVIDER_CONTRACT' | 'CONTRACT_FACILITY' | 'TARIFF_SCHEDULE' | 'TARIFF_SCHEDULE_VERSION' | 'RULE_SOURCE_SCOPE'
 
 export type AuditWriteInput = {
   organizationId: string

@@ -22,6 +22,10 @@ import RuleDefinitionCheck from '../modules/rule-definition/RuleDefinitionCheck.
 import RuleVersionCheck from '../modules/rule-version/RuleVersionCheck.tsx'
 import RuleApplicabilityCheck from '../modules/rule-applicability/RuleApplicabilityCheck.tsx'
 import RuleSourceBindingCheck from '../modules/rule-source-binding/RuleSourceBindingCheck.tsx'
+import FacilityRegulatoryProfileCheck from '../modules/facility-regulatory/FacilityRegulatoryProfileCheck.tsx'
+import CommercialCoverageCheck from '../modules/commercial-coverage/CommercialCoverageCheck.tsx'
+import ReferenceDatasetCheck from '../modules/reference-dataset/ReferenceDatasetCheck.tsx'
+import RuleSourceScopeCheck from '../modules/rule-source-scope/RuleSourceScopeCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -67,6 +71,10 @@ export default function App() {
         {apiStatus === 'online' && <RuleVersionCheck />}
         {apiStatus === 'online' && <RuleApplicabilityCheck />}
         {apiStatus === 'online' && <RuleSourceBindingCheck />}
+        {apiStatus === 'online' && <FacilityRegulatoryProfileCheck />}
+        {apiStatus === 'online' && <CommercialCoverageCheck />}
+        {apiStatus === 'online' && <ReferenceDatasetCheck />}
+        {apiStatus === 'online' && <RuleSourceScopeCheck />}
       </div>
     </main>
   )

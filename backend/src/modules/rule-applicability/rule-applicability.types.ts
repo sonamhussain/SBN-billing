@@ -1,9 +1,15 @@
 export type RuleApplicabilityDto = {
   id: string
   ruleVersionId: string
+  facilityId: string | null
+  facilityRegulatoryProfileId: string | null
   payerId: string | null
   tpaId: string | null
   networkId: string | null
+  insuranceProductId: string | null
+  providerContractId: string | null
+  tariffScheduleId: string | null
+  tariffScheduleVersionId: string | null
   serviceId: string | null
   procedureCodeId: string | null
   diagnosisCodeId: string | null

@@ -1,19 +1,21 @@
 import { applicabilityDimensionKeys } from './rule-applicability.validation.ts'
+import type { ApplicabilityContextV2 } from '../../shared/rules/applicability-context-v2.ts'
 
-export type ApplicabilityContext = {
-  payerId?: string | null
-  tpaId?: string | null
-  networkId?: string | null
-  serviceId?: string | null
-  procedureCodeId?: string | null
-  diagnosisCodeId?: string | null
-}
+// REF-01 / R5: ApplicabilityContext is now the full twelve-dimension V2 shape — existing rows
+// simply carry null for the six new columns, which the wildcard rule below already handles.
+export type ApplicabilityContext = ApplicabilityContextV2
 
 export type ApplicabilityRow = {
   id: string
+  facilityId: string | null
+  facilityRegulatoryProfileId: string | null
   payerId: string | null
   tpaId: string | null
   networkId: string | null
+  insuranceProductId: string | null
+  providerContractId: string | null
+  tariffScheduleId: string | null
+  tariffScheduleVersionId: string | null
   serviceId: string | null
   procedureCodeId: string | null
   diagnosisCodeId: string | null

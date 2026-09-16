@@ -27,6 +27,12 @@ import { organizationRuleDefinitionRouter, ruleDefinitionRouter } from './module
 import { ruleVersionsForRuleRouter, ruleVersionRouter } from './modules/rule-version/rule-version.route.ts'
 import { versionApplicabilitiesRouter, ruleApplicabilityRouter } from './modules/rule-applicability/rule-applicability.route.ts'
 import { versionSourceBindingsRouter, ruleSourceBindingRouter } from './modules/rule-source-binding/rule-source-binding.route.ts'
+import { facilityRegulatoryProfilesRouter, facilityRegulatoryProfileRouter } from './modules/facility-regulatory/facility-regulatory.route.ts'
+import { organizationInsuranceProductRouter, insuranceProductRouter, productNetworkRouter } from './modules/commercial-coverage/insurance-product.route.ts'
+import { organizationProviderContractRouter, providerContractRouter, contractFacilityRouter } from './modules/commercial-coverage/provider-contract.route.ts'
+import { providerContractTariffSchedulesRouter, tariffScheduleRouter, tariffScheduleVersionRouter } from './modules/commercial-coverage/tariff-schedule.route.ts'
+import { referenceDatasetRouter, referenceDatasetVersionRouter } from './modules/reference-dataset/reference-dataset.route.ts'
+import { sourceScopesRouter, ruleSourceScopeRouter } from './modules/rule-source-scope/rule-source-scope.route.ts'
 
 export const app = express()
 
@@ -119,6 +125,29 @@ app.use('/api/rule-applicabilities', ruleApplicabilityRouter)
 // A3.7
 app.use('/api/rule-versions', versionSourceBindingsRouter)
 app.use('/api/rule-source-bindings', ruleSourceBindingRouter)
+
+// REF-01 / R1
+app.use('/api/facilities', facilityRegulatoryProfilesRouter)
+app.use('/api/facility-regulatory-profiles', facilityRegulatoryProfileRouter)
+
+// REF-01 / R2
+app.use('/api/organizations', organizationInsuranceProductRouter)
+app.use('/api/insurance-products', insuranceProductRouter)
+app.use('/api/product-networks', productNetworkRouter)
+app.use('/api/organizations', organizationProviderContractRouter)
+app.use('/api/provider-contracts', providerContractRouter)
+app.use('/api/provider-contracts', providerContractTariffSchedulesRouter)
+app.use('/api/contract-facilities', contractFacilityRouter)
+app.use('/api/tariff-schedules', tariffScheduleRouter)
+app.use('/api/tariff-schedule-versions', tariffScheduleVersionRouter)
+
+// REF-01 / R3
+app.use('/api/reference-datasets', referenceDatasetRouter)
+app.use('/api/reference-dataset-versions', referenceDatasetVersionRouter)
+
+// REF-01 / R4
+app.use('/api/rule-sources', sourceScopesRouter)
+app.use('/api/rule-source-scopes', ruleSourceScopeRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

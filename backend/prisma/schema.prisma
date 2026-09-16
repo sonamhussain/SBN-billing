@@ -27,6 +27,8 @@ model Organization {
   externalIdentifierTargets ExternalIdentifier[] @relation("ExternalIdentifierOrganizationTarget")
   ruleSources RuleSource[]
   ruleDefinitions RuleDefinition[]
+  insuranceProducts InsuranceProduct[]
+  providerContracts ProviderContract[]
 
   @@map("organizations")
 }
@@ -40,6 +42,10 @@ model Facility {
 
   organization Organization @relation(fields: [organizationId], references: [id])
   externalIdentifiers ExternalIdentifier[]
+  regulatoryProfiles FacilityRegulatoryProfile[]
+  contractFacilities ContractFacility[]
+  ruleSourceScopes RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
 
   @@index([organizationId])
   @@map("facilities")
@@ -83,6 +89,9 @@ model Payer {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
+  insuranceProducts InsuranceProduct[]
+  ruleSourceScopes RuleSourceScope[]
+  providerContracts ProviderContract[]
 
   @@index([organizationId])
   @@map("payers")
@@ -98,6 +107,8 @@ model Tpa {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
+  ruleSourceScopes RuleSourceScope[]
+  providerContracts ProviderContract[]
 
   @@index([organizationId])
   @@map("tpas")
@@ -113,6 +124,9 @@ model Network {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
+  productNetworks ProductNetwork[]
+  ruleSourceScopes RuleSourceScope[]
+  providerContracts ProviderContract[]
 
   @@index([organizationId])
   @@map("networks")
@@ -222,6 +236,7 @@ model RuleSource {
 
   organization Organization?       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   versions     RuleSourceVersion[]
+  scopes       RuleSourceScope[]
 
   @@index([organizationId])
   @@index([jurisdictionCode])
@@ -259,6 +274,7 @@ model RuleSourceVersion {
 
   outgoingRelationships RuleSourceRelationship[] @relation("SourceRelationshipFrom")
   incomingRelationships RuleSourceRelationship[] @relation("SourceRelationshipTo")
+  referenceDatasetVersions ReferenceDatasetVersion[]
 
   @@unique([sourceId, version])
   @@index([sourceId])
@@ -341,28 +357,46 @@ model RuleVersion {
 }
 
 model RuleApplicability {
-  id              String   @id @default(uuid()) @db.Uuid
-  ruleVersionId   String   @map("rule_version_id") @db.Uuid
-  payerId         String?  @map("payer_id") @db.Uuid
-  tpaId           String?  @map("tpa_id") @db.Uuid
-  networkId       String?  @map("network_id") @db.Uuid
-  serviceId       String?  @map("service_id") @db.Uuid
-  procedureCodeId String?  @map("procedure_code_id") @db.Uuid
-  diagnosisCodeId String?  @map("diagnosis_code_id") @db.Uuid
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                        String   @id @default(uuid()) @db.Uuid
+  ruleVersionId             String   @map("rule_version_id") @db.Uuid
+  facilityId                String?  @map("facility_id") @db.Uuid
+  facilityRegulatoryProfileId String? @map("facility_regulatory_profile_id") @db.Uuid
+  payerId                   String?  @map("payer_id") @db.Uuid
+  tpaId                     String?  @map("tpa_id") @db.Uuid
+  networkId                 String?  @map("network_id") @db.Uuid
+  insuranceProductId        String?  @map("insurance_product_id") @db.Uuid
+  providerContractId        String?  @map("provider_contract_id") @db.Uuid
+  tariffScheduleId          String?  @map("tariff_schedule_id") @db.Uuid
+  tariffScheduleVersionId   String?  @map("tariff_schedule_version_id") @db.Uuid
+  serviceId                 String?  @map("service_id") @db.Uuid
+  procedureCodeId           String?  @map("procedure_code_id") @db.Uuid
+  diagnosisCodeId           String?  @map("diagnosis_code_id") @db.Uuid
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  ruleVersion   RuleVersion    @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
-  payer         Payer?         @relation(fields: [payerId], references: [id], onDelete: Restrict)
-  tpa           Tpa?           @relation(fields: [tpaId], references: [id], onDelete: Restrict)
-  network       Network?       @relation(fields: [networkId], references: [id], onDelete: Restrict)
-  service       Service?       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  procedureCode ProcedureCode? @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
-  diagnosisCode DiagnosisCode? @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
+  ruleVersion             RuleVersion                @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
+  facility                Facility?                  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  facilityRegulatoryProfile FacilityRegulatoryProfile? @relation(fields: [facilityRegulatoryProfileId], references: [id], onDelete: Restrict)
+  payer                   Payer?                     @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                     Tpa?                       @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network                 Network?                   @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  insuranceProduct        InsuranceProduct?          @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  providerContract        ProviderContract?          @relation(fields: [providerContractId], references: [id], onDelete: Restrict)
+  tariffSchedule          TariffSchedule?            @relation(fields: [tariffScheduleId], references: [id], onDelete: Restrict)
+  tariffScheduleVersion   TariffScheduleVersion?     @relation(fields: [tariffScheduleVersionId], references: [id], onDelete: Restrict)
+  service                 Service?                   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  procedureCode           ProcedureCode?             @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
+  diagnosisCode           DiagnosisCode?             @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
 
   @@index([ruleVersionId])
+  @@index([facilityId])
+  @@index([facilityRegulatoryProfileId])
   @@index([payerId])
   @@index([tpaId])
   @@index([networkId])
+  @@index([insuranceProductId])
+  @@index([providerContractId])
+  @@index([tariffScheduleId])
+  @@index([tariffScheduleVersionId])
   @@index([serviceId])
   @@index([procedureCodeId])
   @@index([diagnosisCodeId])
@@ -384,6 +418,234 @@ model RuleSourceBinding {
   @@index([sourceInterpretationId])
   @@index([sourceRole])
   @@map("rule_source_bindings")
+}
+
+// REF-01 / R1 — Facility Regulatory Context
+
+model FacilityRegulatoryProfile {
+  id                      String    @id @default(uuid()) @db.Uuid
+  facilityId              String    @map("facility_id") @db.Uuid
+  jurisdictionCode        String    @map("jurisdiction_code") @db.Text
+  regulatoryAuthorityCode String    @map("regulatory_authority_code") @db.Text
+  effectiveFrom           DateTime  @map("effective_from") @db.Date
+  effectiveTo             DateTime? @map("effective_to") @db.Date
+  status                  String    @db.Text
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  ruleApplicabilities RuleApplicability[]
+
+  @@index([facilityId])
+  @@index([status])
+  @@map("facility_regulatory_profiles")
+}
+
+// REF-01 / R2 — Commercial Coverage Identity Foundation
+
+model InsuranceProduct {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  payerId        String   @map("payer_id") @db.Uuid
+  productCode    String   @map("product_code") @db.Text
+  displayName    String   @map("display_name") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  payer              Payer              @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  productNetworks    ProductNetwork[]
+  providerContracts  ProviderContract[]
+  ruleSourceScopes   RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
+
+  @@unique([organizationId, productCode])
+  @@index([organizationId])
+  @@index([payerId])
+  @@map("insurance_products")
+}
+
+model ProductNetwork {
+  id                 String   @id @default(uuid()) @db.Uuid
+  insuranceProductId String   @map("insurance_product_id") @db.Uuid
+  networkId          String   @map("network_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  insuranceProduct InsuranceProduct @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  network          Network          @relation(fields: [networkId], references: [id], onDelete: Restrict)
+
+  @@unique([insuranceProductId, networkId])
+  @@index([insuranceProductId])
+  @@index([networkId])
+  @@map("product_networks")
+}
+
+model ProviderContract {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  payerId            String    @map("payer_id") @db.Uuid
+  tpaId              String?   @map("tpa_id") @db.Uuid
+  networkId          String?   @map("network_id") @db.Uuid
+  insuranceProductId String?   @map("insurance_product_id") @db.Uuid
+  contractKey        String    @map("contract_key") @db.Text
+  displayName        String    @map("display_name") @db.Text
+  effectiveFrom      DateTime  @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  payer              Payer               @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                Tpa?                @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network            Network?            @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  insuranceProduct   InsuranceProduct?   @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  contractFacilities ContractFacility[]
+  tariffSchedules    TariffSchedule[]
+  ruleSourceScopes   RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
+
+  @@unique([organizationId, contractKey])
+  @@index([organizationId])
+  @@index([payerId])
+  @@index([tpaId])
+  @@index([networkId])
+  @@index([insuranceProductId])
+  @@map("provider_contracts")
+}
+
+model ContractFacility {
+  id                 String   @id @default(uuid()) @db.Uuid
+  providerContractId String   @map("provider_contract_id") @db.Uuid
+  facilityId         String   @map("facility_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  providerContract ProviderContract @relation(fields: [providerContractId], references: [id], onDelete: Restrict)
+  facility         Facility         @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+
+  @@unique([providerContractId, facilityId])
+  @@index([providerContractId])
+  @@index([facilityId])
+  @@map("contract_facilities")
+}
+
+model TariffSchedule {
+  id                 String   @id @default(uuid()) @db.Uuid
+  providerContractId String   @map("provider_contract_id") @db.Uuid
+  tariffKey          String   @map("tariff_key") @db.Text
+  displayName        String   @map("display_name") @db.Text
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  providerContract ProviderContract        @relation(fields: [providerContractId], references: [id], onDelete: Restrict)
+  versions         TariffScheduleVersion[]
+  ruleSourceScopes RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
+
+  @@unique([providerContractId, tariffKey])
+  @@index([providerContractId])
+  @@map("tariff_schedules")
+}
+
+model TariffScheduleVersion {
+  id                 String    @id @default(uuid()) @db.Uuid
+  tariffScheduleId   String    @map("tariff_schedule_id") @db.Uuid
+  version            String    @db.Text
+  effectiveFrom      DateTime? @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+  verificationStatus String    @default("UNVERIFIED") @map("verification_status") @db.Text
+  verifiedAt         DateTime? @map("verified_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tariffSchedule   TariffSchedule    @relation(fields: [tariffScheduleId], references: [id], onDelete: Restrict)
+  ruleSourceScopes RuleSourceScope[]
+  ruleApplicabilities RuleApplicability[]
+
+  @@unique([tariffScheduleId, version])
+  @@index([tariffScheduleId])
+  @@map("tariff_schedule_versions")
+}
+
+// REF-01 / R3 — Regulatory Reference Dataset Registry
+
+model ReferenceDataset {
+  id               String   @id @default(uuid()) @db.Uuid
+  datasetKey       String   @map("dataset_key") @db.Text
+  displayName      String   @map("display_name") @db.Text
+  jurisdictionCode String   @map("jurisdiction_code") @db.Text
+  authorityCode    String   @map("authority_code") @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  versions ReferenceDatasetVersion[]
+
+  @@unique([datasetKey])
+  @@index([jurisdictionCode])
+  @@map("reference_datasets")
+}
+
+model ReferenceDatasetVersion {
+  id               String    @id @default(uuid()) @db.Uuid
+  datasetId        String    @map("dataset_id") @db.Uuid
+  sourceVersionId  String?   @map("source_version_id") @db.Uuid
+  version          String    @db.Text
+  retrievedAt      DateTime  @map("retrieved_at") @db.Timestamptz(6)
+  publicationDate  DateTime? @map("publication_date") @db.Date
+  effectiveFrom    DateTime? @map("effective_from") @db.Date
+  effectiveTo      DateTime? @map("effective_to") @db.Date
+  contentHash      String    @map("content_hash") @db.Text
+  validationStatus String    @map("validation_status") @db.Text
+  activationStatus String    @map("activation_status") @db.Text
+  activatedAt      DateTime? @map("activated_at") @db.Timestamptz(6)
+  supersededAt     DateTime? @map("superseded_at") @db.Timestamptz(6)
+  retiredAt        DateTime? @map("retired_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  dataset       ReferenceDataset   @relation(fields: [datasetId], references: [id], onDelete: Restrict)
+  sourceVersion RuleSourceVersion? @relation(fields: [sourceVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([datasetId, version])
+  @@index([datasetId])
+  @@index([sourceVersionId])
+  @@map("reference_dataset_versions")
+}
+
+// REF-01 / R4 — RuleSourceScope: typed commercial context proof
+
+model RuleSourceScope {
+  id                      String   @id @default(uuid()) @db.Uuid
+  sourceId                String   @map("source_id") @db.Uuid
+  facilityId              String?  @map("facility_id") @db.Uuid
+  payerId                 String?  @map("payer_id") @db.Uuid
+  tpaId                   String?  @map("tpa_id") @db.Uuid
+  networkId               String?  @map("network_id") @db.Uuid
+  insuranceProductId      String?  @map("insurance_product_id") @db.Uuid
+  providerContractId      String?  @map("provider_contract_id") @db.Uuid
+  tariffScheduleId        String?  @map("tariff_schedule_id") @db.Uuid
+  tariffScheduleVersionId String?  @map("tariff_schedule_version_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  source                 RuleSource             @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  facility               Facility?              @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  payer                  Payer?                 @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                    Tpa?                   @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network                Network?               @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  insuranceProduct       InsuranceProduct?      @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  providerContract       ProviderContract?      @relation(fields: [providerContractId], references: [id], onDelete: Restrict)
+  tariffSchedule         TariffSchedule?        @relation(fields: [tariffScheduleId], references: [id], onDelete: Restrict)
+  tariffScheduleVersion  TariffScheduleVersion? @relation(fields: [tariffScheduleVersionId], references: [id], onDelete: Restrict)
+
+  @@index([sourceId])
+  @@index([facilityId])
+  @@index([payerId])
+  @@index([tpaId])
+  @@index([networkId])
+  @@index([insuranceProductId])
+  @@index([providerContractId])
+  @@index([tariffScheduleId])
+  @@index([tariffScheduleVersionId])
+  @@map("rule_source_scopes")
 }
 
 model User {
