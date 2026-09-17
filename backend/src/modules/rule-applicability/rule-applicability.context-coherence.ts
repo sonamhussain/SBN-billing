@@ -46,63 +46,95 @@ export async function validateApplicabilityContextCoherence(
       return { ok: false, code: 'FORBIDDEN', message: `${dimensionLabel[key]} belongs to a different organization` }
   }
 
-  // Pass 2: cross-dimension hierarchy consistency.
-  if (context.insuranceProductId && context.payerId) {
+  // Pass 2: combination coherence against the AUTHORITATIVE ancestry (audit F06).
+  //
+  // Each supplied child is walked up to its real ancestors — tariff version -> schedule -> contract
+  // -> (payer, TPA, network, product, participating facilities) — and every supplied fact is
+  // compared with those ancestors whether or not the intermediate IDs were included. Checking only
+  // pairs of supplied IDs let a caller omit the middle ID and assert a contradictory combination.
+  //
+  // This is validation only: derived ancestors are local values, the context is never written to,
+  // so stored wildcards, AND/OR matching and specificity are unaffected.
+  const fail = (message: string): CoherenceResult => ({ ok: false, code: 'VALIDATION_ERROR', message })
+
+  // Facility chain: a regulatory profile belongs to exactly one facility, so it asserts that
+  // facility even when facilityId itself is omitted.
+  let facilityId = context.facilityId ?? null
+  if (context.facilityRegulatoryProfileId) {
+    const profile = await findFacilityRegulatoryProfileById(context.facilityRegulatoryProfileId, db)
+    if (profile) {
+      if (facilityId && profile.facilityId !== facilityId)
+        return fail('facilityRegulatoryProfileId does not belong to the supplied facilityId')
+      facilityId = profile.facilityId
+    }
+  }
+  const facilitySubject = context.facilityId ? 'facilityId' : "facilityRegulatoryProfileId's facility"
+
+  let scheduleId = context.tariffScheduleId ?? null
+  if (context.tariffScheduleVersionId) {
+    const version = await findTariffScheduleVersionById(context.tariffScheduleVersionId, db)
+    if (version) {
+      if (scheduleId && version.tariffScheduleId !== scheduleId)
+        return fail('tariffScheduleVersionId does not belong to the supplied tariffScheduleId')
+      scheduleId = version.tariffScheduleId
+    }
+  }
+
+  let contractId = context.providerContractId ?? null
+  if (scheduleId) {
+    const schedule = await findTariffScheduleById(scheduleId, db)
+    if (schedule) {
+      if (contractId && schedule.providerContractId !== contractId)
+        return fail(
+          context.tariffScheduleId
+            ? 'tariffScheduleId does not belong to the supplied providerContractId'
+            : 'tariffScheduleVersionId does not belong to the supplied providerContractId',
+        )
+      contractId = schedule.providerContractId
+    }
+  }
+
+  // Which supplied child the contract was derived from, for precise messages.
+  const contractSubject = context.providerContractId
+    ? 'providerContractId'
+    : context.tariffScheduleId
+      ? "tariffScheduleId's provider contract"
+      : "tariffScheduleVersionId's provider contract"
+
+  let payerId = context.payerId ?? null
+  if (contractId) {
+    const contract = await findProviderContractById(contractId, db)
+    if (contract) {
+      if (payerId && contract.payerId !== payerId) return fail(`${contractSubject} belongs to a different payer than the supplied payerId`)
+      // A null commercial dimension on the contract keeps the safe rejection: its meaning
+      // (unrestricted / unknown / not applicable) has not been decided, so a supplied value is
+      // never assumed to be covered by it.
+      if (context.tpaId && contract.tpaId !== context.tpaId) return fail(`${contractSubject} does not match the supplied tpaId`)
+      if (context.networkId && contract.networkId !== context.networkId) return fail(`${contractSubject} does not match the supplied networkId`)
+      if (context.insuranceProductId && contract.insuranceProductId !== context.insuranceProductId)
+        return fail(`${contractSubject} does not match the supplied insuranceProductId`)
+
+      if (facilityId) {
+        const link = await findContractFacilityByContractAndFacility(contract.id, facilityId, db)
+        if (!link) return fail(`${facilitySubject} does not participate in ${contractSubject}`)
+      }
+      payerId = payerId ?? contract.payerId
+    }
+  }
+
+  if (context.insuranceProductId) {
     const product = await findInsuranceProductById(context.insuranceProductId, db)
-    if (product && product.payerId !== context.payerId)
-      return { ok: false, code: 'VALIDATION_ERROR', message: 'insuranceProductId belongs to a different payer than the supplied payerId' }
+    if (product && payerId && product.payerId !== payerId)
+      return fail(
+        context.payerId
+          ? 'insuranceProductId belongs to a different payer than the supplied payerId'
+          : `insuranceProductId belongs to a different payer than ${contractSubject}`,
+      )
   }
 
   if (context.insuranceProductId && context.networkId) {
     const productNetwork = await findProductNetworkByProductAndNetwork(context.insuranceProductId, context.networkId, db)
-    if (!productNetwork)
-      return {
-        ok: false,
-        code: 'VALIDATION_ERROR',
-        message: 'insuranceProductId and networkId have no existing ProductNetwork relationship',
-      }
-  }
-
-  if (context.providerContractId) {
-    const contract = await findProviderContractById(context.providerContractId, db)
-    if (contract) {
-      if (context.payerId && contract.payerId !== context.payerId)
-        return { ok: false, code: 'VALIDATION_ERROR', message: 'providerContractId belongs to a different payer than the supplied payerId' }
-      if (context.tpaId && contract.tpaId !== context.tpaId)
-        return { ok: false, code: 'VALIDATION_ERROR', message: 'providerContractId does not match the supplied tpaId' }
-      if (context.networkId && contract.networkId !== context.networkId)
-        return { ok: false, code: 'VALIDATION_ERROR', message: 'providerContractId does not match the supplied networkId' }
-      if (context.insuranceProductId && contract.insuranceProductId !== context.insuranceProductId)
-        return { ok: false, code: 'VALIDATION_ERROR', message: 'providerContractId does not match the supplied insuranceProductId' }
-
-      if (context.facilityId) {
-        const link = await findContractFacilityByContractAndFacility(context.providerContractId, context.facilityId, db)
-        if (!link)
-          return {
-            ok: false,
-            code: 'VALIDATION_ERROR',
-            message: 'facilityId does not participate in the supplied providerContractId',
-          }
-      }
-    }
-  }
-
-  if (context.tariffScheduleId) {
-    const schedule = await findTariffScheduleById(context.tariffScheduleId, db)
-    if (schedule && context.providerContractId && schedule.providerContractId !== context.providerContractId)
-      return { ok: false, code: 'VALIDATION_ERROR', message: 'tariffScheduleId does not belong to the supplied providerContractId' }
-  }
-
-  if (context.tariffScheduleVersionId) {
-    const version = await findTariffScheduleVersionById(context.tariffScheduleVersionId, db)
-    if (version && context.tariffScheduleId && version.tariffScheduleId !== context.tariffScheduleId)
-      return { ok: false, code: 'VALIDATION_ERROR', message: 'tariffScheduleVersionId does not belong to the supplied tariffScheduleId' }
-  }
-
-  if (context.facilityRegulatoryProfileId && context.facilityId) {
-    const profile = await findFacilityRegulatoryProfileById(context.facilityRegulatoryProfileId, db)
-    if (profile && profile.facilityId !== context.facilityId)
-      return { ok: false, code: 'VALIDATION_ERROR', message: 'facilityRegulatoryProfileId does not belong to the supplied facilityId' }
+    if (!productNetwork) return fail('insuranceProductId and networkId have no existing ProductNetwork relationship')
   }
 
   return { ok: true }
