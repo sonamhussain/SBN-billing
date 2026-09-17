@@ -63,3 +63,26 @@ export async function updateReferenceDatasetVersionRecord(
 ) {
   return db.referenceDatasetVersion.update({ where: { id }, data })
 }
+
+// Audit F12 — append-only. There is deliberately no update or delete counterpart here, and the
+// database rejects both with a trigger.
+export async function recordReferenceDatasetLifecycleEvent(
+  data: {
+    datasetId: string
+    datasetVersionId: string
+    action: string
+    previousActivationStatus: string
+    nextActivationStatus: string
+    previousValidationStatus: string
+    nextValidationStatus: string
+    actorRef: string
+    reason: string | null
+  },
+  db: DbClient = prisma,
+) {
+  return db.referenceDatasetLifecycleEvent.create({ data })
+}
+
+export async function findReferenceDatasetLifecycleEvents(datasetId: string, db: DbClient = prisma) {
+  return db.referenceDatasetLifecycleEvent.findMany({ where: { datasetId }, orderBy: { sequence: 'asc' } })
+}
