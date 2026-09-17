@@ -131,11 +131,15 @@ export async function createRuleSourceVersion(
   const rawEvidenceRef = normalizeRawEvidenceRef(rawEvidenceRefInput)
   if (!rawEvidenceRef) return { ok: false, code: 'VALIDATION_ERROR', message: 'rawEvidenceRef is required' }
 
-  const source = await findRuleSourceById(sourceId)
-  if (!source) return { ok: false, code: 'NOT_FOUND', message: 'rule source not found' }
-
   try {
     const created = await prisma.$transaction(async (tx) => {
+      // Audit F10: the first child freezes the parent identity, so creating one takes the same
+      // parent lock the identity edit takes and reads the parent inside the transaction.
+      await lockRowForUpdate(tx, 'rule_sources', sourceId)
+      const source = await findRuleSourceById(sourceId, tx)
+      if (!source) return { kind: 'not_found' as const }
+      await concurrencyProbe('rule_source_version.create')
+
       const record = await createRuleSourceVersionRecord({ sourceId, version, rawEvidenceRef }, tx)
 
       await recordAuditEvent(
@@ -151,10 +155,11 @@ export async function createRuleSourceVersion(
         tx,
       )
 
-      return record
+      return { kind: 'created' as const, record }
     })
 
-    return { ok: true, value: toDto(created) }
+    if (created.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source not found' }
+    return { ok: true, value: toDto(created.record) }
   } catch (error) {
     if (isUniqueConstraintViolation(error))
       return { ok: false, code: 'VALIDATION_ERROR', message: 'version already exists for this rule source' }

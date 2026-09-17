@@ -51,3 +51,29 @@ export function normalizeSourceCategory(value: unknown): SourceCategory | null {
 export function isRuleSourceUuid(value: string): boolean {
   return uuidShape.test(value)
 }
+
+// Audit F10 — the identity a rule source governs under. Once any version exists, every stored
+// version, interpretation and binding was evaluated against these three fields, and A3.7/A3.8 read
+// them live, so changing one would silently relabel historical decisions into a different
+// authority class. Display-only fields (referenceNumber, title) are not identity.
+export const ruleSourceIdentityFields = ['jurisdictionCode', 'issuingAuthority', 'sourceCategory'] as const
+
+export type RuleSourceIdentityField = (typeof ruleSourceIdentityFields)[number]
+
+type RuleSourceIdentity = Record<RuleSourceIdentityField, string>
+
+// Pure: which identity fields a patch would actually change. A field the caller omitted, or
+// re-sent with the value already stored, is not a change.
+export function frozenIdentityChanges(
+  existing: RuleSourceIdentity,
+  requested: Partial<Record<RuleSourceIdentityField, string | null>>,
+): RuleSourceIdentityField[] {
+  return ruleSourceIdentityFields.filter((field) => {
+    const value = requested[field]
+    return typeof value === 'string' && value !== existing[field]
+  })
+}
+
+export function frozenIdentityMessage(changes: readonly string[]): string {
+  return `${changes.join(', ')} cannot be changed once this rule source has versions; create a new rule source instead`
+}
