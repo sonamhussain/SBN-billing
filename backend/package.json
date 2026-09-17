@@ -20,7 +20,8 @@
     "test:a2:integration": "node --env-file=.env src/integration/a2-master-data/a2-master-data.integration.ts",
     "test:a3:concurrency": "node --env-file=.env src/scripts/test-supersedes-concurrency.ts",
     "test:a3:date-gate": "node --env-file=.env src/scripts/test-a3-7-date-gate.ts",
-    "test:a3:strict-dates": "node --env-file=.env src/scripts/test-a3-strict-dates.ts"
+    "test:a3:strict-dates": "node --env-file=.env src/scripts/test-a3-strict-dates.ts",
+    "test:a3:dependency": "node --env-file=.env src/scripts/test-a3-dependency-resolution.ts"
   },
   "keywords": [],
   "author": "",
