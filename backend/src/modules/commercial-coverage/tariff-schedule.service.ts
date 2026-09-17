@@ -1,4 +1,6 @@
 import { findProviderContractById } from './provider-contract.repository.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import type { DbClient } from '../../shared/database/database.types.ts'
 import type { TariffScheduleDto, TariffScheduleResult, TariffScheduleVersionDto } from './tariff-schedule.types.ts'
 import { isCommercialContextUuid, normalizeCommercialDisplayName, normalizeCommercialKey } from './commercial-context.validation.ts'
@@ -278,8 +280,10 @@ export async function updateTariffScheduleVersionMetadata(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'at least one field is required' }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'tariff_schedule_versions', id)
     const existing = await findTariffScheduleVersionById(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('tariff_schedule_version.metadata')
     if (terminalVerificationStatuses.includes(existing.verificationStatus))
       return {
         kind: 'terminal' as const,
@@ -333,8 +337,10 @@ export async function updateTariffScheduleVersionVerification(
   const nextStatus = verificationStatusInput
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'tariff_schedule_versions', id)
     const existing = await findTariffScheduleVersionById(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('tariff_schedule_version.verification')
     if (terminalVerificationStatuses.includes(existing.verificationStatus))
       return { kind: 'terminal' as const, message: 'tariff schedule version verification is already VERIFIED or REJECTED and cannot be changed' }
 

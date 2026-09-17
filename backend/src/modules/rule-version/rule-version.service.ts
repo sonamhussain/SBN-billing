@@ -1,4 +1,6 @@
 import { findRuleDefinitionById } from '../rule-definition/rule-definition.repository.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import type { RuleVersionDto, RuleVersionResult } from './rule-version.types.ts'
 import { isRuleVersionUuid, normalizeEffectType, normalizeVersion } from './rule-version.validation.ts'
 import {
@@ -171,8 +173,10 @@ export async function updateRuleVersionMetadata(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'effectiveTo must be a YYYY-MM-DD date or null' }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'rule_versions', id)
     const existing = await findRuleVersionWithOrganization(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_version.metadata')
     if (terminalVerificationStatuses.includes(existing.verificationStatus))
       return {
         kind: 'terminal' as const,
@@ -227,8 +231,10 @@ export async function updateRuleVersionVerification(
   const nextStatus = verificationStatusInput
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'rule_versions', id)
     const existing = await findRuleVersionWithOrganization(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_version.verification')
     if (terminalVerificationStatuses.includes(existing.verificationStatus))
       return { kind: 'terminal' as const, message: 'rule version verification is already VERIFIED or REJECTED and cannot be changed' }
 

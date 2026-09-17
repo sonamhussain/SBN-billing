@@ -1,4 +1,6 @@
 import { getOrganization } from '../organization/organization.service.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import type { ExternalIdentifierDto, ExternalIdentifierResult } from './external-identifier.types.ts'
 import { isExternalIdentifierUuid, normalizeExternalValue, normalizeSourceSystem } from './external-identifier.validation.ts'
 import { deriveTargetFromRecord, resolveTarget, targetForeignKeyColumn, type PersistedTargetColumns } from './external-identifier.target.ts'
@@ -171,8 +173,11 @@ export async function updateExternalIdentifier(
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      // Audit F08: lock before reading so the audit beforeState is the true serial predecessor.
+      await lockRowForUpdate(tx, 'external_identifiers', id)
       const existing = await findExternalIdentifierById(id, tx)
       if (!existing) return null
+      await concurrencyProbe('external_identifier.update')
 
       const record = await updateExternalIdentifierRecord(
         id,

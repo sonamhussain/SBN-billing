@@ -1,4 +1,6 @@
 import { findRuleVersionWithOrganization } from '../rule-version/rule-version.repository.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { findRuleApplicabilitiesByVersionId } from '../rule-applicability/rule-applicability.repository.ts'
 import { applicabilityDimensionKeys, normalizeOptionalUuidField, type ApplicabilityDimensionKey } from '../rule-applicability/rule-applicability.validation.ts'
 import { matchedApplicabilityIds, ruleVersionMatches, type ApplicabilityContext } from '../rule-applicability/rule-applicability.matcher.ts'
@@ -69,8 +71,11 @@ export async function createRuleSourceBinding(
 
   try {
     const outcome = await prisma.$transaction(async (tx) => {
+      // Audit F08: a child append locks its PARENT RuleVersion, the row verification freezes.
+      await lockRowForUpdate(tx, 'rule_versions', ruleVersionId)
       const version = await findRuleVersionWithOrganization(ruleVersionId, tx)
       if (!version) return { kind: 'not_found' as const, message: 'rule version not found' }
+      await concurrencyProbe('rule_source_binding.create')
 
       const ruleOrgId = version.rule.organizationId
       // Defense-in-depth: the route's own permission middleware already 404s a SYSTEM_SHARED
