@@ -26,7 +26,8 @@
     "test:a3:atomicity": "node --env-file=.env src/scripts/test-a3-write-atomicity.ts",
     "test:a3:lifecycle": "node --env-file=.env src/scripts/test-a3-lifecycle-freeze.ts",
     "test:a3:identity": "node --env-file=.env src/scripts/test-a3-source-identity.ts",
-    "test:a3:dependency": "node --env-file=.env src/scripts/test-a3-dependency-resolution.ts"
+    "test:a3:dependency": "node --env-file=.env src/scripts/test-a3-dependency-resolution.ts",
+    "test:a3:dataset": "node --env-file=.env src/scripts/test-a3-dataset-state.ts"
   },
   "keywords": [],
   "author": "",

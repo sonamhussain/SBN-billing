@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  decideDatasetValidationChange,
   isReferenceDatasetUuid,
   isReferenceDatasetValidationStatus,
   normalizeContentHash,
@@ -59,4 +60,57 @@ test('all approved validation statuses are recognized', () => {
 
 test('unknown validation status is rejected', () => {
   assert.equal(isReferenceDatasetValidationStatus('APPROVED'), false)
+})
+
+// Audit F11 — ACTIVE implies VALIDATED, durably.
+test('F11: an ACTIVE version cannot be downgraded to UNVALIDATED or REJECTED', () => {
+  const active = { activationStatus: 'ACTIVE', validationStatus: 'VALIDATED' }
+  assert.equal(decideDatasetValidationChange(active, 'UNVALIDATED').kind, 'rejected')
+  assert.equal(decideDatasetValidationChange(active, 'REJECTED').kind, 'rejected')
+})
+
+test('F11: re-confirming VALIDATED on an ACTIVE version stays allowed', () => {
+  assert.equal(
+    decideDatasetValidationChange({ activationStatus: 'ACTIVE', validationStatus: 'VALIDATED' }, 'VALIDATED').kind,
+    'allowed',
+  )
+})
+
+test('F11: a version that is not in force can still be validated, unvalidated or rejected', () => {
+  for (const activationStatus of ['INACTIVE', 'SUPERSEDED']) {
+    for (const requested of ['UNVALIDATED', 'VALIDATED', 'REJECTED'] as const) {
+      assert.equal(
+        decideDatasetValidationChange({ activationStatus, validationStatus: 'UNVALIDATED' }, requested).kind,
+        'allowed',
+        `${activationStatus} -> ${requested}`,
+      )
+    }
+  }
+})
+
+test('F11: RETIRED stays terminal for every requested validation status', () => {
+  for (const requested of ['UNVALIDATED', 'VALIDATED', 'REJECTED'] as const) {
+    const decision = decideDatasetValidationChange({ activationStatus: 'RETIRED', validationStatus: 'VALIDATED' }, requested)
+    assert.equal(decision.kind, 'rejected')
+  }
+})
+
+test('F11: REJECTED stays terminal for validation, in either direction', () => {
+  assert.equal(
+    decideDatasetValidationChange({ activationStatus: 'INACTIVE', validationStatus: 'REJECTED' }, 'VALIDATED').kind,
+    'rejected',
+  )
+  assert.equal(
+    decideDatasetValidationChange({ activationStatus: 'INACTIVE', validationStatus: 'REJECTED' }, 'UNVALIDATED').kind,
+    'rejected',
+  )
+})
+
+test('F11: the downgrade refusal names the state and the remedy', () => {
+  const decision = decideDatasetValidationChange({ activationStatus: 'ACTIVE', validationStatus: 'VALIDATED' }, 'REJECTED')
+  assert.equal(decision.kind, 'rejected')
+  if (decision.kind !== 'rejected') return
+  assert.match(decision.message, /ACTIVE/)
+  assert.match(decision.message, /REJECTED/)
+  assert.match(decision.message, /retiring it or activating another VALIDATED version/)
 })
