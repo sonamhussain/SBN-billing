@@ -1,6 +1,7 @@
 import { findFacilityById } from '../facility/facility.repository.ts'
 import type { FacilityRegulatoryProfileDto, FacilityRegulatoryProfileResult } from './facility-regulatory.types.ts'
 import {
+  decideActiveProfileClosure,
   formatDateOnly,
   isFacilityRegulatoryProfileUuid,
   normalizeDateOnlyField,
@@ -14,6 +15,7 @@ import {
   findActiveProfilesForFacility,
   findFacilityRegulatoryProfileById,
   findFacilityRegulatoryProfilesByFacilityId,
+  lockFacilityForRegulatoryChange,
   updateFacilityRegulatoryProfileRecord,
 } from './facility-regulatory.repository.ts'
 import { prisma } from '../../shared/database/prisma.ts'
@@ -33,10 +35,20 @@ type FacilityRegulatoryProfileRecord = {
   updatedAt: Date
 }
 
-// T21: concurrent overlapping activations must not both commit — mirrors A3.4's SUPERSEDES
-// hardening exactly. The overlap check reads other rows for the same facility, so it needs
-// SERIALIZABLE isolation + bounded retry instead of the default isolation level.
+// T21 / audit F05: concurrent writers must never leave two overlapping ACTIVE profiles. Every path
+// that changes the ACTIVE set or an ACTIVE period (activation and update) takes the facility row
+// lock first and makes all decisions on reads taken after the lock, under the default READ
+// COMMITTED isolation — so each re-read sees the competing writer's committed result. (A
+// SERIALIZABLE snapshot is fixed before the lock is granted and would evaluate stale rows.) The
+// bounded retry is kept only for a write conflict/deadlock reported as P2034.
 const MAX_ACTIVATE_RETRIES = 3
+
+// Internal test seams (never reachable from an HTTP route): deterministic barriers for the F05
+// concurrency proof. Both run inside the transaction.
+export type FacilityProfileInternalOptions = {
+  beforeLock?: () => Promise<void>
+  afterLockedRead?: () => Promise<void>
+}
 
 function isSerializationConflict(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034'
@@ -143,6 +155,7 @@ export async function updateFacilityRegulatoryProfile(
   effectiveFromInput: unknown,
   effectiveToInput: unknown,
   actorUserId: string,
+  internal: FacilityProfileInternalOptions = {},
 ): Promise<FacilityRegulatoryProfileResult<FacilityRegulatoryProfileDto>> {
   if (!isFacilityRegulatoryProfileUuid(id))
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid facility regulatory profile id' }
@@ -173,8 +186,14 @@ export async function updateFacilityRegulatoryProfile(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'at least one field is required' }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    // facilityId is immutable, so the unlocked first read is only used to find the lock target;
+    // every decision below is made on the re-read taken while holding the facility lock.
+    const located = await findFacilityRegulatoryProfileById(id, tx)
+    if (!located) return { kind: 'not_found' as const }
+    await lockFacilityForRegulatoryChange(located.facilityId, tx)
     const existing = await findFacilityRegulatoryProfileById(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await internal.afterLockedRead?.()
 
     if (existing.status === 'ACTIVE') {
       if (jurisdictionCodeInput !== undefined || regulatoryAuthorityCodeInput !== undefined || effectiveFromField.present)
@@ -182,14 +201,11 @@ export async function updateFacilityRegulatoryProfile(
           kind: 'terminal' as const,
           message: 'only effectiveTo may be changed once a regulatory profile is ACTIVE',
         }
-      if (!effectiveToField.present)
-        return { kind: 'terminal' as const, message: 'effectiveTo is required to close an ACTIVE regulatory profile' }
 
-      const nextEffectiveTo = effectiveToField.valid ? effectiveToField.value : null
-      if (nextEffectiveTo && existing.effectiveFrom.getTime() > nextEffectiveTo.getTime())
-        return { kind: 'terminal' as const, message: 'effectiveFrom must not be after effectiveTo' }
+      const closure = decideActiveProfileClosure(existing, effectiveToField)
+      if (!closure.ok) return { kind: 'terminal' as const, message: closure.message }
 
-      const record = await updateFacilityRegulatoryProfileRecord(id, { effectiveTo: nextEffectiveTo }, tx)
+      const record = await updateFacilityRegulatoryProfileRecord(id, { effectiveTo: closure.effectiveTo }, tx)
 
       await recordAuditEvent(
         {
@@ -247,6 +263,7 @@ export async function updateFacilityRegulatoryProfile(
 export async function activateFacilityRegulatoryProfile(
   id: string,
   actorUserId: string,
+  internal: FacilityProfileInternalOptions = {},
 ): Promise<FacilityRegulatoryProfileResult<FacilityRegulatoryProfileDto>> {
   if (!isFacilityRegulatoryProfileUuid(id))
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid facility regulatory profile id' }
@@ -255,8 +272,15 @@ export async function activateFacilityRegulatoryProfile(
     try {
       const outcome = await prisma.$transaction(
         async (tx) => {
+          const located = await findFacilityRegulatoryProfileById(id, tx)
+          if (!located) return { kind: 'not_found' as const }
+          await internal.beforeLock?.()
+          // Audit F05: same facility lock as the update path, so an INACTIVE-period edit can never
+          // land after this activation has checked the period (or vice versa).
+          await lockFacilityForRegulatoryChange(located.facilityId, tx)
           const existing = await findFacilityRegulatoryProfileById(id, tx)
           if (!existing) return { kind: 'not_found' as const }
+          await internal.afterLockedRead?.()
           if (existing.status !== 'INACTIVE')
             return { kind: 'terminal' as const, message: 'activate is only allowed from INACTIVE' }
 
@@ -287,7 +311,6 @@ export async function activateFacilityRegulatoryProfile(
 
           return { kind: 'updated' as const, record }
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       )
 
       if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'facility regulatory profile not found' }
@@ -295,7 +318,7 @@ export async function activateFacilityRegulatoryProfile(
       return { ok: true, value: toDto(outcome.record) }
     } catch (error) {
       if (isSerializationConflict(error) && attempt < MAX_ACTIVATE_RETRIES) {
-        console.warn(`[facility-regulatory] SERIALIZABLE conflict on activate (attempt ${attempt}/${MAX_ACTIVATE_RETRIES}) — retrying`)
+        console.warn(`[facility-regulatory] write conflict on activate (attempt ${attempt}/${MAX_ACTIVATE_RETRIES}) — retrying`)
         continue
       }
       if (isSerializationConflict(error))

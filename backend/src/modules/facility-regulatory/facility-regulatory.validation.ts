@@ -27,6 +27,7 @@ export type FacilityRegulatoryProfileStatus = (typeof facilityRegulatoryProfileS
 // Audit F07: this module used to carry its own copy of the date parser. It now reuses the single
 // shared strict boundary; the names stay exported so existing importers are unchanged.
 export { normalizeDateOnlyField, formatDateOnly, type DateOnlyInput } from '../../shared/rules/date-only.ts'
+import type { DateOnlyInput } from '../../shared/rules/date-only.ts'
 
 export function normalizeRequiredDateOnly(value: unknown): Date | null {
   return parseStrictDateOnly(value)
@@ -47,4 +48,30 @@ export function rangesOverlap(
   const aStartsBeforeOrOnBEnd = bTo === null || aFrom.getTime() <= bTo.getTime()
   const bStartsBeforeOrOnAEnd = aTo === null || bFrom.getTime() <= aTo.getTime()
   return aStartsBeforeOrOnBEnd && bStartsBeforeOrOnAEnd
+}
+
+export type ActiveClosureDecision = { ok: true; effectiveTo: Date } | { ok: false; message: string }
+
+// Audit F05 / REF-01 T24: the only change an ACTIVE profile accepts is ONE finite closure of an
+// open-ended period. Clearing effectiveTo (reopening), closing an already-closed period again,
+// extending it or shortening it are all rejected — an already finite ACTIVE period is historical
+// governance and is not casually revised. Closing can only shrink a period, so it can never
+// create an overlap with another ACTIVE profile.
+export function decideActiveProfileClosure(
+  existing: { effectiveFrom: Date; effectiveTo: Date | null },
+  requestedEffectiveTo: DateOnlyInput,
+): ActiveClosureDecision {
+  if (!requestedEffectiveTo.present)
+    return { ok: false, message: 'effectiveTo is required to close an ACTIVE regulatory profile' }
+  if (!requestedEffectiveTo.valid) return { ok: false, message: 'effectiveTo must be a YYYY-MM-DD date' }
+  if (requestedEffectiveTo.value === null)
+    return { ok: false, message: 'an ACTIVE regulatory profile cannot be reopened; effectiveTo cannot be cleared' }
+  if (existing.effectiveTo !== null)
+    return {
+      ok: false,
+      message: 'this ACTIVE regulatory profile is already closed; its effective period can no longer be changed',
+    }
+  if (requestedEffectiveTo.value.getTime() < existing.effectiveFrom.getTime())
+    return { ok: false, message: 'effectiveFrom must not be after effectiveTo' }
+  return { ok: true, effectiveTo: requestedEffectiveTo.value }
 }

@@ -83,8 +83,8 @@ async function main() {
   const S2 = await prisma.tariffSchedule.create({ data: { providerContractId: C2.id, tariffKey: `${tag}-S2`, displayName: 'S2' } })
   const V1 = await prisma.tariffScheduleVersion.create({ data: { tariffScheduleId: S1.id, version: '1' } })
   const V2 = await prisma.tariffScheduleVersion.create({ data: { tariffScheduleId: S2.id, version: '1' } })
-  const PF1 = await prisma.facilityRegulatoryProfile.create({ data: { facilityId: F1.id, jurisdictionCode: 'AE-DU', regulatoryAuthorityCode: 'DHA', effectiveFrom: d('2020-01-01'), status: 'INACTIVE' } })
-  const PF2 = await prisma.facilityRegulatoryProfile.create({ data: { facilityId: F2.id, jurisdictionCode: 'AE-DU', regulatoryAuthorityCode: 'DHA', effectiveFrom: d('2020-01-01'), status: 'INACTIVE' } })
+  const PF1 = await prisma.facilityRegulatoryProfile.create({ data: { facilityId: F1.id, jurisdictionCode: 'AE-DU', regulatoryAuthorityCode: 'DHA', effectiveFrom: d('2020-01-01'), status: 'ACTIVE' } })
+  const PF2 = await prisma.facilityRegulatoryProfile.create({ data: { facilityId: F2.id, jurisdictionCode: 'AE-DU', regulatoryAuthorityCode: 'DHA', effectiveFrom: d('2020-01-01'), status: 'ACTIVE' } })
 
   // ---- consumers ---------------------------------------------------------------------------
   const rule = await prisma.ruleDefinition.create({
