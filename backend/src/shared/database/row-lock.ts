@@ -18,6 +18,8 @@ const lockableTables = [
   'source_interpretations',
   'rule_versions',
   'tariff_schedule_versions',
+  // Audit F11: the dataset row is the parent every dataset-version writer serializes on.
+  'reference_datasets',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

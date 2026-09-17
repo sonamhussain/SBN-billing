@@ -15,6 +15,7 @@ import {
   updateReferenceDatasetVersionRecord,
 } from './reference-dataset.repository.ts'
 import {
+  decideDatasetValidationChange,
   isReferenceDatasetValidationStatus,
   normalizeContentHash,
   normalizeDatasetKey,
@@ -25,6 +26,8 @@ import {
 } from './reference-dataset.validation.ts'
 import { normalizeDateOnlyField } from '../rule-source-version/rule-source-version.validation.ts'
 import { parseStrictTimestamp } from '../../shared/rules/date-only.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 
 export type MaintenanceResult<T> = { ok: true; value: T } | { ok: false; message: string }
 
@@ -116,7 +119,37 @@ export async function importReferenceDatasetVersion(input: {
   return { ok: true, value: { id: record.id } }
 }
 
-const terminalActivationStatuses: readonly string[] = ['RETIRED']
+// Audit F11 — validate, activate and retire all decide on the CURRENT state of the dataset's
+// versions, and activate additionally rewrites a sibling. They therefore share one parent-level
+// protocol: lock the dataset row FOR UPDATE, re-read the version inside that transaction, decide,
+// write. Two operations on the same dataset can then never interleave, whichever pair they are.
+// The database guards added alongside (one ACTIVE per dataset, ACTIVE implies VALIDATED) are the
+// final backstop, not a substitute for this transaction and its sanitized typed error.
+type DatasetVersionRecord = { id: string; datasetId: string; activationStatus: string; validationStatus: string }
+
+type DatasetWriteOutcome =
+  | { kind: 'not_found' }
+  | { kind: 'terminal'; message: string }
+  | { kind: 'updated'; record: DatasetVersionRecord }
+
+async function withDatasetLock(
+  versionId: string,
+  probeName: string,
+  decide: (existing: DatasetVersionRecord, tx: DbClient) => Promise<DatasetWriteOutcome>,
+): Promise<DatasetWriteOutcome> {
+  // This first read is used ONLY to learn which parent row to lock; every decision below is made
+  // from the re-read performed while the lock is held.
+  const target = await findReferenceDatasetVersionById(versionId)
+  if (!target) return { kind: 'not_found' as const }
+
+  return prisma.$transaction(async (tx: DbClient) => {
+    await lockRowForUpdate(tx, 'reference_datasets', target.datasetId)
+    const existing = await findReferenceDatasetVersionById(versionId, tx)
+    if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe(probeName)
+    return decide(existing, tx)
+  })
+}
 
 export async function validateReferenceDatasetVersion(
   id: string,
@@ -125,30 +158,30 @@ export async function validateReferenceDatasetVersion(
   if (!isReferenceDatasetValidationStatus(validationStatusInput))
     return { ok: false, message: 'validationStatus must be UNVALIDATED, VALIDATED, or REJECTED' }
 
-  const existing = await findReferenceDatasetVersionById(id)
-  if (!existing) return { ok: false, message: 'reference dataset version not found' }
-  if (terminalActivationStatuses.includes(existing.activationStatus))
-    return { ok: false, message: 'reference dataset version is retired and cannot be changed' }
-  // T51: REJECTED is terminal for validationStatus — no further transition is allowed.
-  if (existing.validationStatus === 'REJECTED')
-    return { ok: false, message: 'reference dataset version validation is already REJECTED and cannot be changed' }
+  const outcome = await withDatasetLock(id, 'reference_dataset.validate', async (existing, tx) => {
+    const decision = decideDatasetValidationChange(existing, validationStatusInput)
+    if (decision.kind === 'rejected') return { kind: 'terminal' as const, message: decision.message }
+    const record = await updateReferenceDatasetVersionRecord(id, { validationStatus: validationStatusInput }, tx)
+    return { kind: 'updated' as const, record }
+  })
 
-  const record = await updateReferenceDatasetVersionRecord(id, { validationStatus: validationStatusInput })
-  return { ok: true, value: { id: record.id, validationStatus: record.validationStatus } }
+  if (outcome.kind === 'not_found') return { ok: false, message: 'reference dataset version not found' }
+  if (outcome.kind === 'terminal') return { ok: false, message: outcome.message }
+  return { ok: true, value: { id: outcome.record.id, validationStatus: outcome.record.validationStatus } }
 }
 
 // Activating a version supersedes the dataset's current ACTIVE version (if any) in the same
 // transaction — a dataset has at most one ACTIVE version. Re-activating a previously SUPERSEDED
 // version is a valid rollback: it simply becomes ACTIVE again and supersedes today's ACTIVE one.
 export async function activateReferenceDatasetVersion(id: string): Promise<MaintenanceResult<{ id: string; activationStatus: string }>> {
-  const outcome = await prisma.$transaction(async (tx: DbClient) => {
-    const existing = await findReferenceDatasetVersionById(id, tx)
-    if (!existing) return { kind: 'not_found' as const }
+  const outcome = await withDatasetLock(id, 'reference_dataset.activate', async (existing, tx) => {
     if (existing.activationStatus === 'RETIRED')
       return { kind: 'terminal' as const, message: 'reference dataset version is retired and cannot be changed' }
     if (existing.validationStatus !== 'VALIDATED')
       return { kind: 'terminal' as const, message: 'only a VALIDATED reference dataset version can be activated' }
 
+    // Read under the parent lock, so a competing activation on this dataset has either already
+    // committed (and is seen here) or is still waiting for this transaction to finish.
     const currentActive = await findActiveVersionForDataset(existing.datasetId, id, tx)
     if (currentActive) {
       await updateReferenceDatasetVersionRecord(currentActive.id, { activationStatus: 'SUPERSEDED', supersededAt: new Date() }, tx)
@@ -164,10 +197,14 @@ export async function activateReferenceDatasetVersion(id: string): Promise<Maint
 }
 
 export async function retireReferenceDatasetVersion(id: string): Promise<MaintenanceResult<{ id: string; activationStatus: string }>> {
-  const existing = await findReferenceDatasetVersionById(id)
-  if (!existing) return { ok: false, message: 'reference dataset version not found' }
-  if (existing.activationStatus === 'RETIRED') return { ok: false, message: 'reference dataset version is already retired' }
+  const outcome = await withDatasetLock(id, 'reference_dataset.retire', async (existing, tx) => {
+    if (existing.activationStatus === 'RETIRED')
+      return { kind: 'terminal' as const, message: 'reference dataset version is already retired' }
+    const record = await updateReferenceDatasetVersionRecord(id, { activationStatus: 'RETIRED', retiredAt: new Date() }, tx)
+    return { kind: 'updated' as const, record }
+  })
 
-  const record = await updateReferenceDatasetVersionRecord(id, { activationStatus: 'RETIRED', retiredAt: new Date() })
-  return { ok: true, value: { id: record.id, activationStatus: record.activationStatus } }
+  if (outcome.kind === 'not_found') return { ok: false, message: 'reference dataset version not found' }
+  if (outcome.kind === 'terminal') return { ok: false, message: outcome.message }
+  return { ok: true, value: { id: outcome.record.id, activationStatus: outcome.record.activationStatus } }
 }
