@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  areEffectiveDatesFrozen,
   isRuleSourceVersionUuid,
   isSourceVerificationStatus,
   normalizeBusinessDate,
@@ -109,4 +110,22 @@ test('normalizeContextJurisdictionCode trims correctly', () => {
 
 test('blank context jurisdictionCode rejected', () => {
   assert.equal(normalizeContextJurisdictionCode('   '), null)
+})
+
+// --- F09: the effective-date freeze survives a failed resume ----------------------------------
+
+test('F09: every status that already governs freezes the effective dates', () => {
+  for (const status of ['ACTIVE', 'SUSPENDED', 'RETIRED', 'SUPERSEDED']) {
+    assert.equal(areEffectiveDatesFrozen(status, false), true, status)
+  }
+})
+
+test('F09: a never-activated INACTIVE or BLOCKED version stays editable', () => {
+  assert.equal(areEffectiveDatesFrozen('INACTIVE', false), false)
+  assert.equal(areEffectiveDatesFrozen('BLOCKED', false), false)
+})
+
+test('F09: a previously activated version stays frozen after a failed resume lands on BLOCKED', () => {
+  assert.equal(areEffectiveDatesFrozen('BLOCKED', true), true)
+  assert.equal(areEffectiveDatesFrozen('INACTIVE', true), true)
 })

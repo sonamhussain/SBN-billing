@@ -241,6 +241,9 @@ async function main() {
       verifiedAt: new Date(),
       activationStatus: 'ACTIVE',
       activatedAt: new Date(),
+      // Audit F09: an ACTIVE row must carry the durable ever-activated fact.
+      everActivated: true,
+      firstActivatedAt: new Date(),
     },
   })
   const interpretation = await prisma.sourceInterpretation.create({

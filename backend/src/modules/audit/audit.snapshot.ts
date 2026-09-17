@@ -115,6 +115,8 @@ export const ruleSourceVersionAuditSnapshot = (x: {
   activationStatus: string
   activationBlockers: string[]
   activatedAt: Date | null
+  everActivated: boolean
+  firstActivatedAt: Date | null
   suspendedAt: Date | null
   supersededAt: Date | null
   retiredAt: Date | null
@@ -132,6 +134,8 @@ export const ruleSourceVersionAuditSnapshot = (x: {
   activationStatus: x.activationStatus,
   activationBlockers: x.activationBlockers,
   activatedAt: x.activatedAt ? x.activatedAt.toISOString() : null,
+  everActivated: x.everActivated,
+  firstActivatedAt: x.firstActivatedAt ? x.firstActivatedAt.toISOString() : null,
   suspendedAt: x.suspendedAt ? x.suspendedAt.toISOString() : null,
   supersededAt: x.supersededAt ? x.supersededAt.toISOString() : null,
   retiredAt: x.retiredAt ? x.retiredAt.toISOString() : null,

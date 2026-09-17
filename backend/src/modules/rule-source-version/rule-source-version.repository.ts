@@ -40,6 +40,8 @@ export type RuleSourceVersionLifecycleUpdate = {
   activationStatus?: string
   activationBlockers?: string[]
   activatedAt?: Date | null
+  everActivated?: boolean
+  firstActivatedAt?: Date | null
   suspendedAt?: Date | null
   supersededAt?: Date | null
   retiredAt?: Date | null
