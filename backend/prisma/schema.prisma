@@ -266,6 +266,12 @@ model RuleSourceVersion {
   supersededAt       DateTime? @map("superseded_at") @db.Timestamptz(6)
   retiredAt          DateTime? @map("retired_at") @db.Timestamptz(6)
 
+  // Audit F09: the durable "this version was governing at some point" fact, plus the original
+  // activation evidence. activatedAt cannot carry this: a failed resume must clear it, because
+  // rule_source_versions_blocked_chk requires activated_at IS NULL while BLOCKED.
+  everActivated    Boolean   @default(false) @map("ever_activated")
+  firstActivatedAt DateTime? @map("first_activated_at") @db.Timestamptz(6)
+
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

@@ -11,6 +11,7 @@ import {
   normalizeRawEvidenceRef,
   normalizeVersion,
   formatDateOnly,
+  areEffectiveDatesFrozen,
 } from './rule-source-version.validation.ts'
 import { evaluateActivationBlockers } from './rule-source-version.activation.ts'
 import {
@@ -76,7 +77,6 @@ function isUniqueConstraintViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
 }
 
-const activationLockedStatuses: readonly string[] = ['ACTIVE', 'SUSPENDED', 'RETIRED', 'SUPERSEDED']
 
 // A3.4 safe supersession transition: only runs after FROM successfully becomes ACTIVE, inside
 // the same transaction. Targets already SUPERSEDED or RETIRED are left untouched (historical
@@ -218,7 +218,7 @@ export async function updateLifecycleMetadata(
     if (publicationDateField.present && existing.publicationStatus === 'PUBLISHED')
       return { kind: 'terminal' as const, message: 'publicationDate is immutable once published' }
 
-    if ((effectiveFromField.present || effectiveToField.present) && activationLockedStatuses.includes(existing.activationStatus))
+    if ((effectiveFromField.present || effectiveToField.present) && areEffectiveDatesFrozen(existing.activationStatus, existing.everActivated))
       return {
         kind: 'terminal' as const,
         message: 'effective dates are immutable once activated; create a new source version instead',
@@ -420,7 +420,14 @@ export async function activateRuleSourceVersion(
     const record = await updateRuleSourceVersionLifecycle(
       id,
       becameActive
-        ? { activationStatus: 'ACTIVE', activatedAt: new Date(), activationBlockers: [] }
+        ? {
+            activationStatus: 'ACTIVE',
+            activatedAt: new Date(),
+            activationBlockers: [],
+            // Audit F09: set once, never cleared — a later failed resume keeps both.
+            everActivated: true,
+            firstActivatedAt: existing.firstActivatedAt ?? new Date(),
+          }
         : { activationStatus: 'BLOCKED', activatedAt: null, activationBlockers: blockers },
       tx,
     )
@@ -529,7 +536,14 @@ export async function resumeRuleSourceVersion(
     const record = await updateRuleSourceVersionLifecycle(
       id,
       becameActive
-        ? { activationStatus: 'ACTIVE', activatedAt: new Date(), activationBlockers: [] }
+        ? {
+            activationStatus: 'ACTIVE',
+            activatedAt: new Date(),
+            activationBlockers: [],
+            // Audit F09: set once, never cleared — a later failed resume keeps both.
+            everActivated: true,
+            firstActivatedAt: existing.firstActivatedAt ?? new Date(),
+          }
         : { activationStatus: 'BLOCKED', activatedAt: null, activationBlockers: blockers },
       tx,
     )

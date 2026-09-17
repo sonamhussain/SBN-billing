@@ -101,6 +101,9 @@ async function main() {
         verifiedAt: new Date(),
         activationStatus,
         activatedAt: new Date(),
+        // Audit F09: ACTIVE and SUPERSEDED rows carry the durable ever-activated fact.
+        everActivated: activationStatus !== 'INACTIVE',
+        firstActivatedAt: activationStatus !== 'INACTIVE' ? new Date() : null,
         supersededAt: activationStatus === 'SUPERSEDED' ? new Date() : null,
       },
     })
