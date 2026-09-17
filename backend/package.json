@@ -27,7 +27,9 @@
     "test:a3:lifecycle": "node --env-file=.env src/scripts/test-a3-lifecycle-freeze.ts",
     "test:a3:identity": "node --env-file=.env src/scripts/test-a3-source-identity.ts",
     "test:a3:dependency": "node --env-file=.env src/scripts/test-a3-dependency-resolution.ts",
-    "test:a3:dataset": "node --env-file=.env src/scripts/test-a3-dataset-state.ts"
+    "test:a3:dataset": "node --env-file=.env src/scripts/test-a3-dataset-state.ts",
+    "test:a3:history": "node --env-file=.env src/scripts/test-a3-dataset-history.ts",
+    "db:verify:replay": "node --env-file=.env src/scripts/verify-migration-replay.ts"
   },
   "keywords": [],
   "author": "",
