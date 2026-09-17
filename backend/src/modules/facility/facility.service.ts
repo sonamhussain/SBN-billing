@@ -1,4 +1,6 @@
 import { getOrganization } from '../organization/organization.service.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import type { FacilityDto, FacilityResult } from './facility.types.ts'
 import { isFacilityUuid, normalizeFacilityName } from './facility.validation.ts'
 import { createFacilityRecord, findFacilityById, updateFacilityRecord } from './facility.repository.ts'
@@ -69,8 +71,11 @@ export async function updateFacility(
   if (!name) return { ok: false, code: 'VALIDATION_ERROR', message: 'name is required' }
 
   const updated = await prisma.$transaction(async (tx) => {
+    // Audit F08: lock before reading so the audit beforeState is the true serial predecessor.
+    await lockRowForUpdate(tx, 'facilities', id)
     const existing = await findFacilityById(id, tx)
     if (!existing) return null
+    await concurrencyProbe('facility.update')
 
     const record = await updateFacilityRecord(id, name, tx)
 
