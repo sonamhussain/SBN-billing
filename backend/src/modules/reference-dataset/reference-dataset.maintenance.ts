@@ -24,6 +24,7 @@ import {
   normalizeReferenceDatasetVersion,
 } from './reference-dataset.validation.ts'
 import { normalizeDateOnlyField } from '../rule-source-version/rule-source-version.validation.ts'
+import { parseStrictTimestamp } from '../../shared/rules/date-only.ts'
 
 export type MaintenanceResult<T> = { ok: true; value: T } | { ok: false; message: string }
 
@@ -60,13 +61,25 @@ export async function importReferenceDatasetVersion(input: {
   if (!version) return { ok: false, message: 'version is required' }
   const contentHash = normalizeContentHash(input.contentHash)
   if (!contentHash) return { ok: false, message: 'contentHash is required' }
-  if (typeof input.retrievedAt !== 'string') return { ok: false, message: 'retrievedAt is required' }
-  const retrievedAt = new Date(input.retrievedAt)
-  if (Number.isNaN(retrievedAt.getTime())) return { ok: false, message: 'retrievedAt must be a valid timestamp' }
+  if (input.retrievedAt === undefined || input.retrievedAt === null) return { ok: false, message: 'retrievedAt is required' }
+  // Audit F07: `new Date(string)` accepted "2026", free-text dates and rolled overflowing days
+  // forward. retrievedAt must be an explicit ISO-8601 instant with a real calendar day and zone.
+  const retrievedAt = parseStrictTimestamp(input.retrievedAt)
+  if (!retrievedAt) return { ok: false, message: 'retrievedAt must be an ISO-8601 timestamp with a timezone' }
 
   const publicationDateField = normalizeDateOnlyField(input.publicationDate)
   const effectiveFromField = normalizeDateOnlyField(input.effectiveFrom)
   const effectiveToField = normalizeDateOnlyField(input.effectiveTo)
+
+  // Audit F07: a present-but-invalid optional date used to fall through to null and be inserted as
+  // "undated". It is now a typed maintenance error, returned before any database read or write.
+  // Absent and explicit null both still mean "not provided" — undated drafts remain supported.
+  if (publicationDateField.present && !publicationDateField.valid)
+    return { ok: false, message: 'publicationDate must be a real YYYY-MM-DD date or null' }
+  if (effectiveFromField.present && !effectiveFromField.valid)
+    return { ok: false, message: 'effectiveFrom must be a real YYYY-MM-DD date or null' }
+  if (effectiveToField.present && !effectiveToField.valid)
+    return { ok: false, message: 'effectiveTo must be a real YYYY-MM-DD date or null' }
 
   const effectiveFrom = effectiveFromField.present && effectiveFromField.valid ? effectiveFromField.value : null
   const effectiveTo = effectiveToField.present && effectiveToField.valid ? effectiveToField.value : null

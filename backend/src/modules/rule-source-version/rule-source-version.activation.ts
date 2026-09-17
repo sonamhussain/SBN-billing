@@ -1,3 +1,5 @@
+import { isEffectiveOn } from '../../shared/rules/date-only.ts'
+
 export const activationBlockerCodes = [
   'SOURCE_NOT_PUBLISHED',
   'EFFECTIVE_DATE_INCOMPLETE',
@@ -42,11 +44,10 @@ export type ActivationRelationshipSignals = {
   hasConflict: boolean
 }
 
+// Audit F07: delegates to the single shared inclusive-window rule, which additionally fails closed
+// on non-finite dates (an Invalid Date businessDate used to evaluate as "effective").
 export function isEffective(effectiveFrom: Date | null, effectiveTo: Date | null, businessDate: Date): boolean {
-  if (!effectiveFrom) return false
-  if (businessDate.getTime() < effectiveFrom.getTime()) return false
-  if (effectiveTo && businessDate.getTime() > effectiveTo.getTime()) return false
-  return true
+  return isEffectiveOn(effectiveFrom, effectiveTo, businessDate)
 }
 
 function normalizeJurisdictionForCompare(value: string): string {
