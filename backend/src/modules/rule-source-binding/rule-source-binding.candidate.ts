@@ -29,6 +29,14 @@ export type CandidateInterpretation = {
   sourceVersion: CandidateSourceVersion
 }
 
+// Internal test seam (never reachable from an HTTP route): lets a live test inject an upstream
+// evaluator that returns a blocker A3.7 has never seen, to prove the real candidate path fails closed.
+export type ActivationEvaluator = (...args: Parameters<typeof evaluateActivationBlockers>) => readonly unknown[]
+
+export type CandidateInternalOptions = {
+  activationEvaluator?: ActivationEvaluator
+}
+
 export type GoverningCandidateParams = {
   ruleOrganizationId: string
   ruleJurisdictionCode: string
@@ -42,6 +50,7 @@ export type GoverningCandidateParams = {
 export async function evaluateGoverningCandidateBlockers(
   interpretation: CandidateInterpretation,
   params: GoverningCandidateParams,
+  internal: CandidateInternalOptions = {},
 ): Promise<Set<string>> {
   const sourceVersion = interpretation.sourceVersion
   const source = sourceVersion.source
@@ -62,7 +71,8 @@ export async function evaluateGoverningCandidateBlockers(
   // Passing [interpretation] (not the full interpretation list) makes the reused evaluator's
   // "any interpretation verified" check become "the exact bound interpretation is verified" —
   // per A3.7's explicit rule: verify the bound interpretation, never "any" interpretation.
-  const liveBlockers = evaluateActivationBlockers(
+  const evaluateActivation: ActivationEvaluator = internal.activationEvaluator ?? evaluateActivationBlockers
+  const liveBlockers = evaluateActivation(
     sourceVersion,
     { jurisdictionCode: source.jurisdictionCode, organizationId: sourceOrgId },
     [interpretation],

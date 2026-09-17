@@ -1,3 +1,5 @@
+import { activationBlockerCodes, type ActivationBlockerCode } from '../rule-source-version/rule-source-version.activation.ts'
+
 const uuidShape =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -49,29 +51,76 @@ export function isExecutabilityBlockerCode(value: string): value is Executabilit
   return (executabilityBlockerCodes as readonly string[]).includes(value)
 }
 
-// A3.3's activation evaluator can return two date blockers that are not part of A3.7's published
-// fifteen-code vocabulary. They used to be filtered out along with every other unrecognised code,
-// which removed them from the set that decides whether a governing candidate passes — so a source
-// version with no effectiveFrom (for which the evaluator raises ONLY EFFECTIVE_DATE_INCOMPLETE,
-// never SOURCE_NOT_EFFECTIVE) passed the gate. Both are mapped onto SOURCE_NOT_EFFECTIVE, which
-// already means "not validly in force for this date", so the public vocabulary stays unchanged.
-const activationDateBlockerAliases: Readonly<Record<string, ExecutabilityBlockerCode>> = {
-  EFFECTIVE_DATE_INCOMPLETE: 'SOURCE_NOT_EFFECTIVE',
-  CONTRADICTORY_DATES: 'SOURCE_NOT_EFFECTIVE',
+const activationBlockerCodeSet: ReadonlySet<string> = new Set(activationBlockerCodes)
+
+function isActivationBlockerCode(value: string): value is ActivationBlockerCode {
+  return activationBlockerCodeSet.has(value)
 }
 
-// Translates A3.3 activation blocker codes into A3.7 executability blocker codes. Codes in A3.7's
-// vocabulary pass through, the two date codes are aliased, anything else is dropped. The result is
-// unique and sorted, and never contains a code outside the public vocabulary.
-export function toExecutabilityBlockerCodes(activationCodes: readonly string[]): ExecutabilityBlockerCode[] {
-  const result = new Set<ExecutabilityBlockerCode>()
-  for (const code of activationCodes) {
-    if (isExecutabilityBlockerCode(code)) {
-      result.add(code)
+// Conservative public code for any upstream blocking reason A3.7 cannot name precisely. It is an
+// eligibility blocker only — it never touches the stored activationStatus.
+export const unmappedBlockerFallback: ExecutabilityBlockerCode = 'SOURCE_NOT_ACTIVE'
+
+// Exhaustive over A3.3's exported blocker union: adding a code to A3.3 without deciding its A3.7
+// meaning is a compile error here, not a silent pass at runtime.
+function translateActivationBlockerCode(code: ActivationBlockerCode): ExecutabilityBlockerCode {
+  switch (code) {
+    // A3.3 raises ONLY EFFECTIVE_DATE_INCOMPLETE when effectiveFrom is missing (never also
+    // SOURCE_NOT_EFFECTIVE), which is how an undated source used to pass the gate.
+    case 'EFFECTIVE_DATE_INCOMPLETE':
+    case 'CONTRADICTORY_DATES':
+      return 'SOURCE_NOT_EFFECTIVE'
+    case 'SOURCE_NOT_PUBLISHED':
+    case 'SOURCE_NOT_EFFECTIVE':
+    case 'AUTHORITY_UNVERIFIED':
+    case 'INTERPRETATION_UNVERIFIED':
+    case 'JURISDICTION_INCOMPATIBLE':
+    case 'OWNERSHIP_MISMATCH':
+    case 'DEPENDENCY_UNRESOLVED':
+    case 'SOURCE_CONFLICT':
+      return code
+    default: {
+      const unreachable: never = code
+      return unreachable
+    }
+  }
+}
+
+export type BlockerTranslation = {
+  // Public A3.7 codes: unique, sorted, always inside the fifteen-code vocabulary.
+  codes: ExecutabilityBlockerCode[]
+  // The exact upstream values that had no precise mapping. Internal diagnostics and test evidence
+  // only — never returned in an API response or added to the public vocabulary.
+  unmappedReasons: string[]
+}
+
+// Lossless, fail-closed translation of upstream (A3.3) blocker reasons into A3.7's vocabulary:
+//   - an A3.3 code is translated by the exhaustive switch above;
+//   - an existing A3.7 code passes through unchanged;
+//   - anything else — an unknown future code, an empty string, a non-string, or a prototype-like
+//     name such as "constructor" — becomes the conservative SOURCE_NOT_ACTIVE fallback.
+// Only a genuinely empty input list yields an empty result, so a non-empty blocker response can
+// never silently turn into success. No lookup goes through an ordinary object's prototype.
+export function translateActivationBlockers(upstream: readonly unknown[]): BlockerTranslation {
+  const codes = new Set<ExecutabilityBlockerCode>()
+  const unmappedReasons: string[] = []
+
+  for (const entry of upstream) {
+    if (typeof entry === 'string' && isActivationBlockerCode(entry)) {
+      codes.add(translateActivationBlockerCode(entry))
       continue
     }
-    const alias = activationDateBlockerAliases[code]
-    if (alias) result.add(alias)
+    if (typeof entry === 'string' && isExecutabilityBlockerCode(entry)) {
+      codes.add(entry)
+      continue
+    }
+    codes.add(unmappedBlockerFallback)
+    unmappedReasons.push(typeof entry === 'string' ? entry : `<non-string:${typeof entry}>`)
   }
-  return [...result].sort()
+
+  return { codes: [...codes].sort(), unmappedReasons }
+}
+
+export function toExecutabilityBlockerCodes(upstream: readonly unknown[]): ExecutabilityBlockerCode[] {
+  return translateActivationBlockers(upstream).codes
 }

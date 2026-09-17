@@ -6,7 +6,7 @@ import { validateApplicabilityContextCoherence } from '../rule-applicability/rul
 import { normalizeBusinessDate } from '../rule-source-version/rule-source-version.validation.ts'
 import { isEffective } from '../rule-source-version/rule-source-version.activation.ts'
 import { compatibilityPolicyVersion, isCompatibleGoverningEffect } from './rule-source-binding.compatibility.ts'
-import { evaluateGoverningCandidateBlockers } from './rule-source-binding.candidate.ts'
+import { evaluateGoverningCandidateBlockers, type CandidateInternalOptions } from './rule-source-binding.candidate.ts'
 import { findActiveFacilityRegulatoryProfileForDate } from '../facility-regulatory/facility-regulatory.repository.ts'
 import type { ScopeContext } from '../rule-source-scope/rule-source-scope.matcher.ts'
 import { isRuleSourceBindingUuid, normalizeSourceRole } from './rule-source-binding.validation.ts'
@@ -151,6 +151,8 @@ export async function evaluateExecutability(
   ruleVersionId: string,
   businessDateInput: unknown,
   dimensionInputs: Record<ApplicabilityDimensionKey, unknown>,
+  // Internal test seam only — the HTTP route never passes it.
+  internal: CandidateInternalOptions = {},
 ): Promise<RuleSourceBindingResult<ExecutabilityEvaluationDto>> {
   if (!isRuleSourceBindingUuid(ruleVersionId))
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule version id' }
@@ -245,13 +247,17 @@ export async function evaluateExecutability(
 
     governingBindingIds.push(binding.id)
 
-    const bindingBlockers = await evaluateGoverningCandidateBlockers(binding.sourceInterpretation, {
-      ruleOrganizationId: ruleOrgId,
-      ruleJurisdictionCode: ruleJurisdiction,
-      ruleEffectType: version.effectType,
-      businessDate,
-      scopeContext,
-    })
+    const bindingBlockers = await evaluateGoverningCandidateBlockers(
+      binding.sourceInterpretation,
+      {
+        ruleOrganizationId: ruleOrgId,
+        ruleJurisdictionCode: ruleJurisdiction,
+        ruleEffectType: version.effectType,
+        businessDate,
+        scopeContext,
+      },
+      internal,
+    )
 
     if (bindingBlockers.size === 0) {
       anyGoverningPassed = true

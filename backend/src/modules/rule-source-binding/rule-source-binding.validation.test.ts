@@ -7,8 +7,10 @@ import {
   isSourceRole,
   normalizeSourceRole,
   toExecutabilityBlockerCodes,
+  translateActivationBlockers,
+  unmappedBlockerFallback,
 } from './rule-source-binding.validation.ts'
-import { evaluateActivationBlockers } from '../rule-source-version/rule-source-version.activation.ts'
+import { activationBlockerCodes, evaluateActivationBlockers } from '../rule-source-version/rule-source-version.activation.ts'
 
 test('UUID shape is accepted', () => {
   assert.equal(isRuleSourceBindingUuid('550e8400-e29b-41d4-a716-446655440000'), true)
@@ -108,10 +110,97 @@ test('date gate: raw EFFECTIVE_DATE_INCOMPLETE / CONTRADICTORY_DATES never leak 
   for (const code of mapped) assert.equal(isExecutabilityBlockerCode(code), true, code)
 })
 
-test('date gate: in-vocabulary codes pass through unchanged and unknown codes are still dropped', () => {
-  assert.deepEqual(toExecutabilityBlockerCodes(['SOURCE_NOT_PUBLISHED', 'AUTHORITY_UNVERIFIED']), [
-    'AUTHORITY_UNVERIFIED',
+// --- F01: lossless, fail-closed blocker translation --------------------------------------------
+
+test('F01: every A3.3 blocker code has a translation inside the public vocabulary', () => {
+  for (const code of activationBlockerCodes) {
+    const { codes, unmappedReasons } = translateActivationBlockers([code])
+    assert.equal(codes.length, 1, code)
+    assert.equal(isExecutabilityBlockerCode(codes[0]), true, code)
+    assert.deepEqual(unmappedReasons, [], code)
+  }
+})
+
+test('F01: the two date aliases map to SOURCE_NOT_EFFECTIVE', () => {
+  assert.deepEqual(toExecutabilityBlockerCodes(['EFFECTIVE_DATE_INCOMPLETE']), ['SOURCE_NOT_EFFECTIVE'])
+  assert.deepEqual(toExecutabilityBlockerCodes(['CONTRADICTORY_DATES']), ['SOURCE_NOT_EFFECTIVE'])
+})
+
+test('F01: known A3.3 codes that are already public pass through unchanged', () => {
+  for (const code of [
     'SOURCE_NOT_PUBLISHED',
+    'SOURCE_NOT_EFFECTIVE',
+    'AUTHORITY_UNVERIFIED',
+    'INTERPRETATION_UNVERIFIED',
+    'JURISDICTION_INCOMPATIBLE',
+    'OWNERSHIP_MISMATCH',
+    'DEPENDENCY_UNRESOLVED',
+    'SOURCE_CONFLICT',
+  ]) {
+    assert.deepEqual(toExecutabilityBlockerCodes([code]), [code], code)
+  }
+})
+
+test('F01: every existing A3.7 public code passes through unchanged', () => {
+  for (const code of executabilityBlockerCodes) {
+    assert.deepEqual(toExecutabilityBlockerCodes([code]), [code], code)
+  }
+})
+
+test('F01: an unknown future upstream blocker fails closed instead of disappearing', () => {
+  const { codes, unmappedReasons } = translateActivationBlockers(['SOME_FUTURE_A33_BLOCKER'])
+  assert.deepEqual(codes, [unmappedBlockerFallback])
+  assert.equal(unmappedBlockerFallback, 'SOURCE_NOT_ACTIVE')
+  assert.deepEqual(unmappedReasons, ['SOME_FUTURE_A33_BLOCKER'])
+})
+
+test('F01: prototype-like names are unknown strings, never object properties', () => {
+  for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    const { codes, unmappedReasons } = translateActivationBlockers([name])
+    assert.deepEqual(codes, ['SOURCE_NOT_ACTIVE'], name)
+    assert.deepEqual(unmappedReasons, [name], name)
+    for (const code of codes) assert.equal(typeof code, 'string', name)
+  }
+})
+
+test('F01: empty strings and non-string entries in a non-empty response never become success', () => {
+  for (const entry of ['', null, undefined, 42, {}, []]) {
+    const { codes, unmappedReasons } = translateActivationBlockers([entry])
+    assert.deepEqual(codes, ['SOURCE_NOT_ACTIVE'], String(entry))
+    assert.equal(unmappedReasons.length, 1, String(entry))
+  }
+})
+
+test('F01: only a genuinely empty upstream list yields an empty result', () => {
+  assert.deepEqual(translateActivationBlockers([]), { codes: [], unmappedReasons: [] })
+})
+
+test('F01: mixed and duplicate input yields unique, deterministically sorted public codes', () => {
+  const forward = toExecutabilityBlockerCodes([
+    'SOURCE_CONFLICT',
+    'EFFECTIVE_DATE_INCOMPLETE',
+    'NEW_UNKNOWN',
+    'SOURCE_NOT_EFFECTIVE',
+    'SOURCE_CONFLICT',
+    'CONTRADICTORY_DATES',
+    'constructor',
   ])
-  assert.deepEqual(toExecutabilityBlockerCodes(['SOMETHING_UNKNOWN']), [])
+  const reversed = toExecutabilityBlockerCodes([
+    'constructor',
+    'CONTRADICTORY_DATES',
+    'SOURCE_CONFLICT',
+    'SOURCE_NOT_EFFECTIVE',
+    'NEW_UNKNOWN',
+    'EFFECTIVE_DATE_INCOMPLETE',
+    'SOURCE_CONFLICT',
+  ])
+  assert.deepEqual(forward, ['SOURCE_CONFLICT', 'SOURCE_NOT_ACTIVE', 'SOURCE_NOT_EFFECTIVE'])
+  assert.deepEqual(reversed, forward)
+  for (const code of forward) assert.equal(isExecutabilityBlockerCode(code), true, code)
+})
+
+test('F01: the public vocabulary stays at exactly fifteen codes', () => {
+  assert.equal(executabilityBlockerCodes.length, 15)
+  assert.equal(isExecutabilityBlockerCode('EFFECTIVE_DATE_INCOMPLETE'), false)
+  assert.equal(isExecutabilityBlockerCode('CONTRADICTORY_DATES'), false)
 })

@@ -2,6 +2,8 @@ import 'dotenv/config'
 import { prisma } from '../shared/database/prisma.ts'
 import { evaluateExecutability } from '../modules/rule-source-binding/rule-source-binding.service.ts'
 import { executabilityBlockerCodes } from '../modules/rule-source-binding/rule-source-binding.validation.ts'
+import type { ActivationEvaluator } from '../modules/rule-source-binding/rule-source-binding.candidate.ts'
+import { evaluateActivationBlockers } from '../modules/rule-source-version/rule-source-version.activation.ts'
 import { APPLICABILITY_DIMENSIONS_V2, type ApplicabilityDimensionKeyV2 } from '../shared/rules/applicability-context-v2.ts'
 
 // Reproducible proof for the A3.7 effective-date gate correction. Runs A3.7's real
@@ -68,7 +70,13 @@ async function main() {
 
   // An otherwise fully valid governing source: PUBLISHED, VERIFIED, ACTIVE, verified
   // interpretation, same jurisdiction and organization, compatible category, no scope needed.
-  async function bindGoverningSource(ruleVersionId: string, name: string, effectiveFrom: Date | null, effectiveTo: Date | null) {
+  async function bindGoverningSource(
+    ruleVersionId: string,
+    name: string,
+    effectiveFrom: Date | null,
+    effectiveTo: Date | null,
+    activationStatus = 'ACTIVE',
+  ) {
     const source = await prisma.ruleSource.create({
       data: {
         organizationId: org,
@@ -91,8 +99,9 @@ async function main() {
         effectiveTo,
         verificationStatus: 'VERIFIED',
         verifiedAt: new Date(),
-        activationStatus: 'ACTIVE',
+        activationStatus,
         activatedAt: new Date(),
+        supersededAt: activationStatus === 'SUPERSEDED' ? new Date() : null,
       },
     })
     const interpretation = await prisma.sourceInterpretation.create({
@@ -110,8 +119,8 @@ async function main() {
     return interpretation
   }
 
-  async function evaluate(ruleVersionId: string) {
-    const result = await evaluateExecutability(ruleVersionId, '2026-10-15', emptyContext())
+  async function evaluate(ruleVersionId: string, activationEvaluator?: ActivationEvaluator) {
+    const result = await evaluateExecutability(ruleVersionId, '2026-10-15', emptyContext(), { activationEvaluator })
     if (!result.ok) throw new Error(`evaluate returned ${result.code}: ${result.message}`)
     return result.value
   }
@@ -190,7 +199,61 @@ async function main() {
   )
   check('mixed: both governing bindings are still listed', mixedResult.governingBindingIds.length === 2)
 
-  console.log('\n[a3.7-date-gate] 5. evaluation stays non-mutating')
+  // F01 / C02: an upstream blocker A3.7 has never seen, injected into the REAL candidate path
+  // through the internal seam (not reachable from HTTP). The fixture itself is fully valid, so
+  // anything but a pass is caused solely by the injected reason.
+  function injectFor(targetSourceVersionId: string | null, injected: unknown[]): ActivationEvaluator {
+    return (version, ...rest) => {
+      const id = (version as { id?: string }).id
+      if (targetSourceVersionId === null || id === targetSourceVersionId) return injected
+      return evaluateActivationBlockers(version, ...rest)
+    }
+  }
+
+  console.log('\n[a3.7-date-gate] 5. unknown upstream blocker injected into the real candidate path (C02)')
+  const unknownRule = await makeVerifiedRuleVersion('unknown-upstream')
+  await bindGoverningSource(unknownRule.id, 'unknown-upstream', d('2026-01-01'), null)
+  const unknownBaseline = await evaluate(unknownRule.id)
+  check('C02 baseline: the same fixture passes when nothing is injected', unknownBaseline.gateStatus === 'POTENTIALLY_ALLOWED')
+  const unknownResult = await evaluate(unknownRule.id, injectFor(null, ['SOME_FUTURE_A33_BLOCKER']))
+  check('C02: gateStatus is BLOCKED', unknownResult.gateStatus === 'BLOCKED', `(got ${unknownResult.gateStatus})`)
+  check('C02: conservative SOURCE_NOT_ACTIVE is reported', unknownResult.blockers.includes('SOURCE_NOT_ACTIVE'), `(got ${unknownResult.blockers.join(',')})`)
+  check('C02: MISSING_GOVERNING_SOURCE is reported', unknownResult.blockers.includes('MISSING_GOVERNING_SOURCE'))
+  check('C02: the unknown reason itself never reaches the response', !unknownResult.blockers.includes('SOME_FUTURE_A33_BLOCKER'))
+  check('C02: every blocker is a string in the fifteen-code vocabulary', unknownResult.blockers.every((code) => typeof code === 'string' && publicVocabulary.has(code)))
+  check('C02: the bad candidate is not admitted', unknownResult.candidateSourceInterpretationIds.length === 0)
+  check('C02: nextGate is null', unknownResult.nextGate === null, `(got ${String(unknownResult.nextGate)})`)
+
+  const prototypeResult = await evaluate(unknownRule.id, injectFor(null, ['constructor', '__proto__', '']))
+  check(
+    'C03: prototype-like and empty upstream reasons block with string-only public codes',
+    prototypeResult.gateStatus === 'BLOCKED' &&
+      prototypeResult.nextGate === null &&
+      prototypeResult.blockers.every((code) => typeof code === 'string' && publicVocabulary.has(code)),
+    `(got ${prototypeResult.gateStatus} / ${JSON.stringify(prototypeResult.blockers)})`,
+  )
+
+  console.log('\n[a3.7-date-gate] 6. unknown blocker on one candidate while a valid alternative remains')
+  const alternativeRule = await makeVerifiedRuleVersion('unknown-with-alternative')
+  const tainted = await bindGoverningSource(alternativeRule.id, 'tainted', d('2026-01-01'), null)
+  const clean = await bindGoverningSource(alternativeRule.id, 'clean', d('2026-01-01'), null)
+  const alternativeResult = await evaluate(alternativeRule.id, injectFor(tainted.sourceVersionId, ['SOME_FUTURE_A33_BLOCKER']))
+  check('alternative: the rule stays POTENTIALLY_ALLOWED through the clean source', alternativeResult.gateStatus === 'POTENTIALLY_ALLOWED')
+  check(
+    'alternative: only the clean source is a candidate — the tainted one is excluded',
+    alternativeResult.candidateSourceInterpretationIds.length === 1 &&
+      alternativeResult.candidateSourceInterpretationIds[0] === clean.id,
+  )
+
+  console.log('\n[a3.7-date-gate] 7. current admission stays ACTIVE-only (C13)')
+  const supersededRule = await makeVerifiedRuleVersion('superseded-current')
+  await bindGoverningSource(supersededRule.id, 'superseded-current', d('2026-01-01'), null, 'SUPERSEDED')
+  const supersededResult = await evaluate(supersededRule.id)
+  check('C13: an otherwise valid SUPERSEDED source is BLOCKED by the current gate', supersededResult.gateStatus === 'BLOCKED')
+  check('C13: SOURCE_NOT_ACTIVE is reported', supersededResult.blockers.includes('SOURCE_NOT_ACTIVE'))
+  check('C13: nextGate is null', supersededResult.nextGate === null)
+
+  console.log('\n[a3.7-date-gate] 8. evaluation stays non-mutating')
   const auditAfter = await prisma.auditEvent.count()
   check('AuditEvent count unchanged by evaluation', auditAfter === auditBefore, `(before ${auditBefore}, after ${auditAfter})`)
 
