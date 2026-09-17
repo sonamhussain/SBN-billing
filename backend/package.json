@@ -25,7 +25,8 @@
     "test:a3:coherence": "node --env-file=.env src/scripts/test-a3-context-coherence.ts",
     "test:a3:facility": "node --env-file=.env src/scripts/test-a3-facility-profile.ts",
     "test:a3:atomicity": "node --env-file=.env src/scripts/test-a3-write-atomicity.ts",
-    "test:a3:lifecycle": "node --env-file=.env src/scripts/test-a3-lifecycle-freeze.ts"
+    "test:a3:lifecycle": "node --env-file=.env src/scripts/test-a3-lifecycle-freeze.ts",
+    "test:a3:identity": "node --env-file=.env src/scripts/test-a3-source-identity.ts"
   },
   "keywords": [],
   "author": "",

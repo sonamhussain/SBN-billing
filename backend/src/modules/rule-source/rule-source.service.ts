@@ -1,6 +1,8 @@
 import { getOrganization } from '../organization/organization.service.ts'
 import type { RuleSourceDto, RuleSourceResult } from './rule-source.types.ts'
 import {
+  frozenIdentityChanges,
+  frozenIdentityMessage,
   isRuleSourceUuid,
   normalizeIssuingAuthority,
   normalizeJurisdictionCode,
@@ -11,10 +13,13 @@ import {
 import {
   createRuleSourceRecord,
   findRuleSourcesByOrganizationId,
+  countRuleSourceVersions,
   findRuleSourceById,
   updateRuleSourceRecord,
 } from './rule-source.repository.ts'
 import { prisma } from '../../shared/database/prisma.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
 import { ruleSourceAuditSnapshot } from '../audit/audit.snapshot.ts'
 
@@ -185,9 +190,23 @@ export async function updateRuleSource(
     if (!title) return { ok: false, code: 'VALIDATION_ERROR', message: 'title is required' }
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const outcome = await prisma.$transaction(async (tx) => {
+    // Audit F08/F10: the same parent lock the child-create path takes.
+    await lockRowForUpdate(tx, 'rule_sources', id)
     const existing = await findRuleSourceById(id, tx)
-    if (!existing) return null
+    if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_source.update')
+
+    // Audit F10: once a version exists, jurisdiction, issuing authority and source category are
+    // the identity every existing version, interpretation and binding was governed under. A
+    // material change needs a NEW source identity and its own version/evidence chain. Display-only
+    // corrections (referenceNumber, title) stay editable, and re-sending an unchanged value is not
+    // a change.
+    const identityChanges = frozenIdentityChanges(existing, { jurisdictionCode, issuingAuthority, sourceCategory })
+    if (identityChanges.length > 0) {
+      const versionCount = await countRuleSourceVersions(id, tx)
+      if (versionCount > 0) return { kind: 'terminal' as const, message: frozenIdentityMessage(identityChanges) }
+    }
 
     const record = await updateRuleSourceRecord(
       id,
@@ -214,10 +233,11 @@ export async function updateRuleSource(
       tx,
     )
 
-    return record
+    return { kind: 'updated' as const, record }
   })
 
-  if (!updated) return { ok: false, code: 'NOT_FOUND', message: 'rule source not found' }
+  if (outcome.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source not found' }
+  if (outcome.kind === 'terminal') return { ok: false, code: 'VALIDATION_ERROR', message: outcome.message }
 
-  return { ok: true, value: toDto(updated) }
+  return { ok: true, value: toDto(outcome.record) }
 }
