@@ -37,22 +37,42 @@ export async function findActiveProfilesForFacility(facilityId: string, excludeI
   })
 }
 
-// A3.7 server-side resolution (REF-01 / R6): the single ACTIVE profile for this facility whose
-// effective range covers businessDate, if any. Non-overlapping ACTIVE ranges (enforced at
-// activation time) guarantee at most one match.
-export async function findActiveFacilityRegulatoryProfileForDate(
+// Audit F05: every writer that can change which profiles are ACTIVE, or the period of an ACTIVE
+// profile, takes this row lock on the parent facility first and holds it through write + audit.
+// That serialises activation and update for one facility, so a status/period check can never be
+// invalidated by a competing writer between the read and the write.
+export async function lockFacilityForRegulatoryChange(facilityId: string, db: DbClient) {
+  await db.$queryRaw`SELECT id FROM facilities WHERE id = ${facilityId}::uuid FOR UPDATE`
+}
+
+export type FacilityProfileResolution<T> =
+  | { kind: 'none' }
+  | { kind: 'one'; profile: T }
+  | { kind: 'many'; profileIds: string[] }
+
+// A3.7/A3.8 server-side resolution (REF-01 / R6, audit F05): the ACTIVE profile(s) whose effective
+// range covers the date, reported as an explicit zero / one / many result. Non-overlap is enforced
+// on write, but a stored ambiguity must never be hidden by picking a row (the previous findFirst
+// did exactly that) — the caller fails closed on anything other than exactly one. No ordering is
+// applied: createdAt, UUID and row order are never a selection rule.
+export async function resolveFacilityRegulatoryProfileForDate(
   facilityId: string,
   businessDate: Date,
   db: DbClient = prisma,
 ) {
-  return db.facilityRegulatoryProfile.findFirst({
+  const matches = await db.facilityRegulatoryProfile.findMany({
     where: {
       facilityId,
       status: 'ACTIVE',
       effectiveFrom: { lte: businessDate },
       OR: [{ effectiveTo: null }, { effectiveTo: { gte: businessDate } }],
     },
+    take: 2,
   })
+  type Profile = (typeof matches)[number]
+  if (matches.length === 0) return { kind: 'none' } as FacilityProfileResolution<Profile>
+  if (matches.length === 1) return { kind: 'one', profile: matches[0] } as FacilityProfileResolution<Profile>
+  return { kind: 'many', profileIds: matches.map((match) => match.id) } as FacilityProfileResolution<Profile>
 }
 
 export type FacilityRegulatoryProfileUpdate = {

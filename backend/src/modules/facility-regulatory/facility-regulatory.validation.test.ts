@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  decideActiveProfileClosure,
   formatDateOnly,
   isFacilityRegulatoryProfileUuid,
   normalizeDateOnlyField,
@@ -96,4 +97,47 @@ test('rangesOverlap: touching boundary dates overlap (inclusive)', () => {
   const aTo = new Date('2026-06-30T00:00:00.000Z')
   const bFrom = new Date('2026-06-30T00:00:00.000Z')
   assert.equal(rangesOverlap(aFrom, aTo, bFrom, null), true)
+})
+
+// --- F05: one-time finite closure of an ACTIVE profile ------------------------------------------
+
+function day(text: string): Date {
+  return new Date(`${text}T00:00:00.000Z`)
+}
+
+const openActive = { effectiveFrom: day('2026-01-01'), effectiveTo: null }
+const closedActive = { effectiveFrom: day('2026-01-01'), effectiveTo: day('2026-06-30') }
+
+test('F05: an open-ended ACTIVE profile can be closed once with a finite date', () => {
+  const decision = decideActiveProfileClosure(openActive, normalizeDateOnlyField('2026-06-30'))
+  assert.equal(decision.ok, true)
+  assert.equal(decision.ok && formatDateOnly(decision.effectiveTo), '2026-06-30')
+})
+
+test('F05: closing on the effectiveFrom day itself is allowed (inclusive single-day period)', () => {
+  assert.equal(decideActiveProfileClosure(openActive, normalizeDateOnlyField('2026-01-01')).ok, true)
+})
+
+test('F05: clearing effectiveTo (reopening) is rejected', () => {
+  const decision = decideActiveProfileClosure(closedActive, normalizeDateOnlyField(null))
+  assert.equal(decision.ok, false)
+  assert.match(decision.ok ? '' : decision.message, /cannot be reopened/)
+  assert.equal(decideActiveProfileClosure(openActive, normalizeDateOnlyField(null)).ok, false)
+})
+
+test('F05: a second closure, an extension or a shortening of a closed period is rejected', () => {
+  for (const value of ['2026-06-30', '2026-12-31', '2026-03-31']) {
+    const decision = decideActiveProfileClosure(closedActive, normalizeDateOnlyField(value))
+    assert.equal(decision.ok, false, value)
+    assert.match(decision.ok ? '' : decision.message, /already closed/, value)
+  }
+})
+
+test('F05: closing before effectiveFrom is rejected', () => {
+  assert.equal(decideActiveProfileClosure(openActive, normalizeDateOnlyField('2025-12-31')).ok, false)
+})
+
+test('F05: an ACTIVE profile update without effectiveTo, or with an invalid date, is rejected', () => {
+  assert.equal(decideActiveProfileClosure(openActive, normalizeDateOnlyField(undefined)).ok, false)
+  assert.equal(decideActiveProfileClosure(openActive, normalizeDateOnlyField('2026-02-31')).ok, false)
 })
