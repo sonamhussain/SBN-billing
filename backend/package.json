@@ -33,7 +33,8 @@
     "test:a3:resolution": "node --env-file=.env src/scripts/test-a3-8-resolution.ts",
     "test:a3:facility-context": "node --env-file=.env src/scripts/test-a3-8-facility-context.ts",
     "test:a3:candidate-set": "node --env-file=.env src/scripts/test-a3-8-candidate-set.ts",
-    "test:a3:currentness": "node --env-file=.env src/scripts/test-a3-8-currentness.ts"
+    "test:a3:currentness": "node --env-file=.env src/scripts/test-a3-8-currentness.ts",
+    "test:a3:snapshot": "node --env-file=.env src/scripts/test-a3-8-snapshot.ts"
   },
   "keywords": [],
   "author": "",

@@ -5,6 +5,7 @@ import { matchedScopeRows, type ScopeContext } from '../rule-source-scope/rule-s
 import { categoryMinimumScopeSatisfied, categoryRequiresScope } from '../rule-source-scope/rule-source-scope.validation.ts'
 import { isCompatibleGoverningEffect } from './rule-source-binding.compatibility.ts'
 import { toExecutabilityBlockerCodes } from './rule-source-binding.validation.ts'
+import type { DbClient } from '../../shared/database/database.types.ts'
 
 // The per-candidate governing checks of A3.7's executability gate, extracted from the service so
 // the logic lives in one place and can be reused rather than copied by later modules.
@@ -58,6 +59,9 @@ export type GoverningCandidateParams = {
   businessDate: Date
   scopeContext: ScopeContext
   mode: CandidateEvaluationMode
+  // Audit F04: the caller's read snapshot. Required, never defaulted, so a candidate check can
+  // never silently read outside the evaluation's snapshot through the global client.
+  db: DbClient
 }
 
 function activationAcceptable(activationStatus: string, mode: CandidateEvaluationMode): boolean {
@@ -87,7 +91,7 @@ export async function evaluateGoverningCandidateBlockers(
   // can surface a new dependency/conflict even though activationStatus still reads ACTIVE.
   if (!activationAcceptable(sourceVersion.activationStatus, params.mode)) bindingBlockers.add('SOURCE_NOT_ACTIVE')
 
-  const relationshipSignals = await computeActivationRelationshipSignals(sourceVersion.id)
+  const relationshipSignals = await computeActivationRelationshipSignals(sourceVersion.id, params.db)
   // Passing [interpretation] (not the full interpretation list) makes the reused evaluator's
   // "any interpretation verified" check become "the exact bound interpretation is verified" —
   // per A3.7's explicit rule: verify the bound interpretation, never "any" interpretation.
@@ -109,7 +113,7 @@ export async function evaluateGoverningCandidateBlockers(
   // typed RuleSourceScope row — which specific payer/TPA/contract/tariff they govern. Zero
   // scope rows or no matching row both fail closed; categories that never need scope skip this.
   if (categoryRequiresScope(source.sourceCategory)) {
-    const scopeRows = await findRuleSourceScopesBySourceId(source.id)
+    const scopeRows = await findRuleSourceScopesBySourceId(source.id, params.db)
     const matchedRows = matchedScopeRows(scopeRows, params.scopeContext)
     const satisfiesMinimum = matchedRows.length > 0 && categoryMinimumScopeSatisfied(source.sourceCategory, matchedRows)
     if (!satisfiesMinimum) {
