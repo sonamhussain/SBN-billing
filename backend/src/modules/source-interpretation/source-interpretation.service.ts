@@ -1,4 +1,6 @@
 import { findRuleSourceVersionWithOrganization } from '../rule-source-version/rule-source-version.repository.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import type { SourceInterpretationDto, SourceInterpretationResult } from './source-interpretation.types.ts'
 import {
   isSourceInterpretationUuid,
@@ -159,8 +161,10 @@ export async function updateSourceInterpretation(
   }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'source_interpretations', id)
     const existing = await findSourceInterpretationWithOrganization(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('source_interpretation.update')
 
     if (terminalStatuses.includes(existing.verificationStatus)) return { kind: 'terminal' as const }
 

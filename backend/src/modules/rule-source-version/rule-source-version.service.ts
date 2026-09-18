@@ -1,4 +1,6 @@
 import { findRuleSourceById } from '../rule-source/rule-source.repository.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import type { ActivationEvaluationDto, RuleSourceVersionDto, RuleSourceVersionResult } from './rule-source-version.types.ts'
 import {
   isRuleSourceVersionUuid,
@@ -9,6 +11,7 @@ import {
   normalizeRawEvidenceRef,
   normalizeVersion,
   formatDateOnly,
+  areEffectiveDatesFrozen,
 } from './rule-source-version.validation.ts'
 import { evaluateActivationBlockers } from './rule-source-version.activation.ts'
 import {
@@ -74,7 +77,6 @@ function isUniqueConstraintViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
 }
 
-const activationLockedStatuses: readonly string[] = ['ACTIVE', 'SUSPENDED', 'RETIRED', 'SUPERSEDED']
 
 // A3.4 safe supersession transition: only runs after FROM successfully becomes ACTIVE, inside
 // the same transaction. Targets already SUPERSEDED or RETIRED are left untouched (historical
@@ -87,6 +89,8 @@ async function supersedeDirectTargets(
 ): Promise<void> {
   const targets = await findOutgoingSupersedesTargets(fromVersionId, tx)
   for (const { toSourceVersionId } of targets) {
+    // Audit F08: the superseded target is a governed row too — lock it before reading its state.
+    await lockRowForUpdate(tx, 'rule_source_versions', toSourceVersionId)
     const target = await findRuleSourceVersionForActivation(toSourceVersionId, tx)
     if (!target) continue
     if (target.activationStatus === 'SUPERSEDED' || target.activationStatus === 'RETIRED') continue
@@ -127,11 +131,15 @@ export async function createRuleSourceVersion(
   const rawEvidenceRef = normalizeRawEvidenceRef(rawEvidenceRefInput)
   if (!rawEvidenceRef) return { ok: false, code: 'VALIDATION_ERROR', message: 'rawEvidenceRef is required' }
 
-  const source = await findRuleSourceById(sourceId)
-  if (!source) return { ok: false, code: 'NOT_FOUND', message: 'rule source not found' }
-
   try {
     const created = await prisma.$transaction(async (tx) => {
+      // Audit F10: the first child freezes the parent identity, so creating one takes the same
+      // parent lock the identity edit takes and reads the parent inside the transaction.
+      await lockRowForUpdate(tx, 'rule_sources', sourceId)
+      const source = await findRuleSourceById(sourceId, tx)
+      if (!source) return { kind: 'not_found' as const }
+      await concurrencyProbe('rule_source_version.create')
+
       const record = await createRuleSourceVersionRecord({ sourceId, version, rawEvidenceRef }, tx)
 
       await recordAuditEvent(
@@ -147,10 +155,11 @@ export async function createRuleSourceVersion(
         tx,
       )
 
-      return record
+      return { kind: 'created' as const, record }
     })
 
-    return { ok: true, value: toDto(created) }
+    if (created.kind === 'not_found') return { ok: false, code: 'NOT_FOUND', message: 'rule source not found' }
+    return { ok: true, value: toDto(created.record) }
   } catch (error) {
     if (isUniqueConstraintViolation(error))
       return { ok: false, code: 'VALIDATION_ERROR', message: 'version already exists for this rule source' }
@@ -204,15 +213,17 @@ export async function updateLifecycleMetadata(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'at least one field is required' }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'rule_source_versions', id)
     const existing = await findRuleSourceVersionForActivation(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_source_version.metadata')
     if (existing.activationStatus === 'RETIRED')
       return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
 
     if (publicationDateField.present && existing.publicationStatus === 'PUBLISHED')
       return { kind: 'terminal' as const, message: 'publicationDate is immutable once published' }
 
-    if ((effectiveFromField.present || effectiveToField.present) && activationLockedStatuses.includes(existing.activationStatus))
+    if ((effectiveFromField.present || effectiveToField.present) && areEffectiveDatesFrozen(existing.activationStatus, existing.everActivated))
       return {
         kind: 'terminal' as const,
         message: 'effective dates are immutable once activated; create a new source version instead',
@@ -262,8 +273,10 @@ export async function publishRuleSourceVersion(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'rule_source_versions', id)
     const existing = await findRuleSourceVersionForActivation(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_source_version.publish')
     if (existing.activationStatus === 'RETIRED')
       return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
     if (existing.publicationStatus !== 'DRAFT')
@@ -308,8 +321,10 @@ export async function updateSourceVerification(
   const nextStatus = verificationStatusInput
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'rule_source_versions', id)
     const existing = await findRuleSourceVersionForActivation(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_source_version.verification')
     if (existing.activationStatus === 'RETIRED')
       return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
     if (existing.verificationStatus === 'VERIFIED' || existing.verificationStatus === 'REJECTED')
@@ -387,8 +402,10 @@ export async function activateRuleSourceVersion(
   if (!jurisdictionCode) return { ok: false, code: 'VALIDATION_ERROR', message: 'jurisdictionCode is required' }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'rule_source_versions', id)
     const existing = await findRuleSourceVersionForActivation(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_source_version.activate')
     if (existing.activationStatus === 'RETIRED')
       return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
     if (existing.activationStatus !== 'INACTIVE' && existing.activationStatus !== 'BLOCKED')
@@ -408,7 +425,14 @@ export async function activateRuleSourceVersion(
     const record = await updateRuleSourceVersionLifecycle(
       id,
       becameActive
-        ? { activationStatus: 'ACTIVE', activatedAt: new Date(), activationBlockers: [] }
+        ? {
+            activationStatus: 'ACTIVE',
+            activatedAt: new Date(),
+            activationBlockers: [],
+            // Audit F09: set once, never cleared — a later failed resume keeps both.
+            everActivated: true,
+            firstActivatedAt: existing.firstActivatedAt ?? new Date(),
+          }
         : { activationStatus: 'BLOCKED', activatedAt: null, activationBlockers: blockers },
       tx,
     )
@@ -446,8 +470,10 @@ export async function suspendRuleSourceVersion(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'rule_source_versions', id)
     const existing = await findRuleSourceVersionForActivation(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_source_version.suspend')
     if (existing.activationStatus === 'RETIRED')
       return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
     if (existing.activationStatus !== 'ACTIVE')
@@ -492,8 +518,10 @@ export async function resumeRuleSourceVersion(
   if (!jurisdictionCode) return { ok: false, code: 'VALIDATION_ERROR', message: 'jurisdictionCode is required' }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'rule_source_versions', id)
     const existing = await findRuleSourceVersionForActivation(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_source_version.resume')
     if (existing.activationStatus === 'RETIRED')
       return { kind: 'terminal' as const, message: 'source version is retired and cannot be changed' }
     if (existing.activationStatus !== 'SUSPENDED')
@@ -513,7 +541,14 @@ export async function resumeRuleSourceVersion(
     const record = await updateRuleSourceVersionLifecycle(
       id,
       becameActive
-        ? { activationStatus: 'ACTIVE', activatedAt: new Date(), activationBlockers: [] }
+        ? {
+            activationStatus: 'ACTIVE',
+            activatedAt: new Date(),
+            activationBlockers: [],
+            // Audit F09: set once, never cleared — a later failed resume keeps both.
+            everActivated: true,
+            firstActivatedAt: existing.firstActivatedAt ?? new Date(),
+          }
         : { activationStatus: 'BLOCKED', activatedAt: null, activationBlockers: blockers },
       tx,
     )
@@ -551,8 +586,10 @@ export async function retireRuleSourceVersion(
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule source version id' }
 
   const outcome = await prisma.$transaction(async (tx) => {
+    await lockRowForUpdate(tx, 'rule_source_versions', id)
     const existing = await findRuleSourceVersionForActivation(id, tx)
     if (!existing) return { kind: 'not_found' as const }
+    await concurrencyProbe('rule_source_version.retire')
     if (existing.activationStatus === 'RETIRED')
       return { kind: 'terminal' as const, message: 'source version is already retired' }
     if (existing.activationStatus === 'SUPERSEDED')

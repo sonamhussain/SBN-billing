@@ -1,4 +1,6 @@
 import type { OrganizationDto, ServiceResult } from './organization.types.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { isUuid, normalizeOrganizationName } from './organization.validation.ts'
 import {
   createOrganizationRecord,
@@ -70,11 +72,14 @@ export async function updateOrganization(
   }
 
   const updated = await prisma.$transaction(async (tx) => {
+    // Audit F08: lock before reading so the audit beforeState is the true serial predecessor.
+    await lockRowForUpdate(tx, 'organizations', id)
     const existing = await findOrganizationById(id, tx)
 
     if (!existing) {
       return null
     }
+    await concurrencyProbe('organization.update')
 
     const record = await updateOrganizationRecord(id, name, tx)
 

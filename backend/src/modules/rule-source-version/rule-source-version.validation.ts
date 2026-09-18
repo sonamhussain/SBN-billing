@@ -27,6 +27,17 @@ export type PublicationStatus = (typeof publicationStatuses)[number]
 export const sourceVerificationStatuses = ['UNVERIFIED', 'IN_REVIEW', 'VERIFIED', 'REJECTED'] as const
 export type SourceVerificationStatus = (typeof sourceVerificationStatuses)[number]
 
+// Statuses whose effective dates are frozen because the version is, or has become, governance.
+export const activationLockedStatuses: readonly string[] = ['ACTIVE', 'SUSPENDED', 'RETIRED', 'SUPERSEDED']
+
+// Audit F09: the freeze follows the durable ever-activated fact as well as the current status, so a
+// failed resume — which lands on BLOCKED and must clear activatedAt to satisfy
+// rule_source_versions_blocked_chk — cannot reopen the effective dates of a version that was
+// already governing.
+export function areEffectiveDatesFrozen(activationStatus: string, everActivated: boolean): boolean {
+  return everActivated || activationLockedStatuses.includes(activationStatus)
+}
+
 export const activationStatuses = ['INACTIVE', 'BLOCKED', 'ACTIVE', 'SUSPENDED', 'SUPERSEDED', 'RETIRED'] as const
 export type ActivationStatus = (typeof activationStatuses)[number]
 

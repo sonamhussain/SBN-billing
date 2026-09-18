@@ -8,6 +8,8 @@ import {
   normalizeReferenceNumber,
   normalizeSourceCategory,
   normalizeTitle,
+  frozenIdentityChanges,
+  frozenIdentityMessage,
 } from './rule-source.validation.ts'
 
 test('jurisdictionCode trims correctly', () => {
@@ -79,4 +81,61 @@ test('UUID shape is accepted', () => {
 
 test('invalid UUID rejected', () => {
   assert.equal(isRuleSourceUuid('not-a-uuid'), false)
+})
+
+// Audit F10 — source identity freeze.
+const storedIdentity = {
+  jurisdictionCode: 'AE-DU',
+  issuingAuthority: 'DHA',
+  sourceCategory: 'REGULATORY_AUTHORITY',
+}
+
+test('an empty patch changes no identity field', () => {
+  assert.deepEqual(frozenIdentityChanges(storedIdentity, {}), [])
+})
+
+test('omitted and null identity fields are not changes', () => {
+  assert.deepEqual(
+    frozenIdentityChanges(storedIdentity, { jurisdictionCode: null, issuingAuthority: undefined }),
+    [],
+  )
+})
+
+test('re-sending the stored identity values is not a change', () => {
+  assert.deepEqual(
+    frozenIdentityChanges(storedIdentity, {
+      jurisdictionCode: 'AE-DU',
+      issuingAuthority: 'DHA',
+      sourceCategory: 'REGULATORY_AUTHORITY',
+    }),
+    [],
+  )
+})
+
+test('each identity field is reported when it actually differs', () => {
+  assert.deepEqual(frozenIdentityChanges(storedIdentity, { jurisdictionCode: 'AE-AZ' }), ['jurisdictionCode'])
+  assert.deepEqual(frozenIdentityChanges(storedIdentity, { issuingAuthority: 'HAAD' }), ['issuingAuthority'])
+  assert.deepEqual(frozenIdentityChanges(storedIdentity, { sourceCategory: 'TARIFF' }), ['sourceCategory'])
+})
+
+test('all changed identity fields are reported together, in a stable order', () => {
+  assert.deepEqual(
+    frozenIdentityChanges(storedIdentity, {
+      sourceCategory: 'TARIFF',
+      jurisdictionCode: 'AE-AZ',
+      issuingAuthority: 'HAAD',
+    }),
+    ['jurisdictionCode', 'issuingAuthority', 'sourceCategory'],
+  )
+})
+
+test('identity comparison is exact, so case and spacing differences are changes', () => {
+  assert.deepEqual(frozenIdentityChanges(storedIdentity, { jurisdictionCode: 'ae-du' }), ['jurisdictionCode'])
+})
+
+test('the freeze message names the offending fields and the remedy', () => {
+  assert.equal(
+    frozenIdentityMessage(['jurisdictionCode', 'sourceCategory']),
+    'jurisdictionCode, sourceCategory cannot be changed once this rule source has versions; create a new rule source instead',
+  )
 })

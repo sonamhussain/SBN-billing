@@ -24,6 +24,12 @@ export async function findRuleSourcesByOrganizationId(organizationId: string, db
   return db.ruleSource.findMany({ where: { organizationId }, orderBy: { createdAt: 'asc' } })
 }
 
+// Audit F10: identity fields freeze as soon as the source has any version, because A3.7/A3.8 read
+// the parent fields live and an edit would silently relabel every existing version and binding.
+export async function countRuleSourceVersions(sourceId: string, db: DbClient = prisma) {
+  return db.ruleSourceVersion.count({ where: { sourceId } })
+}
+
 export async function updateRuleSourceRecord(
   id: string,
   data: {

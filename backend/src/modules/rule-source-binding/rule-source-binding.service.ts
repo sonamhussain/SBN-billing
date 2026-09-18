@@ -1,4 +1,6 @@
 import { findRuleVersionWithOrganization } from '../rule-version/rule-version.repository.ts'
+import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { findRuleApplicabilitiesByVersionId } from '../rule-applicability/rule-applicability.repository.ts'
 import { applicabilityDimensionKeys, normalizeOptionalUuidField, type ApplicabilityDimensionKey } from '../rule-applicability/rule-applicability.validation.ts'
 import { matchedApplicabilityIds, ruleVersionMatches, type ApplicabilityContext } from '../rule-applicability/rule-applicability.matcher.ts'
@@ -7,7 +9,7 @@ import { normalizeBusinessDate } from '../rule-source-version/rule-source-versio
 import { isEffective } from '../rule-source-version/rule-source-version.activation.ts'
 import { compatibilityPolicyVersion, isCompatibleGoverningEffect } from './rule-source-binding.compatibility.ts'
 import { evaluateGoverningCandidateBlockers, type CandidateInternalOptions } from './rule-source-binding.candidate.ts'
-import { findActiveFacilityRegulatoryProfileForDate } from '../facility-regulatory/facility-regulatory.repository.ts'
+import { resolveFacilityRegulatoryProfileForDate } from '../facility-regulatory/facility-regulatory.repository.ts'
 import type { ScopeContext } from '../rule-source-scope/rule-source-scope.matcher.ts'
 import { isRuleSourceBindingUuid, normalizeSourceRole } from './rule-source-binding.validation.ts'
 import type {
@@ -69,8 +71,11 @@ export async function createRuleSourceBinding(
 
   try {
     const outcome = await prisma.$transaction(async (tx) => {
+      // Audit F08: a child append locks its PARENT RuleVersion, the row verification freezes.
+      await lockRowForUpdate(tx, 'rule_versions', ruleVersionId)
       const version = await findRuleVersionWithOrganization(ruleVersionId, tx)
       if (!version) return { kind: 'not_found' as const, message: 'rule version not found' }
+      await concurrencyProbe('rule_source_binding.create')
 
       const ruleOrgId = version.rule.organizationId
       // Defense-in-depth: the route's own permission middleware already 404s a SYSTEM_SHARED
@@ -177,14 +182,36 @@ export async function evaluateExecutability(
 
   // facilityRegulatoryProfileId is server-derived from facilityId + businessDate and is never
   // client-suppliable on this endpoint (REF-01 §10) — any client-supplied value above is
-  // unconditionally discarded and replaced here, exactly like jurisdictionCode above.
-  const resolvedProfile = context.facilityId
-    ? await findActiveFacilityRegulatoryProfileForDate(context.facilityId, businessDate)
-    : null
-  context.facilityRegulatoryProfileId = resolvedProfile?.id ?? null
+  // unconditionally discarded and replaced below, exactly like jurisdictionCode above.
+  context.facilityRegulatoryProfileId = null
 
+  // Existence, tenancy and ancestry of the client-supplied facts first, so an unknown or foreign
+  // facility keeps its 404/403 rather than being reported as a missing profile.
   const coherence = await validateApplicabilityContextCoherence(context, ruleOrgId, prisma)
   if (!coherence.ok) return { ok: false, code: coherence.code, message: coherence.message }
+
+  // Audit F05: an explicitly supplied facility needs exactly one ACTIVE regulatory profile in force
+  // on businessDate. None or several fails closed here — before applicability matching and before
+  // the REFERENCE_ONLY branch — instead of silently evaluating without a profile or picking a row.
+  // Omitting facilityId remains a valid generic evaluation.
+  let resolvedProfile: { id: string; jurisdictionCode: string } | null = null
+  if (context.facilityId) {
+    const resolution = await resolveFacilityRegulatoryProfileForDate(context.facilityId, businessDate)
+    if (resolution.kind === 'none')
+      return {
+        ok: false,
+        code: 'VALIDATION_ERROR',
+        message: 'facilityId has no ACTIVE regulatory profile effective on businessDate',
+      }
+    if (resolution.kind === 'many')
+      return {
+        ok: false,
+        code: 'VALIDATION_ERROR',
+        message: 'facilityId has more than one ACTIVE regulatory profile effective on businessDate',
+      }
+    resolvedProfile = resolution.profile
+    context.facilityRegulatoryProfileId = resolution.profile.id
+  }
 
   const applicabilityRows = await findRuleApplicabilitiesByVersionId(ruleVersionId)
   const matchedIds = matchedApplicabilityIds(applicabilityRows, context)

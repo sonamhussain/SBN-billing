@@ -266,6 +266,12 @@ model RuleSourceVersion {
   supersededAt       DateTime? @map("superseded_at") @db.Timestamptz(6)
   retiredAt          DateTime? @map("retired_at") @db.Timestamptz(6)
 
+  // Audit F09: the durable "this version was governing at some point" fact, plus the original
+  // activation evidence. activatedAt cannot carry this: a failed resume must clear it, because
+  // rule_source_versions_blocked_chk requires activated_at IS NULL while BLOCKED.
+  everActivated    Boolean   @default(false) @map("ever_activated")
+  firstActivatedAt DateTime? @map("first_activated_at") @db.Timestamptz(6)
+
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -577,7 +583,8 @@ model ReferenceDataset {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  versions ReferenceDatasetVersion[]
+  versions         ReferenceDatasetVersion[]
+  lifecycleEvents  ReferenceDatasetLifecycleEvent[]
 
   @@unique([datasetKey])
   @@index([jurisdictionCode])
@@ -602,13 +609,44 @@ model ReferenceDatasetVersion {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  dataset       ReferenceDataset   @relation(fields: [datasetId], references: [id], onDelete: Restrict)
-  sourceVersion RuleSourceVersion? @relation(fields: [sourceVersionId], references: [id], onDelete: Restrict)
+  dataset         ReferenceDataset                 @relation(fields: [datasetId], references: [id], onDelete: Restrict)
+  sourceVersion   RuleSourceVersion?               @relation(fields: [sourceVersionId], references: [id], onDelete: Restrict)
+  lifecycleEvents ReferenceDatasetLifecycleEvent[]
 
   @@unique([datasetId, version])
   @@index([datasetId])
   @@index([sourceVersionId])
   @@map("reference_dataset_versions")
+}
+
+// Audit F12 — a narrowly scoped, append-only history for the reference dataset registry ONLY.
+// Version retention alone cannot reconstruct v1 -> v2 -> v1 -> v2: a rollback overwrites
+// activatedAt and supersededAt on rows that have already transitioned before. Datasets are
+// SYSTEM_SHARED and carry no organizationId, so they can never be forced into the tenant
+// AuditEvent table; this records the transitions that actually happened, and nothing else.
+// Rows are insert-only: a database trigger rejects UPDATE and DELETE.
+model ReferenceDatasetLifecycleEvent {
+  id                       String   @id @default(uuid()) @db.Uuid
+  // A monotonic total order, so transitions committed in the same transaction (a supersede and
+  // the activation that caused it) are still reconstructable in the order they were applied.
+  sequence                 BigInt   @default(autoincrement())
+  datasetId                String   @map("dataset_id") @db.Uuid
+  datasetVersionId         String   @map("dataset_version_id") @db.Uuid
+  action                   String   @db.Text
+  previousActivationStatus String   @map("previous_activation_status") @db.Text
+  nextActivationStatus     String   @map("next_activation_status") @db.Text
+  previousValidationStatus String   @map("previous_validation_status") @db.Text
+  nextValidationStatus     String   @map("next_validation_status") @db.Text
+  actorRef                 String   @map("actor_ref") @db.Text
+  reason                   String?  @db.Text
+  occurredAt               DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  dataset        ReferenceDataset        @relation(fields: [datasetId], references: [id], onDelete: Restrict)
+  datasetVersion ReferenceDatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
+
+  @@index([datasetId, sequence])
+  @@index([datasetVersionId, sequence])
+  @@map("reference_dataset_lifecycle_events")
 }
 
 // REF-01 / R4 — RuleSourceScope: typed commercial context proof
