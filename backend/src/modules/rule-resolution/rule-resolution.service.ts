@@ -272,19 +272,29 @@ export async function evaluateRuleResolution(
     tariffScheduleVersionId: context.tariffScheduleVersionId ?? null,
   }
 
-  // ---- A3.8 §9 step 8 + §13: the governing candidate set ------------------------------------
-  let candidateBindings: BindingForResolution[] = []
+  // ---- A3.8 §9 step 8 + §13: the complete as-of governing candidate set ---------------------
+  //
+  // Audit F03: every GOVERNING binding is evaluated with the shared per-candidate gate in
+  // HISTORICAL mode, so the set holds ALL eligible ACTIVE and SUPERSEDED candidates for this
+  // businessDate before dominance and conflict resolution. HISTORICAL differs from A3.7's
+  // CURRENT admission by exactly one rule - a SUPERSEDED version may still answer for a date it
+  // governed - and relaxes nothing else (ownership, jurisdiction, verification, publication,
+  // effective dates, dependency, conflict, effect compatibility, typed scope), so CURRENT's
+  // candidates are always a subset of these.
+  //
+  // Previously HISTORICAL candidates were considered only when A3.7's CURRENT gate had found no
+  // ACTIVE candidate at all, so one valid ACTIVE source silently shut out a valid SUPERSEDED one
+  // and stored current status became an accidental winner preference. Only the approved
+  // SUPERSEDES/date rule below may now make one candidate prevail over another.
+  //
+  // A3.7's own current admission stays ACTIVE-only; this resolver is a reference resolver, not
+  // that execution gate.
+  //
+  // A rule-level jurisdiction mismatch is not a "no longer current" condition, so it never
+  // produces candidates here.
+  const candidateBindings: BindingForResolution[] = []
 
-  if (executability.value.gateStatus === 'POTENTIALLY_ALLOWED') {
-    const candidateIds = new Set(executability.value.candidateSourceInterpretationIds)
-    candidateBindings = bindings.filter(
-      (binding) => binding.sourceRole === 'GOVERNING' && candidateIds.has(binding.sourceInterpretationId),
-    )
-  } else if (!profileJurisdictionMismatch) {
-    // A3.8 §13: the rule itself is verified, effective and applicable for this date (steps 2-4
-    // already proved that), so the only remaining reason to block is that the governing source
-    // is no longer current. Re-run the identical per-candidate gate in HISTORICAL mode, which
-    // differs by exactly one rule: a SUPERSEDED version may still answer for a past date.
+  if (!profileJurisdictionMismatch) {
     for (const binding of bindings) {
       if (binding.sourceRole !== 'GOVERNING') continue
       const blockers = await evaluateGoverningCandidateBlockers(binding.sourceInterpretation, {

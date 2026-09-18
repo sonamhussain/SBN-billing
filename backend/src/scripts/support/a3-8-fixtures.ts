@@ -139,6 +139,8 @@ export function a38Fixtures(org: string, tag: string) {
         everActivated: activationStatus !== 'INACTIVE',
         firstActivatedAt: activationStatus === 'INACTIVE' ? null : new Date(),
         supersededAt: activationStatus === 'SUPERSEDED' ? new Date() : null,
+        retiredAt: activationStatus === 'RETIRED' ? new Date() : null,
+        suspendedAt: activationStatus === 'SUSPENDED' ? new Date() : null,
       },
     })
     const interpretation = await addInterpretation(sourceVersion.id, name)
