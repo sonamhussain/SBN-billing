@@ -234,7 +234,19 @@ export async function evaluateRuleResolution(
   }
 
   // A3.8 §9 step 6 — a reference-only rule never reaches source precedence.
+  //
+  // Audit F05-B: being non-executable does not make an incorrect regulatory context truthful. A
+  // facility whose resolved profile is in a different jurisdiction from the rule must not produce
+  // a clean REFERENCE_ONLY answer. This is the same outcome A3.8 already gives the identical
+  // mismatch on an executable rule (via A3.7's rule-level JURISDICTION_INCOMPATIBLE), so one
+  // condition has one answer whatever the rule's effect type — no new status or blocker code.
   if (selected.effectType === 'REFERENCE_ONLY') {
+    if (profileJurisdictionMismatch) {
+      return {
+        ok: true,
+        value: buildResponse({ ...selectedParts, status: 'BLOCKED_EXECUTABILITY', blockers: ['JURISDICTION_INCOMPATIBLE'] }),
+      }
+    }
     return { ok: true, value: buildResponse({ ...selectedParts, status: 'REFERENCE_ONLY' }) }
   }
 
