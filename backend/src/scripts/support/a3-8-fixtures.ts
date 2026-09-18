@@ -1,5 +1,5 @@
 import { prisma } from '../../shared/database/prisma.ts'
-import { evaluateRuleResolution } from '../../modules/rule-resolution/rule-resolution.service.ts'
+import { evaluateRuleResolution, type ResolutionInternalOptions } from '../../modules/rule-resolution/rule-resolution.service.ts'
 import type { RuleResolutionDto } from '../../modules/rule-resolution/rule-resolution.types.ts'
 
 // Shared synthetic-row builders for the A3.8 correction scripts (F02, F03, F04, F05-B, C35). Every
@@ -50,16 +50,18 @@ export async function resolveRaw(
   ruleDefinitionId: string,
   businessDate: string,
   context: Record<string, unknown> = {},
+  internal: ResolutionInternalOptions = {},
 ): Promise<ResolveOutcome> {
-  return evaluateRuleResolution(ruleDefinitionId, businessDate, context)
+  return evaluateRuleResolution(ruleDefinitionId, businessDate, context, internal)
 }
 
 export async function resolve(
   ruleDefinitionId: string,
   businessDate: string,
   context: Record<string, unknown> = {},
+  internal: ResolutionInternalOptions = {},
 ): Promise<RuleResolutionDto> {
-  const result = await evaluateRuleResolution(ruleDefinitionId, businessDate, context)
+  const result = await evaluateRuleResolution(ruleDefinitionId, businessDate, context, internal)
   if (!result.ok) throw new Error(`resolver returned ${result.code}: ${result.message}`)
   return result.value
 }

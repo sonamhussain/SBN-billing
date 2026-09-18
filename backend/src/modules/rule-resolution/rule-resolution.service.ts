@@ -30,6 +30,8 @@ import {
   findSupersedesEdgesTouching,
 } from './rule-resolution.repository.ts'
 import { isRuleResolutionUuid, resolutionContextKeys } from './rule-resolution.validation.ts'
+import { isHistoricalOnlyReference, isHistoricalOnlyResolved } from './rule-resolution.currentness.ts'
+import { utcDateOf } from '../../shared/rules/date-only.ts'
 import type { ResolutionStatus, RuleResolutionDto, RuleResolutionResult } from './rule-resolution.types.ts'
 import { prisma } from '../../shared/database/prisma.ts'
 
@@ -105,11 +107,26 @@ async function collectSupersedesNeighbourhood(
   return { edges, sourceVersionIds: [...visited] }
 }
 
+// Internal seams only — the HTTP route never passes these. `clock` lets a test freeze the one
+// evaluation timestamp; production always reads the server clock.
+export type ResolutionInternalOptions = {
+  clock?: () => Date
+}
+
+const systemClock = () => new Date()
+
 export async function evaluateRuleResolution(
   ruleDefinitionId: string,
   businessDateInput: unknown,
   contextInputs: Record<string, unknown>,
+  internal: ResolutionInternalOptions = {},
 ): Promise<RuleResolutionResult<RuleResolutionDto>> {
+  // Audit F02: one server timestamp, captured once per request before anything else, and never
+  // taken from the client. evaluationDate is its UTC calendar date. It decides only the
+  // historicalOnly metadata; businessDate alone decides what is selected.
+  const evaluationDate = utcDateOf((internal.clock ?? systemClock)())
+  if (!evaluationDate) throw new Error('rule resolution: the evaluation clock returned an invalid instant')
+
   if (!isRuleResolutionUuid(ruleDefinitionId))
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule definition id' }
 
@@ -179,10 +196,15 @@ export async function evaluateRuleResolution(
 
   // ---- A3.8 §9 steps 2-4: candidate RuleVersions --------------------------------------------
   const versions = await findRuleVersionsForResolution(ruleDefinitionId)
+  // The selected RuleVersion's real dates are kept on its candidate record (audit F02), so its
+  // currentness is judged from its own period — never from a version label, a creation
+  // timestamp, a successor or another rule.
   const versionCandidates: {
     id: string
     version: string
     effectType: string
+    effectiveFrom: Date | null
+    effectiveTo: Date | null
     specificityScore: number
     matchedApplicabilityIds: string[]
   }[] = []
@@ -199,6 +221,8 @@ export async function evaluateRuleResolution(
       id: version.id,
       version: version.version,
       effectType: version.effectType,
+      effectiveFrom: version.effectiveFrom,
+      effectiveTo: version.effectiveTo,
       specificityScore: score,
       matchedApplicabilityIds: matchedApplicabilityIds(rows, context),
     })
@@ -247,7 +271,15 @@ export async function evaluateRuleResolution(
         value: buildResponse({ ...selectedParts, status: 'BLOCKED_EXECUTABILITY', blockers: ['JURISDICTION_INCOMPATIBLE'] }),
       }
     }
-    return { ok: true, value: buildResponse({ ...selectedParts, status: 'REFERENCE_ONLY' }) }
+    return {
+      ok: true,
+      value: buildResponse({
+        ...selectedParts,
+        status: 'REFERENCE_ONLY',
+        // Audit F02: a reference-only rule no longer in force today is a non-current reference.
+        historicalOnly: isHistoricalOnlyReference(selected, evaluationDate),
+      }),
+    }
   }
 
   const bindings = await findBindingsForResolution(selected.id)
@@ -387,9 +419,11 @@ export async function evaluateRuleResolution(
       ...withSupporting,
       status: 'RESOLVED',
       winner,
-      // Provenance, not permission: a winner whose version is no longer ACTIVE answered only
-      // because it was the applicable version for the requested date (A3.8 §13).
-      historicalOnly: winner.sourceInterpretation.sourceVersion.activationStatus !== 'ACTIVE',
+      // Provenance, not permission (A3.8 §13). Audit F02: an answer is historical when the
+      // selected RuleVersion is not in force on evaluationDate, or the winning source version is
+      // not ACTIVE, or it is not in force on evaluationDate. Stored ACTIVE status alone used to
+      // decide this, so an expired rule or an expired-but-still-ACTIVE source read as current.
+      historicalOnly: isHistoricalOnlyResolved(selected, winner.sourceInterpretation.sourceVersion, evaluationDate),
     }),
   }
 }

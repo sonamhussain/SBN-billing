@@ -66,3 +66,11 @@ test('a legitimate context body carries no forbidden key', () => {
   assert.deepEqual(forbiddenResolutionKeysPresent(null), [])
   assert.deepEqual(forbiddenResolutionKeysPresent('nonsense'), [])
 })
+
+test('F02: a client can never supply the evaluation instant or the historicalOnly flag', () => {
+  assert.deepEqual(forbiddenResolutionKeysPresent({ evaluationDate: '2030-01-01' }), ['evaluationDate'])
+  assert.deepEqual(forbiddenResolutionKeysPresent({ evaluationTimestamp: '2030-01-01T00:00:00Z' }), ['evaluationTimestamp'])
+  assert.deepEqual(forbiddenResolutionKeysPresent({ historicalOnly: false }), ['historicalOnly'])
+  // businessDate stays a legitimate input: it selects, it does not describe currentness.
+  assert.deepEqual(forbiddenResolutionKeysPresent({ businessDate: '2026-10-15' }), [])
+})

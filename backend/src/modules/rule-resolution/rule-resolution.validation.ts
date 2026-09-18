@@ -44,6 +44,11 @@ export const forbiddenResolutionRequestKeys = [
   'governingSourceInterpretationId',
   'governingBindingId',
   'precedencePolicyVersion',
+  // Audit F02: the evaluation instant is captured once, server-side. A client-supplied "today"
+  // is never accepted, and historicalOnly is derived from it — neither can be requested.
+  'evaluationDate',
+  'evaluationTimestamp',
+  'historicalOnly',
 ] as const
 
 export function forbiddenResolutionKeysPresent(body: unknown): string[] {
