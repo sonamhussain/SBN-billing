@@ -19,6 +19,9 @@ export const resolutionBlockerCodes = [
   'SOURCE_PRECEDENCE_TIE',
   'SUPERSEDES_EFFECTIVE_DATE_INCOMPLETE',
   'SUPERSEDES_CONTRADICTORY_DATES',
+  // A candidate was replaced, on businessDate, by a successor that is not usable governing
+  // evidence for this rule. A3.8-local: never part of A3.7's executability vocabulary.
+  'SUPERSEDES_SUCCESSOR_UNUSABLE',
   'SOURCE_CONFLICT',
 ] as const
 

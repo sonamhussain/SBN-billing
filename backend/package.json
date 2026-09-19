@@ -35,7 +35,8 @@
     "test:a3:candidate-set": "node --env-file=.env src/scripts/test-a3-8-candidate-set.ts",
     "test:a3:currentness": "node --env-file=.env src/scripts/test-a3-8-currentness.ts",
     "test:a3:snapshot": "node --env-file=.env src/scripts/test-a3-8-snapshot.ts",
-    "test:a3:dependency-historical": "node --env-file=.env src/scripts/test-a3-8-dependency.ts"
+    "test:a3:dependency-historical": "node --env-file=.env src/scripts/test-a3-8-dependency.ts",
+    "test:a3:successor-usability": "node --env-file=.env src/scripts/test-a3-8-successor-usability.ts"
   },
   "keywords": [],
   "author": "",

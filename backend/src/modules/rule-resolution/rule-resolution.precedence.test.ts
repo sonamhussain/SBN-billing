@@ -25,6 +25,7 @@ const TPA = '88888888-8888-4888-8888-888888888888'
 const S1 = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'
 const S2 = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'
 const S3 = 'cccccccc-3333-4333-8333-cccccccccccc'
+const SB = 'dddddddd-4444-4444-8444-dddddddddddd'
 
 function row(id: string, overrides: Partial<ApplicabilityRow>): ApplicabilityRow {
   return {
@@ -194,17 +195,18 @@ test('T32 transitive dominance works when the middle version is not itself a can
   assert.deepEqual(outcome.ok && outcome.survivingSourceVersionIds, [S3])
 })
 
-test('T42 a non-candidate successor that was already in force still dominates its predecessor', () => {
+test('T42 an unusable successor already in force blocks explicitly instead of silently removing its predecessor', () => {
   // S2 is not a usable candidate (it failed the gate), but it had taken effect on the business
-  // date, so resurrecting S1 would contradict the evidence. Nothing survives, and the caller
-  // blocks — the fail-closed answer, never a silent fallback to the superseded predecessor.
+  // date, so S1 must not win. The resolution now blocks with a named A3.8 reason rather than
+  // returning an empty survivor set for the caller to interpret.
   const outcome = resolveSupersedesDominance(
     [S1],
     [version(S1, '2026-01-01'), version(S2, '2026-02-01')],
     [edge(S2, S1)],
     date('2026-10-15'),
   )
-  assert.deepEqual(outcome.ok && outcome.survivingSourceVersionIds, [])
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.ok === false && outcome.blocker, 'SUPERSEDES_SUCCESSOR_UNUSABLE')
 })
 
 test('T33/T34/T35 AMENDS, REFERENCES and DEPENDS_ON edges are never supplied, so they cannot rank', () => {
@@ -326,4 +328,138 @@ test('T36 a conflict touching an already-dominated version does not block the su
 
 test('a self-referencing conflict edge is ignored', () => {
   assert.equal(hasConflictAmong([S1], [{ fromSourceVersionId: S1, toSourceVersionId: S1 }]), false)
+})
+
+// --- successor usability (audit: the last A3.8 precedence edge case) -----------------------
+
+// Every ordering of a list, so each rule below is proven independent of candidate, version and
+// edge order rather than of one lucky order.
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items]
+  return items.flatMap((item, index) =>
+    permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [item, ...rest]),
+  )
+}
+
+function everyOrder(candidates: string[], versions: PrecedenceVersion[], edges: SupersedesEdge[], businessDate: Date) {
+  const outcomes = new Set<string>()
+  for (const c of permutations(candidates))
+    for (const v of permutations(versions))
+      for (const e of permutations(edges)) {
+        const outcome = resolveSupersedesDominance(c, v, e, businessDate)
+        outcomes.add(
+          JSON.stringify(outcome.ok ? { ok: true, survivors: [...outcome.survivingSourceVersionIds].sort() } : outcome),
+        )
+      }
+  return [...outcomes]
+}
+
+const BLOCKED_UNUSABLE = JSON.stringify({ ok: false, blocker: 'SUPERSEDES_SUCCESSOR_UNUSABLE' })
+
+test('unusable successor: S1 + an unusable S2 already in force -> blocked, no winner, in every order', () => {
+  const outcomes = everyOrder([S1], [version(S1, '2026-01-01'), version(S2, '2026-06-01')], [edge(S2, S1)], date('2026-08-15'))
+  assert.deepEqual(outcomes, [BLOCKED_UNUSABLE])
+})
+
+test('unusable successor: S1 + unusable S2 + an unrelated candidate B -> blocked, B never wins, in every order', () => {
+  const outcomes = everyOrder(
+    [S1, SB],
+    [version(S1, '2026-01-01'), version(SB, '2026-01-01'), version(S2, '2026-06-01')],
+    [edge(S2, S1)],
+    date('2026-08-15'),
+  )
+  assert.deepEqual(outcomes, [BLOCKED_UNUSABLE])
+})
+
+test('usable successor: S1 + a usable S2 already in force -> S2 dominates normally, in every order', () => {
+  const outcomes = everyOrder([S1, S2], [version(S1, '2026-01-01'), version(S2, '2026-06-01')], [edge(S2, S1)], date('2026-08-15'))
+  assert.deepEqual(outcomes, [JSON.stringify({ ok: true, survivors: [S2] })])
+})
+
+test('successor not yet in force: an unusable S2 from a later date leaves S1 as the historical answer', () => {
+  const alone = everyOrder([S1], [version(S1, '2026-01-01'), version(S2, '2026-06-01')], [edge(S2, S1)], date('2026-03-15'))
+  assert.deepEqual(alone, [JSON.stringify({ ok: true, survivors: [S1] })])
+  // with an unrelated B present, S1 and B both survive for the caller to report as a tie
+  const withB = everyOrder(
+    [S1, SB],
+    [version(S1, '2026-01-01'), version(SB, '2026-01-01'), version(S2, '2026-06-01')],
+    [edge(S2, S1)],
+    date('2026-03-15'),
+  )
+  assert.deepEqual(withB, [JSON.stringify({ ok: true, survivors: [S1, SB].sort() })])
+})
+
+test('unusable successor: the very day it takes effect already blocks (inclusive)', () => {
+  const outcome = resolveSupersedesDominance([S1], [version(S1, '2026-01-01'), version(S2, '2026-06-01')], [edge(S2, S1)], date('2026-06-01'))
+  assert.equal(outcome.ok === false && outcome.blocker, 'SUPERSEDES_SUCCESSOR_UNUSABLE')
+})
+
+test('missing or contradictory successor dates keep their own fail-closed blockers, in every order', () => {
+  const missing = everyOrder(
+    [S1, SB],
+    [version(S1, '2026-01-01'), version(SB, '2026-01-01'), version(S2, null)],
+    [edge(S2, S1)],
+    date('2026-08-15'),
+  )
+  assert.deepEqual(missing, [JSON.stringify({ ok: false, blocker: 'SUPERSEDES_EFFECTIVE_DATE_INCOMPLETE' })])
+  const contradictory = everyOrder(
+    [S1, SB],
+    [version(S1, '2026-01-01'), version(SB, '2026-01-01'), version(S2, '2026-09-01', '2026-02-01')],
+    [edge(S2, S1)],
+    date('2026-08-15'),
+  )
+  assert.deepEqual(contradictory, [JSON.stringify({ ok: false, blocker: 'SUPERSEDES_CONTRADICTORY_DATES' })])
+})
+
+test('date blockers take priority over an unusable successor, and over each other, in every order', () => {
+  // S2 (unusable, in force) replaces S1; S3 (missing date) replaces SB. The missing date decides.
+  const outcomes = everyOrder(
+    [S1, SB],
+    [version(S1, '2026-01-01'), version(SB, '2026-01-01'), version(S2, '2026-06-01'), version(S3, null)],
+    [edge(S2, S1), edge(S3, SB)],
+    date('2026-08-15'),
+  )
+  assert.deepEqual(outcomes, [JSON.stringify({ ok: false, blocker: 'SUPERSEDES_EFFECTIVE_DATE_INCOMPLETE' })])
+  // A missing date and a contradictory date on two different successors: always INCOMPLETE.
+  const both = everyOrder(
+    [S1, SB],
+    [version(S1, '2026-01-01'), version(SB, '2026-01-01'), version(S2, '2026-09-01', '2026-02-01'), version(S3, null)],
+    [edge(S2, S1), edge(S3, SB)],
+    date('2026-08-15'),
+  )
+  assert.deepEqual(both, [JSON.stringify({ ok: false, blocker: 'SUPERSEDES_EFFECTIVE_DATE_INCOMPLETE' })])
+})
+
+test('transitive: a usable successor that replaced an unusable middle version still dominates normally', () => {
+  // S3 (usable) SUPERSEDES S2 (unusable) SUPERSEDES S1, all in force: S3 reaches S1 and answers.
+  const outcomes = everyOrder(
+    [S1, S3],
+    [version(S1, '2026-01-01'), version(S2, '2026-03-01'), version(S3, '2026-05-01')],
+    [edge(S3, S2), edge(S2, S1)],
+    date('2026-08-15'),
+  )
+  assert.deepEqual(outcomes, [JSON.stringify({ ok: true, survivors: [S3] })])
+})
+
+test('transitive: a usable successor not yet in force cannot cover an unusable one that is -> blocked', () => {
+  // S2 (unusable) took effect in March; S3 (usable) only from December. On August 15 S1 had
+  // already been replaced, but nothing usable had replaced it yet.
+  const outcomes = everyOrder(
+    [S1, S3],
+    [version(S1, '2026-01-01'), version(S2, '2026-03-01'), version(S3, '2026-12-01')],
+    [edge(S3, S2), edge(S2, S1)],
+    date('2026-08-15'),
+  )
+  assert.deepEqual(outcomes, [BLOCKED_UNUSABLE])
+})
+
+test('an unusable successor that replaced nothing among the candidates changes nothing', () => {
+  // S2 supersedes S3, which is not a candidate: S1 and SB are untouched.
+  const outcomes = everyOrder(
+    [S1, SB],
+    [version(S1, '2026-01-01'), version(SB, '2026-01-01'), version(S2, '2026-06-01'), version(S3, '2026-01-01')],
+    [edge(S2, S3)],
+    date('2026-08-15'),
+  )
+  assert.deepEqual(outcomes, [JSON.stringify({ ok: true, survivors: [S1, SB].sort() })])
 })

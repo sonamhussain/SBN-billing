@@ -66,7 +66,10 @@ export type PrecedenceVersion = {
 
 export type DominanceOutcome =
   | { ok: true; survivingSourceVersionIds: string[] }
-  | { ok: false; blocker: 'SUPERSEDES_EFFECTIVE_DATE_INCOMPLETE' | 'SUPERSEDES_CONTRADICTORY_DATES' }
+  | {
+      ok: false
+      blocker: 'SUPERSEDES_EFFECTIVE_DATE_INCOMPLETE' | 'SUPERSEDES_CONTRADICTORY_DATES' | 'SUPERSEDES_SUCCESSOR_UNUSABLE'
+    }
 
 function buildAdjacency(edges: SupersedesEdge[]): Map<string, string[]> {
   const adjacency = new Map<string, string[]>()
@@ -93,17 +96,33 @@ function reachableFrom(startId: string, adjacency: Map<string, string[]>): Set<s
   return reached
 }
 
-// A3.8 §9 step 9 + §13. A source version X dominates candidate Y when X transitively SUPERSEDES
-// Y AND X had already taken effect on the requested businessDate. Before that date the successor
-// does not yet govern, so the predecessor legitimately survives as the historical answer.
+// A3.8 §9 step 9 + §13. A source version X supersedes candidate Y for businessDate when X
+// transitively SUPERSEDES Y AND X had already taken effect on businessDate. Before that date the
+// successor does not yet govern, so the predecessor legitimately survives as the historical
+// answer.
 //
-// X is drawn from the whole SUPERSEDES neighbourhood, not just the candidate set: a successor
-// that is itself unusable (not yet activated, unverified, out of scope) still determines whether
-// its predecessor may answer for this date, and silently ignoring it would resurrect a
-// predecessor the evidence says had already been replaced.
+// X is drawn from the whole SUPERSEDES neighbourhood, not just the candidate set, because a
+// successor that is itself unusable still decides whether its predecessor may answer. The caller
+// passes as candidates exactly the versions that passed the shared governing gate for this rule
+// and date, so "usable" means "is a candidate". For each candidate Y:
 //
-// Missing or contradictory successor effective dates BLOCK: the date is the only authoritative
-// signal, and supersededAt / publicationDate / createdAt must never be used to infer one.
+//   - some USABLE successor already in force reaches Y -> ordinary dominance: Y is removed and
+//     that successor (or its own successor) answers;
+//   - otherwise, some UNUSABLE successor already in force reaches Y (unverified, not bound to this
+//     rule, out of scope, not ACTIVE...) -> the whole resolution BLOCKS with
+//     SUPERSEDES_SUCCESSOR_UNUSABLE. Y must not win, because the evidence says it was replaced;
+//     and no unrelated candidate may win merely because Y dropped out, because nothing valid
+//     replaced it (audit, A3.8 precedence edge case);
+//   - otherwise Y survives.
+//
+// A transitive chain is covered: if usable Z supersedes unusable X which supersedes Y, Z reaches
+// Y and dominates it normally, so an unusable middle link that has itself been replaced never
+// blocks.
+//
+// Missing or contradictory successor effective dates BLOCK first, exactly as before: the date is
+// the only authoritative signal, and supersededAt / publicationDate / createdAt must never be
+// used to infer one. Every problem is collected before deciding, and the blockers are chosen by a
+// fixed priority, so the outcome never depends on candidate, version or edge order.
 //
 // Candidate validity for businessDate is established by the caller; it is not re-derived here,
 // which keeps this function pure and side-effect free.
@@ -118,8 +137,12 @@ export function resolveSupersedesDominance(
   for (const id of candidateSourceVersionIds) {
     if (!candidates.includes(id)) candidates.push(id)
   }
+  const usable = new Set(candidates)
 
-  const dominated = new Set<string>()
+  let incompleteDates = false
+  let contradictoryDates = false
+  const dominatedByUsable = new Set<string>()
+  const supersededByUnusable = new Set<string>()
 
   for (const superseder of versions) {
     const reachable = reachableFrom(superseder.sourceVersionId, adjacency)
@@ -129,17 +152,32 @@ export function resolveSupersedesDominance(
       if (candidateId === superseder.sourceVersionId) continue
       if (!reachable.has(candidateId)) continue
 
-      if (!superseder.effectiveFrom) return { ok: false, blocker: 'SUPERSEDES_EFFECTIVE_DATE_INCOMPLETE' }
-      if (superseder.effectiveTo && superseder.effectiveFrom.getTime() > superseder.effectiveTo.getTime())
-        return { ok: false, blocker: 'SUPERSEDES_CONTRADICTORY_DATES' }
+      if (!superseder.effectiveFrom) {
+        incompleteDates = true
+        continue
+      }
+      if (superseder.effectiveTo && superseder.effectiveFrom.getTime() > superseder.effectiveTo.getTime()) {
+        contradictoryDates = true
+        continue
+      }
 
       if (businessDate.getTime() >= superseder.effectiveFrom.getTime()) {
-        dominated.add(candidateId)
+        if (usable.has(superseder.sourceVersionId)) dominatedByUsable.add(candidateId)
+        else supersededByUnusable.add(candidateId)
       }
     }
   }
 
-  return { ok: true, survivingSourceVersionIds: candidates.filter((id) => !dominated.has(id)) }
+  if (incompleteDates) return { ok: false, blocker: 'SUPERSEDES_EFFECTIVE_DATE_INCOMPLETE' }
+  if (contradictoryDates) return { ok: false, blocker: 'SUPERSEDES_CONTRADICTORY_DATES' }
+
+  // A candidate replaced by an unusable successor, and by no usable one, cannot be removed
+  // quietly: that would hand the answer to whatever else happened to be a candidate.
+  for (const candidateId of supersededByUnusable) {
+    if (!dominatedByUsable.has(candidateId)) return { ok: false, blocker: 'SUPERSEDES_SUCCESSOR_UNUSABLE' }
+  }
+
+  return { ok: true, survivingSourceVersionIds: candidates.filter((id) => !dominatedByUsable.has(id)) }
 }
 
 // ---------------------------------------------------------------------------------------------
