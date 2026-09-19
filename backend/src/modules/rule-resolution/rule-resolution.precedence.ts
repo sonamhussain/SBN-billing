@@ -1,5 +1,6 @@
 import { APPLICABILITY_DIMENSIONS_V2, type ApplicabilityContextV2 } from '../../shared/rules/applicability-context-v2.ts'
 import { rowMatches, type ApplicabilityRow } from '../rule-applicability/rule-applicability.matcher.ts'
+import { isEffectiveOn } from '../../shared/rules/date-only.ts'
 
 // A3.8 §6 — returned in every resolver response so future provenance can identify exactly which
 // precedence algorithm produced a result.
@@ -97,9 +98,10 @@ function reachableFrom(startId: string, adjacency: Map<string, string[]>): Set<s
 }
 
 // A3.8 §9 step 9 + §13. A source version X supersedes candidate Y for businessDate when X
-// transitively SUPERSEDES Y AND X had already taken effect on businessDate. Before that date the
-// successor does not yet govern, so the predecessor legitimately survives as the historical
-// answer.
+// transitively SUPERSEDES Y AND X is in force on businessDate — its complete inclusive window
+// effectiveFrom <= businessDate <= effectiveTo, a null effectiveTo being open-ended. Before X takes
+// effect, or after X's own period has ended, X does not govern that date, so Y legitimately
+// survives as the answer. "Already in force" below means exactly this window.
 //
 // X is drawn from the whole SUPERSEDES neighbourhood, not just the candidate set, because a
 // successor that is itself unusable still decides whether its predecessor may answer. The caller
@@ -161,7 +163,11 @@ export function resolveSupersedesDominance(
         continue
       }
 
-      if (businessDate.getTime() >= superseder.effectiveFrom.getTime()) {
+      // In force = the complete inclusive window effectiveFrom <= businessDate <= effectiveTo, with a
+      // null effectiveTo open-ended — the same shared rule used everywhere else (F07). A successor
+      // whose own period had already ended before businessDate does not count against Y, usable or
+      // not (audit: expired-successor boundary).
+      if (isEffectiveOn(superseder.effectiveFrom, superseder.effectiveTo, businessDate)) {
         if (usable.has(superseder.sourceVersionId)) dominatedByUsable.add(candidateId)
         else supersededByUnusable.add(candidateId)
       }

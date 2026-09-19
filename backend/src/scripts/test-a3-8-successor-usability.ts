@@ -37,7 +37,8 @@ async function main() {
   // Builds one rule. `order` is the binding creation order (the query order), so permutations of
   // it prove candidate order is irrelevant. S1 is SUPERSEDED by S2; B, when present, is an
   // unrelated ACTIVE candidate.
-  async function scenario(name: string, flavour: Flavour, withB: boolean, order: Piece[]) {
+  // `s2To` gives S2 a finite end date (default open-ended), for the expired-successor boundary.
+  async function scenario(name: string, flavour: Flavour, withB: boolean, order: Piece[], s2To: string | null = null) {
     const rule = await fx.makeRule(name)
     const version = await fx.makeRuleVersion(rule.id, '1')
     await fx.makeApplicability(version.id)
@@ -55,6 +56,7 @@ async function main() {
         const target = flavour === 'unbound' ? elsewhere.id : version.id
         made.S2 = await fx.attachSource(target, `${name}-S2`, {
           effectiveFrom: flavour === 'no-date' ? null : d('2026-06-01'),
+          effectiveTo: s2To ? d(s2To) : null,
           category: flavour === 'out-of-scope' ? 'PAYER_POLICY' : undefined,
         })
         if (flavour === 'unverified') {
@@ -132,6 +134,59 @@ async function main() {
     )
     // A contradictory period cannot be stored at all (rule_source_versions_effective_period_chk),
     // so SUPERSEDES_CONTRADICTORY_DATES is proven in the pure unit tests.
+  }
+
+  section('Expired successor: S2 in force 2026-06-01..2026-07-31 no longer counts after its end')
+  {
+    // The auditor's exact case: businessDate 2026-08-15, after S2 ended on 2026-07-31.
+    for (const flavour of ['unverified', 'unbound', 'out-of-scope'] as const) {
+      const s = await scenario(`expired-${flavour}`, flavour, false, ['S1', 'S2'], '2026-07-31')
+      const dto = await resolve(s.rule.id, inForce)
+      check(
+        `${flavour} S2 expired on 2026-07-31: on 2026-08-15 S1 resolves (historically), not blocked`,
+        dto.resolutionStatus === 'RESOLVED' && dto.governingSourceVersionId === s.S1.sourceVersion.id && dto.historicalOnly === true,
+        outcome(dto),
+      )
+    }
+    {
+      const s = await scenario('expired-with-b', 'unverified', true, ['S1', 'B', 'S2'], '2026-07-31')
+      const dto = await resolve(s.rule.id, inForce)
+      check(
+        'expired unusable S2 with an unrelated B: S1 and B tie, and B does not win',
+        dto.resolutionStatus === 'BLOCKED_SOURCE_PRECEDENCE_CONFLICT' &&
+          dto.blockers.join(',') === 'SOURCE_PRECEDENCE_TIE' &&
+          dto.governingSourceVersionId === null,
+        outcome(dto),
+      )
+    }
+    {
+      const s = await scenario('expired-last-day', 'unverified', false, ['S1', 'S2'], '2026-07-31')
+      const lastDay = await resolve(s.rule.id, '2026-07-31')
+      check(
+        'on its last day (2026-07-31, inclusive) the unusable S2 still blocks',
+        lastDay.resolutionStatus === 'BLOCKED_SOURCE_PRECEDENCE_CONFLICT' && lastDay.blockers.join(',') === 'SUPERSEDES_SUCCESSOR_UNUSABLE',
+        outcome(lastDay),
+      )
+      const dayAfter = await resolve(s.rule.id, '2026-08-01')
+      check(
+        'from the next day (2026-08-01) S1 resolves again',
+        dayAfter.resolutionStatus === 'RESOLVED' && dayAfter.governingSourceVersionId === s.S1.sourceVersion.id,
+        outcome(dayAfter),
+      )
+    }
+    {
+      // A usable S2 inside its window wins; after its end it is no longer a candidate (not
+      // effective), so it neither wins nor blocks, and S1 answers.
+      const s = await scenario('expired-usable', 'usable', false, ['S1', 'S2'], '2026-07-31')
+      const inside = await resolve(s.rule.id, '2026-07-15')
+      check('usable S2 inside its window (2026-07-15) wins', inside.governingSourceVersionId === s.S2.sourceVersion.id, outcome(inside))
+      const after = await resolve(s.rule.id, inForce)
+      check(
+        'usable S2 after its window (2026-08-15): S1 resolves historically',
+        after.resolutionStatus === 'RESOLVED' && after.governingSourceVersionId === s.S1.sourceVersion.id,
+        outcome(after),
+      )
+    }
   }
 
   section('Candidate / input order permutations produce the same result')

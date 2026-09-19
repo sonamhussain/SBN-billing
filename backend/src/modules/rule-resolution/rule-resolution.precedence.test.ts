@@ -463,3 +463,59 @@ test('an unusable successor that replaced nothing among the candidates changes n
   )
   assert.deepEqual(outcomes, [JSON.stringify({ ok: true, survivors: [S1, SB].sort() })])
 })
+
+// --- expired successor (audit: complete effective window for the successor) ---------------
+// S2 SUPERSEDES S1, S2 effective 2026-06-01..2026-07-31. The successor counts only while
+// effectiveFrom <= businessDate <= effectiveTo; a null effectiveTo is open-ended.
+
+const EXPIRED_S2 = () => version(S2, '2026-06-01', '2026-07-31')
+
+test('expired successor: an unusable S2 whose period ended before businessDate does not count against S1', () => {
+  // The auditor's exact case: businessDate 2026-08-15 is after S2 ended on 2026-07-31.
+  const outcomes = everyOrder([S1], [version(S1, '2026-01-01'), EXPIRED_S2()], [edge(S2, S1)], date('2026-08-15'))
+  assert.deepEqual(outcomes, [JSON.stringify({ ok: true, survivors: [S1] })])
+})
+
+test('expired successor: with an unrelated B, S1 and B both survive for the caller to report as a tie', () => {
+  const outcomes = everyOrder(
+    [S1, SB],
+    [version(S1, '2026-01-01'), version(SB, '2026-01-01'), EXPIRED_S2()],
+    [edge(S2, S1)],
+    date('2026-08-15'),
+  )
+  assert.deepEqual(outcomes, [JSON.stringify({ ok: true, survivors: [S1, SB].sort() })])
+})
+
+test('expired successor: its last day is still inclusive, so an unusable S2 blocks on 2026-07-31', () => {
+  const outcomes = everyOrder([S1], [version(S1, '2026-01-01'), EXPIRED_S2()], [edge(S2, S1)], date('2026-07-31'))
+  assert.deepEqual(outcomes, [BLOCKED_UNUSABLE])
+})
+
+test('expired successor: from the day after its end (2026-08-01) S1 is no longer blocked by it', () => {
+  const outcome = resolveSupersedesDominance([S1], [version(S1, '2026-01-01'), EXPIRED_S2()], [edge(S2, S1)], date('2026-08-01'))
+  assert.deepEqual(outcome.ok && outcome.survivingSourceVersionIds, [S1])
+})
+
+test('expired successor: before it starts, S1 is also untouched', () => {
+  const outcome = resolveSupersedesDominance([S1], [version(S1, '2026-01-01'), EXPIRED_S2()], [edge(S2, S1)], date('2026-05-31'))
+  assert.deepEqual(outcome.ok && outcome.survivingSourceVersionIds, [S1])
+})
+
+test('expired successor: a usable S2 dominates only inside its own window', () => {
+  const inside = resolveSupersedesDominance([S1, S2], [version(S1, '2026-01-01'), EXPIRED_S2()], [edge(S2, S1)], date('2026-07-15'))
+  assert.deepEqual(inside.ok && inside.survivingSourceVersionIds, [S2])
+  const after = resolveSupersedesDominance([S1, S2], [version(S1, '2026-01-01'), EXPIRED_S2()], [edge(S2, S1)], date('2026-08-15'))
+  assert.deepEqual(after.ok && [...after.survivingSourceVersionIds].sort(), [S1, S2].sort())
+})
+
+test('expired successor: a null effectiveTo stays open-ended, so an open unusable S2 still blocks on 2026-08-15', () => {
+  const outcome = resolveSupersedesDominance([S1], [version(S1, '2026-01-01'), version(S2, '2026-06-01', null)], [edge(S2, S1)], date('2026-08-15'))
+  assert.equal(outcome.ok === false && outcome.blocker, 'SUPERSEDES_SUCCESSOR_UNUSABLE')
+})
+
+test('expired successor: an expired successor with a missing or contradictory date still fails closed on the date', () => {
+  const contradictory = resolveSupersedesDominance([S1], [version(S1, '2026-01-01'), version(S2, '2026-07-31', '2026-06-01')], [edge(S2, S1)], date('2026-08-15'))
+  assert.equal(contradictory.ok === false && contradictory.blocker, 'SUPERSEDES_CONTRADICTORY_DATES')
+  const missing = resolveSupersedesDominance([S1], [version(S1, '2026-01-01'), version(S2, null, '2026-07-31')], [edge(S2, S1)], date('2026-08-15'))
+  assert.equal(missing.ok === false && missing.blocker, 'SUPERSEDES_EFFECTIVE_DATE_INCOMPLETE')
+})
