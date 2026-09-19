@@ -34,6 +34,12 @@ import { providerContractTariffSchedulesRouter, tariffScheduleRouter, tariffSche
 import { referenceDatasetRouter, referenceDatasetVersionRouter } from './modules/reference-dataset/reference-dataset.route.ts'
 import { sourceScopesRouter, ruleSourceScopeRouter } from './modules/rule-source-scope/rule-source-scope.route.ts'
 import { ruleDefinitionResolutionRouter } from './modules/rule-resolution/rule-resolution.route.ts'
+import {
+  organizationRulePackRouter,
+  rulePackMemberRouter,
+  rulePackRouter,
+  rulePackVersionRouter,
+} from './modules/rule-pack/rule-pack.route.ts'
 
 export const app = express()
 
@@ -152,6 +158,12 @@ app.use('/api/rule-source-scopes', ruleSourceScopeRouter)
 
 // A3.8
 app.use('/api/rule-definitions', ruleDefinitionResolutionRouter)
+
+// A3.9 — rule packs only. There is no provenance route: the A3-PROV-1 composer is internal.
+app.use('/api/organizations', organizationRulePackRouter)
+app.use('/api/rule-packs', rulePackRouter)
+app.use('/api/rule-pack-versions', rulePackVersionRouter)
+app.use('/api/rule-pack-members', rulePackMemberRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

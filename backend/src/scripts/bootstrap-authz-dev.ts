@@ -83,6 +83,8 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'rule_source_scope.create', name: 'Create Rule Source Scope' },
   { code: 'rule_source_scope.read', name: 'Read Rule Source Scope' },
   { code: 'rule_resolution.read', name: 'Read Deterministic Rule Resolution' },
+  { code: 'rule_pack.read', name: 'Read Rule Pack' },
+  { code: 'rule_pack.write', name: 'Write Rule Pack' },
 ]
 
 const roleCatalogue = [
@@ -170,12 +172,14 @@ const roleCatalogue = [
       'rule_source_scope.create',
       'rule_source_scope.read',
       'rule_resolution.read',
+      'rule_pack.read',
+      'rule_pack.write',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read', 'rule_resolution.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read', 'rule_resolution.read', 'rule_pack.read'],
   },
 ] as const
 

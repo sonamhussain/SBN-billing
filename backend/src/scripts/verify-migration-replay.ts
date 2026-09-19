@@ -117,6 +117,8 @@ async function main() {
       'rule_applicabilities_exact_scope_uq',
       'rule_source_scopes_exact_scope_uq',
       'reference_dataset_versions_one_active_uq',
+      'rule_packs_scope_pack_key_uq',
+      'rule_pack_versions_one_active_uq',
     ]
     for (const name of required) {
       check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))

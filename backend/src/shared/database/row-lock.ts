@@ -20,6 +20,9 @@ const lockableTables = [
   'tariff_schedule_versions',
   // Audit F11: the dataset row is the parent every dataset-version writer serializes on.
   'reference_datasets',
+  // A3.9: every rule-pack version writer (dates, members, verification, activation) serializes on
+  // the parent pack row, so a freeze or a one-ACTIVE decision is never read stale.
+  'rule_packs',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

@@ -32,7 +32,8 @@ import {
 import { isRuleResolutionUuid, resolutionContextKeys } from './rule-resolution.validation.ts'
 import { isHistoricalOnlyReference, isHistoricalOnlyResolved } from './rule-resolution.currentness.ts'
 import { utcDateOf } from '../../shared/rules/date-only.ts'
-import type { ResolutionStatus, RuleResolutionDto, RuleResolutionResult } from './rule-resolution.types.ts'
+import type { ResolutionStatus, RuleResolutionDto, RuleResolutionEvaluationBundle, RuleResolutionResult } from './rule-resolution.types.ts'
+import { takeEvaluationBundleIssuer } from './rule-resolution.bundle.ts'
 import { withReadSnapshot } from '../../shared/database/read-snapshot.ts'
 import type { DbClient } from '../../shared/database/database.types.ts'
 import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
@@ -121,17 +122,58 @@ export type ResolutionInternalOptions = {
 
 const systemClock = () => new Date()
 
+// A3.9 v1.2 — the only producer of RuleResolutionEvaluationBundle. REF-02 F04: composition must
+// reuse the exact result, authoritative context (including the server-derived
+// facilityRegulatoryProfileId) and captured instant of ONE evaluation, never pieces from two.
+const issueEvaluationBundle = takeEvaluationBundleIssuer()
+
 export async function evaluateRuleResolution(
   ruleDefinitionId: string,
   businessDateInput: unknown,
   contextInputs: Record<string, unknown>,
   internal: ResolutionInternalOptions = {},
 ): Promise<RuleResolutionResult<RuleResolutionDto>> {
+  const result = await evaluateRuleResolutionBundle(ruleDefinitionId, businessDateInput, contextInputs, internal)
+  return result.ok ? { ok: true, value: result.value.resolution } : result
+}
+
+// Internal only (A3-PROV-1 composer). The HTTP route still returns only RuleResolutionDto.
+export async function evaluateRuleResolutionBundle(
+  ruleDefinitionId: string,
+  businessDateInput: unknown,
+  contextInputs: Record<string, unknown>,
+  internal: ResolutionInternalOptions = {},
+): Promise<RuleResolutionResult<RuleResolutionEvaluationBundle>> {
   // Audit F02: one server timestamp, captured once per request before anything else, and never
   // taken from the client. evaluationDate is its UTC calendar date. It decides only the
   // historicalOnly metadata; businessDate alone decides what is selected.
-  const evaluationDate = utcDateOf((internal.clock ?? systemClock)())
+  const evaluationTimestamp = (internal.clock ?? systemClock)()
+  const evaluationDate = utcDateOf(evaluationTimestamp)
   if (!evaluationDate) throw new Error('rule resolution: the evaluation clock returned an invalid instant')
+
+  // Filled in once the authoritative context is final (after server-side profile derivation).
+  const evidence: { context: ApplicabilityContextV2; organizationId: string } = { context: {}, organizationId: '' }
+  const outcome = await evaluateRuleResolutionCore(ruleDefinitionId, businessDateInput, contextInputs, internal, evaluationDate, evidence)
+  if (!outcome.ok) return outcome
+  return {
+    ok: true,
+    value: issueEvaluationBundle({
+      resolution: outcome.value,
+      authoritativeContext: evidence.context,
+      organizationId: evidence.organizationId,
+      evaluationTimestamp,
+    }),
+  }
+}
+
+async function evaluateRuleResolutionCore(
+  ruleDefinitionId: string,
+  businessDateInput: unknown,
+  contextInputs: Record<string, unknown>,
+  internal: ResolutionInternalOptions,
+  evaluationDate: Date,
+  evidence: { context: ApplicabilityContextV2; organizationId: string },
+): Promise<RuleResolutionResult<RuleResolutionDto>> {
 
   if (!isRuleResolutionUuid(ruleDefinitionId))
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule definition id' }
@@ -198,6 +240,13 @@ export async function evaluateRuleResolution(
         resolvedProfile = resolution.profile
         context.facilityRegulatoryProfileId = resolution.profile.id
       }
+
+      // A3.9: the context is final from here on — record the exact one this evaluation uses, with
+      // every one of the twelve dimensions present (null when not supplied/derived).
+      const finalContext: ApplicabilityContextV2 = {}
+      for (const key of APPLICABILITY_DIMENSIONS_V2) finalContext[key] = context[key] ?? null
+      evidence.context = finalContext
+      evidence.organizationId = ruleOrganizationId
 
       // Internal pause points for the F04 snapshot proof; no-ops in production.
       await concurrencyProbe('rule_resolution.after_context')

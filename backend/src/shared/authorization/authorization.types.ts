@@ -79,6 +79,9 @@ export const permissionCodes = [
   'rule_source_scope.create',
   'rule_source_scope.read',
   'rule_resolution.read',
+  // A3.9 — the only two new permissions. There is deliberately no rule_provenance.read.
+  'rule_pack.read',
+  'rule_pack.write',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
