@@ -1,5 +1,4 @@
-import type { ApplicabilityContextV2 } from '../../shared/rules/applicability-context-v2.ts'
-import type { RuleResolutionDto } from '../rule-resolution/rule-resolution.types.ts'
+import type { RuleResolutionEvaluationBundle } from '../rule-resolution/rule-resolution.types.ts'
 
 // A3.9 §13 — A3-PROV-1: the stable reference contract a later business module (A5/A6) freezes when
 // it takes a real decision. A3.9 only defines and composes it; nothing here is persisted, and
@@ -76,10 +75,11 @@ export type ProvenanceResult =
   | { ok: true; value: RuleDecisionProvenanceRefV1 }
   | { ok: false; error: ProvenanceCompositionError }
 
+// A3.9 v1.2 — the composer takes ONE inseparable A3.8 evaluation bundle. There is deliberately no
+// separate context, organization or timestamp input, so pieces of two evaluations cannot be mixed.
+// historicalOnly stays the A3.8 RuleVersion/source currentness flag; a historical (SUPERSEDED)
+// pack version never changes it — the pack version is recorded separately.
 export type ComposeProvenanceInput = {
-  resolution: RuleResolutionDto
-  authoritativeContext: ApplicabilityContextV2
-  organizationId: string
+  evaluation: RuleResolutionEvaluationBundle
   rulePackVersionId?: string | null
-  evaluationTimestamp: Date
 }

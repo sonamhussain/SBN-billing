@@ -1,6 +1,7 @@
 import type { DbClient } from '../../shared/database/database.types.ts'
 import { withReadSnapshot } from '../../shared/database/read-snapshot.ts'
 import { jurisdictionsMatch } from '../rule-pack/rule-pack.validation.ts'
+import { readIssuedEvaluation } from '../rule-resolution/rule-resolution.bundle.ts'
 import {
   findApplicabilitiesForProvenance,
   findBindingsForProvenance,
@@ -37,11 +38,18 @@ export async function composeRuleDecisionProvenanceRefV1(
   // opened here, so every lookup below sees one consistent state.
   db?: DbClient,
 ): Promise<ProvenanceResult> {
+  // A3.9 v1.2 — only a bundle issued by ONE A3.8 evaluation is accepted, and its fields are read
+  // from the resolver's private record, not from the object passed in. A bundle spliced together
+  // from two evaluations (or hand-built with the same values) is not an issued bundle.
+  const evaluation = readIssuedEvaluation(input.evaluation)
+  if (!evaluation)
+    return fail('PROVENANCE_INVARIANT_VIOLATION', 'the evaluation is not an unmodified bundle issued by one A3.8 resolution')
+
   // Step 1 and input invariants (pure, before any lookup).
-  const prechecked = precheckProvenanceInput(input)
+  const prechecked = precheckProvenanceInput({ ...evaluation, rulePackVersionId: input.rulePackVersionId })
   if (!prechecked.ok) return prechecked
   const { fields, businessDate, rulePackVersionId } = prechecked.value
-  const { resolution } = input
+  const { resolution, organizationId, authoritativeContext, evaluationTimestamp } = evaluation
 
   return withReadSnapshot(db, async (tx) => {
     // Steps 2–5 — the exact rule, source, binding and applicability IDs are copied from A3.8, then
@@ -52,7 +60,7 @@ export async function composeRuleDecisionProvenanceRefV1(
       return fail('PROVENANCE_INVARIANT_VIOLATION', 'the resolved RuleVersion does not belong to the resolved RuleDefinition')
     if (ruleVersion.version !== fields.ruleVersion)
       return fail('PROVENANCE_INVARIANT_VIOLATION', 'the resolved RuleVersion label does not match the stored version')
-    if (ruleVersion.rule.organizationId !== input.organizationId)
+    if (ruleVersion.rule.organizationId !== organizationId)
       return fail('PROVENANCE_INVARIANT_VIOLATION', 'the resolved rule does not belong to the supplied organization')
     if (!jurisdictionsMatch(ruleVersion.rule.jurisdictionCode, resolution.jurisdictionCode))
       return fail('PROVENANCE_INVARIANT_VIOLATION', 'the resolution jurisdiction does not match the rule definition')
@@ -100,7 +108,7 @@ export async function composeRuleDecisionProvenanceRefV1(
       const packVersion = await findRulePackVersionForProvenance(rulePackVersionId, tx)
       if (!packVersion) return fail('PACK_VERSION_NOT_USABLE', 'the supplied rule pack version does not exist')
       const usability = decidePackVersionUsable(packVersion, {
-        organizationId: input.organizationId,
+        organizationId: organizationId,
         jurisdictionCode: resolution.jurisdictionCode,
         businessDate,
       })
@@ -127,15 +135,16 @@ export async function composeRuleDecisionProvenanceRefV1(
       supportingBindingIds: [...resolution.supportingBindingIds],
       supportingSourceVersionIds,
       matchedApplicabilityIds: [...resolution.matchedApplicabilityIds],
-      organizationId: input.organizationId,
+      organizationId: organizationId,
       jurisdictionCode: resolution.jurisdictionCode,
       // Steps 7–8 — the authoritative context the A3.8 evaluation used; never re-resolved here.
-      context: toProvenanceContext(input.authoritativeContext),
+      context: toProvenanceContext(authoritativeContext),
       // Step 14 — A3.8 consumed no ReferenceDatasetVersion, so none is claimed.
       referenceDatasetVersionIds: [],
       businessDate: resolution.businessDate,
-      evaluationTimestamp: input.evaluationTimestamp.toISOString(),
-      // Step 15 — copied exactly; never recalculated or downgraded.
+      evaluationTimestamp: evaluationTimestamp.toISOString(),
+      // Step 15 — copied exactly; never recalculated or downgraded. It is the A3.8 RuleVersion/source
+      // currentness flag: a historical (SUPERSEDED) pack version never changes it.
       historicalOnly: resolution.historicalOnly,
     }
     return { ok: true, value: provenance }

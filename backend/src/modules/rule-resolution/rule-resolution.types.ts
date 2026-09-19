@@ -1,3 +1,5 @@
+import type { ApplicabilityContextV2 } from '../../shared/rules/applicability-context-v2.ts'
+
 // A3.8 §5 — resolver outcomes. These are NOT billing decisions: a RESOLVED result only says
 // "this is the exact RuleVersion and governing source candidate the evidence points to", and a
 // BLOCKED_* result is the correct, deliberate answer whenever the evidence is ambiguous.
@@ -56,3 +58,16 @@ export type RuleResolutionErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND' | 'FORBID
 export type RuleResolutionResult<T> =
   | { ok: true; value: T }
   | { ok: false; code: RuleResolutionErrorCode; message: string }
+
+// A3.9 v1.2 — the inseparable A3.8→A3.9 internal handoff. One bundle is produced by ONE A3.8
+// evaluation (one authoritative context, one server-captured instant, one read snapshot) and is
+// consumed whole by the A3-PROV-1 composer, which accepts no separate context, organization or
+// timestamp. Internal only: the public HTTP response is still RuleResolutionDto alone.
+export type RuleResolutionEvaluationBundle = Readonly<{
+  resolution: Readonly<RuleResolutionDto>
+  // All twelve ApplicabilityContextV2 dimensions (null when absent), including the
+  // server-derived facilityRegulatoryProfileId.
+  authoritativeContext: Readonly<ApplicabilityContextV2>
+  organizationId: string
+  evaluationTimestamp: Date
+}>

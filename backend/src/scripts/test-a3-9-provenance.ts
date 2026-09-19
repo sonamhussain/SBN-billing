@@ -1,9 +1,11 @@
 import 'dotenv/config'
 import { prisma } from '../shared/database/prisma.ts'
 import { clearConcurrencyProbes, setConcurrencyProbe } from '../shared/testing/concurrency-probe.ts'
-import { evaluateRuleResolutionWithEvidence } from '../modules/rule-resolution/rule-resolution.service.ts'
+import { evaluateRuleResolution, evaluateRuleResolutionBundle } from '../modules/rule-resolution/rule-resolution.service.ts'
+import { takeEvaluationBundleIssuer } from '../modules/rule-resolution/rule-resolution.bundle.ts'
 import { composeRuleDecisionProvenanceRefV1 } from '../modules/rule-provenance/rule-provenance.composer.ts'
-import type { RuleResolutionDto } from '../modules/rule-resolution/rule-resolution.types.ts'
+import type { RuleResolutionEvaluationBundle } from '../modules/rule-resolution/rule-resolution.types.ts'
+import type { DbClient } from '../shared/database/database.types.ts'
 import {
   activateRulePackVersion,
   addRulePackMember,
@@ -15,8 +17,9 @@ import { a38Fixtures, createChecker, d } from './support/a3-8-fixtures.ts'
 
 // A3.9 — the internal A3-PROV-1 composer against real rows (T36–T51, T57–T58), plus the two
 // rule-pack races that need in-process barriers (T31 one-ACTIVE, verification freeze).
-// Every input comes from a REAL A3.8 evaluation (evaluateRuleResolutionWithEvidence), so the
-// composer is exercised exactly as a later business module would call it.
+// Every input is a REAL A3.8 evaluation bundle (evaluateRuleResolutionBundle), so the composer is
+// exercised exactly as a later business module would call it. v1.2: the bundle is inseparable -
+// pieces of two evaluations cannot be combined, and a hand-built lookalike is refused.
 
 const { check, eq, section, finish } = createChecker('a3.9-provenance')
 
@@ -113,36 +116,25 @@ async function main() {
 
   // A real A3.8 evaluation. A forged facilityRegulatoryProfileId in the request must not survive:
   // A3.8 derives the profile server-side and the composer reuses exactly that.
-  const evaluated = await evaluateRuleResolutionWithEvidence(rule.id, businessDate, { ...fullContext, facilityRegulatoryProfileId: F1.id }, { clock })
+  const evaluated = await evaluateRuleResolutionBundle(rule.id, businessDate, { ...fullContext, facilityRegulatoryProfileId: F1.id }, { clock })
   if (!evaluated.ok) throw new Error(`A3.8 evaluation failed: ${evaluated.code} ${evaluated.message}`)
   const ev = evaluated.value
   check('fixture: the real A3.8 evaluation RESOLVED', ev.resolution.resolutionStatus === 'RESOLVED', JSON.stringify(ev.resolution))
 
-  const compose = (resolution: RuleResolutionDto, rulePackVersionId: string | null = null) =>
-    composeRuleDecisionProvenanceRefV1({
-      resolution,
-      authoritativeContext: ev.authoritativeContext,
-      organizationId: ev.organizationId,
-      rulePackVersionId,
-      evaluationTimestamp: ev.evaluationTimestamp,
-    })
+  const compose = (evaluation: RuleResolutionEvaluationBundle, rulePackVersionId: string | null = null, db?: DbClient) =>
+    composeRuleDecisionProvenanceRefV1({ evaluation, rulePackVersionId }, db)
 
   section('T36 an unresolved A3.8 result produces no provenance')
   {
     const noMatchRule = await fx.makeRule('no-match')
-    const noMatch = await evaluateRuleResolutionWithEvidence(noMatchRule.id, businessDate, {}, { clock })
+    const noMatch = await evaluateRuleResolutionBundle(noMatchRule.id, businessDate, {}, { clock })
     if (!noMatch.ok) throw new Error('no-match evaluation failed')
-    const out = await composeRuleDecisionProvenanceRefV1({
-      resolution: noMatch.value.resolution,
-      authoritativeContext: noMatch.value.authoritativeContext,
-      organizationId: noMatch.value.organizationId,
-      evaluationTimestamp: noMatch.value.evaluationTimestamp,
-    })
+    const out = await compose(noMatch.value)
     check('T36 a real NO_MATCH result -> RESOLUTION_NOT_RESOLVED, no provenance object', !out.ok && out.error.code === 'RESOLUTION_NOT_RESOLVED' && !('value' in out))
   }
 
   section('T37–T46 exact copies, from a real RESOLVED result, with no pack')
-  const base = await compose(ev.resolution)
+  const base = await compose(ev)
   if (!base.ok) throw new Error(`composition failed: ${base.error.code} ${base.error.message}`)
   const p = base.value
   check('T37 exact RuleDefinition / RuleVersion / version label', p.ruleDefinitionId === rule.id && p.ruleVersionId === ruleVersion.id && p.ruleVersion === '1')
@@ -161,10 +153,7 @@ async function main() {
   )
   check('T40 matchedApplicabilityIds copied exactly', JSON.stringify(p.matchedApplicabilityIds) === JSON.stringify(ev.resolution.matchedApplicabilityIds) && p.matchedApplicabilityIds.includes(applicability.id))
   eq('T41 precedencePolicyVersion equals the A3.8 result (currently A3-PREC-1)', p.precedencePolicyVersion, ev.resolution.precedencePolicyVersion)
-  {
-    const future = await compose({ ...ev.resolution, precedencePolicyVersion: 'A3-PREC-2-FUTURE' })
-    check('T41 the policy string is copied verbatim, not hard-coded (a future policy passes through)', future.ok && future.value.precedencePolicyVersion === 'A3-PREC-2-FUTURE')
-  }
+  // (That the composer holds no policy literal of its own is proven statically by test:a3:scope.)
   check('T42 all twelve context dimensions are present', Object.keys(p.context).length === 12)
   check(
     'T42 every supplied dimension is preserved exactly',
@@ -205,14 +194,14 @@ async function main() {
 
   {
     const member = await packVersionWith('member', [ruleVersion.id])
-    const out = await compose(ev.resolution, member.versionId)
+    const out = await compose(ev, member.versionId)
     check('T47 an exact member -> pack fields populated', out.ok && out.value.rulePackId === member.packId && out.value.rulePackVersionId === member.versionId && out.value.rulePackVersion === 'v1', JSON.stringify(out))
   }
   {
     const otherRule = await fx.makeRule('other')
     const otherVersion = await fx.makeRuleVersion(otherRule.id, '1')
     const notMember = await packVersionWith('not-member', [otherVersion.id])
-    const out = await compose(ev.resolution, notMember.versionId)
+    const out = await compose(ev, notMember.versionId)
     check('T48 the resolved RuleVersion is not a member -> PACK_MEMBERSHIP_MISMATCH, no provenance', !out.ok && out.error.code === 'PACK_MEMBERSHIP_MISMATCH')
   }
   {
@@ -225,12 +214,15 @@ async function main() {
       })],
     ]
     for (const [label, pv] of cases.slice(0, 2)) {
-      const out = await compose(ev.resolution, pv.versionId)
+      const out = await compose(ev, pv.versionId)
       check(`T49 ${label} -> PACK_VERSION_NOT_USABLE`, !out.ok && out.error.code === 'PACK_VERSION_NOT_USABLE', JSON.stringify(out))
     }
-    const outOfPeriod = await compose({ ...ev.resolution, businessDate: '2026-05-01' }, cases[2][1].versionId)
+    // A real A3.8 evaluation for a businessDate after the pack period ends (2026-03-31).
+    const later = await evaluateRuleResolutionBundle(rule.id, '2026-05-01', fullContext, { clock })
+    if (!later.ok || later.value.resolution.resolutionStatus !== 'RESOLVED') throw new Error('later evaluation did not resolve')
+    const outOfPeriod = await compose(later.value, cases[2][1].versionId)
     check('T49 businessDate outside the pack period -> PACK_VERSION_NOT_USABLE', !outOfPeriod.ok && outOfPeriod.error.code === 'PACK_VERSION_NOT_USABLE', JSON.stringify(outOfPeriod))
-    const unknown = await compose(ev.resolution, '00000000-0000-4000-8000-000000000000')
+    const unknown = await compose(ev, '00000000-0000-4000-8000-000000000000')
     check('T49 an unknown pack version -> PACK_VERSION_NOT_USABLE', !unknown.ok && unknown.error.code === 'PACK_VERSION_NOT_USABLE')
     const foreignOrgPack = await prisma.rulePack.create({
       data: { organizationId: process.env.A1_IT_OTHER_ORGANIZATION_ID as string, ownershipScope: 'ORGANIZATION', packKey: `${tag}-foreign`, displayName: 'f', jurisdictionCode: 'AE-DU' },
@@ -239,7 +231,7 @@ async function main() {
       data: { rulePackId: foreignOrgPack.id, version: 'v1', verificationStatus: 'VERIFIED', verifiedAt: new Date(), activationStatus: 'ACTIVE', activatedAt: new Date() },
     })
     await prisma.rulePackMember.create({ data: { rulePackVersionId: foreignVersion.id, ruleVersionId: ruleVersion.id } })
-    const foreign = await compose(ev.resolution, foreignVersion.id)
+    const foreign = await compose(ev, foreignVersion.id)
     check('T49 another organization pack -> PACK_VERSION_NOT_USABLE even when it lists the RuleVersion', !foreign.ok && foreign.error.code === 'PACK_VERSION_NOT_USABLE')
   }
   {
@@ -251,8 +243,11 @@ async function main() {
     await activateRulePackVersion(successor.value.id, businessDate, actor)
     const old = await prisma.rulePackVersion.findUniqueOrThrow({ where: { id: historical.versionId } })
     check('fixture: the first version is now SUPERSEDED', old.activationStatus === 'SUPERSEDED')
-    const out = await compose(ev.resolution, historical.versionId)
+    const out = await compose(ev, historical.versionId)
     check('T50 the exact SUPERSEDED pack version is referenced for a date inside its period', out.ok && out.value.rulePackVersionId === historical.versionId && out.value.rulePackVersion === 'v1', JSON.stringify(out))
+    // v1.2 semantic lock: historicalOnly is the A3.8 RuleVersion/source currentness flag. A
+    // historical pack version is recorded separately and never changes it.
+    check('v1.2 A3.8 historicalOnly=false + exact SUPERSEDED pack -> provenance historicalOnly stays false', ev.resolution.historicalOnly === false && out.ok && out.value.historicalOnly === false)
   }
 
   section('T51 historicalOnly is copied exactly — never recalculated or downgraded')
@@ -262,39 +257,120 @@ async function main() {
     const histVersion = await fx.makeRuleVersion(histRule.id, '1', { effectiveFrom: d('2025-01-01'), effectiveTo: d('2025-12-31') })
     await fx.makeApplicability(histVersion.id)
     await fx.attachSource(histVersion.id, 'hist-gov', { effectiveFrom: d('2025-01-01') })
-    const hist = await evaluateRuleResolutionWithEvidence(histRule.id, '2025-06-15', {}, { clock })
+    const hist = await evaluateRuleResolutionBundle(histRule.id, '2025-06-15', {}, { clock })
     if (!hist.ok) throw new Error('historical evaluation failed')
-    const out = await composeRuleDecisionProvenanceRefV1({
-      resolution: hist.value.resolution,
-      authoritativeContext: hist.value.authoritativeContext,
-      organizationId: hist.value.organizationId,
-      evaluationTimestamp: hist.value.evaluationTimestamp,
-    })
+    const out = await compose(hist.value)
     check('a real historical A3.8 result (rule expired by evaluation date): historicalOnly true is copied', hist.value.resolution.historicalOnly === true && out.ok && out.value.historicalOnly === true)
-    const notDowngraded = await compose({ ...ev.resolution, historicalOnly: true })
-    check('the composer never downgrades: an input flagged true stays true although everything is current', notDowngraded.ok && notDowngraded.value.historicalOnly === true)
   }
 
-  section('Fail closed on inconsistent input (PROVENANCE_INVARIANT_VIOLATION)')
+  section('v1.2 the A3.8→A3.9 handoff is one inseparable evaluation bundle')
+  const otherOrg = process.env.A1_IT_OTHER_ORGANIZATION_ID as string
+  const noMatchBundle = await (async () => {
+    const r = await evaluateRuleResolutionBundle((await fx.makeRule('no-match-2')).id, businessDate, {}, { clock })
+    if (!r.ok) throw new Error('no-match evaluation failed')
+    return r.value
+  })()
   {
-    const tampered: [string, RuleResolutionDto][] = [
-      ['a governing source that does not match the binding', { ...ev.resolution, governingSourceId: supportA.source.id }],
-      ['a governing binding that is really SUPPORTING', { ...ev.resolution, governingBindingId: supportA.binding.id }],
-      ['a supporting binding of another rule', { ...ev.resolution, supportingBindingIds: [(await fx.attachSource((await fx.makeRuleVersion((await fx.makeRule('elsewhere')).id, '1')).id, 'x', { role: 'SUPPORTING' })).binding.id] }],
-      ['a RuleVersion of another RuleDefinition', { ...ev.resolution, ruleDefinitionId: (await fx.makeRule('wrong-def')).id }],
-      ['a wrong version label', { ...ev.resolution, ruleVersion: '2' }],
+    // Evaluation B: the same rule, a different context and a different server instant.
+    const laterClock = () => new Date('2026-09-20T08:30:00.000Z')
+    const evalB = await evaluateRuleResolutionBundle(rule.id, businessDate, { facilityId: F1.id }, { clock: laterClock })
+    if (!evalB.ok) throw new Error('evaluation B failed')
+    const B = evalB.value
+    // Evaluation C: a rule of another organization.
+    const otherFx = a38Fixtures(otherOrg, `${tag}-other`)
+    const evalC = await evaluateRuleResolutionBundle((await otherFx.makeRule('other-org')).id, businessDate, {}, { clock })
+    if (!evalC.ok) throw new Error('evaluation C failed')
+    const C = evalC.value
+    check('fixture: A and B are two genuinely different evaluations (context and instant differ)',
+      JSON.stringify(ev.authoritativeContext) !== JSON.stringify(B.authoritativeContext) && ev.evaluationTimestamp.getTime() !== B.evaluationTimestamp.getTime())
+    check('fixture: C belongs to another organization', C.organizationId === otherOrg && C.organizationId !== ev.organizationId)
+
+    const alone = await compose(B)
+    check('each issued bundle on its own composes (B)', alone.ok && alone.value.evaluationTimestamp === '2026-09-20T08:30:00.000Z' && alone.value.context.payerId === null, JSON.stringify(alone))
+
+    const mixes: [string, unknown][] = [
+      ['resolution from A + context from B', { ...ev, authoritativeContext: B.authoritativeContext }],
+      ['resolution from A + timestamp from B', { ...ev, evaluationTimestamp: B.evaluationTimestamp }],
+      ['resolution from A + organization from C', { ...ev, organizationId: C.organizationId }],
+      ['resolution from B + everything else from A', { ...ev, resolution: B.resolution }],
+      ['a hand-built exact copy of A (same values, not issued)', structuredClone(ev)],
+      ['a plain object with the old separate-input shape', { resolution: ev.resolution, authoritativeContext: ev.authoritativeContext, organizationId: ev.organizationId, evaluationTimestamp: ev.evaluationTimestamp }],
     ]
-    for (const [label, resolution] of tampered) {
-      const out = await compose(resolution)
-      check(`${label} -> PROVENANCE_INVARIANT_VIOLATION`, !out.ok && out.error.code === 'PROVENANCE_INVARIANT_VIOLATION', JSON.stringify(out))
+    for (const [label, spliced] of mixes) {
+      const out = await compose(spliced as RuleResolutionEvaluationBundle)
+      check(`${label} -> PROVENANCE_INVARIANT_VIOLATION, no provenance`, !out.ok && out.error.code === 'PROVENANCE_INVARIANT_VIOLATION' && !('value' in out), JSON.stringify(out))
     }
-    const wrongOrg = await composeRuleDecisionProvenanceRefV1({
-      resolution: ev.resolution,
-      authoritativeContext: ev.authoritativeContext,
-      organizationId: process.env.A1_IT_OTHER_ORGANIZATION_ID as string,
-      evaluationTimestamp: ev.evaluationTimestamp,
-    })
-    check('an organization that does not own the rule -> PROVENANCE_INVARIANT_VIOLATION', !wrongOrg.ok && wrongOrg.error.code === 'PROVENANCE_INVARIANT_VIOLATION')
+
+    // A fresh bundle to tamper with in place, so later sections keep an untouched A.
+    const evalD = await evaluateRuleResolutionBundle(rule.id, businessDate, fullContext, { clock })
+    if (!evalD.ok) throw new Error('evaluation D failed')
+    const D = evalD.value
+    const throws = (fn: () => void) => {
+      try {
+        fn()
+        return false
+      } catch (error) {
+        return error instanceof TypeError
+      }
+    }
+    const mutable = D as unknown as { organizationId: string; authoritativeContext: Record<string, unknown>; resolution: { supportingBindingIds: string[]; historicalOnly: boolean } }
+    check('an issued bundle is frozen: organizationId cannot be reassigned', throws(() => (mutable.organizationId = otherOrg)))
+    check('an issued bundle is deep-frozen: a context dimension cannot be changed', throws(() => (mutable.authoritativeContext.payerId = B.authoritativeContext.facilityId)))
+    check('an issued bundle is deep-frozen: resolution arrays and flags cannot be changed', throws(() => mutable.resolution.supportingBindingIds.push(supportA.binding.id)) && throws(() => (mutable.resolution.historicalOnly = true)))
+    D.evaluationTimestamp.setTime(B.evaluationTimestamp.getTime()) // a Date's value cannot be frozen
+    const afterDateMutation = await compose(D)
+    check('mutating the bundle Date in place does not change provenance — the resolver record is used',
+      afterDateMutation.ok && afterDateMutation.value.evaluationTimestamp === '2026-09-19T10:00:00.000Z', JSON.stringify(afterDateMutation))
+
+    let secondIssuer = 'granted'
+    try {
+      takeEvaluationBundleIssuer()
+    } catch {
+      secondIssuer = 'refused'
+    }
+    check('only the A3.8 resolver can issue bundles: a second request for the issuer is refused', secondIssuer === 'refused')
+
+    const publicResult = await evaluateRuleResolution(rule.id, businessDate, fullContext, { clock })
+    const publicKeys = publicResult.ok ? Object.keys(publicResult.value).sort() : []
+    check('the public A3.8 result is still exactly RuleResolutionDto — no context, organization or timestamp added',
+      publicResult.ok && JSON.stringify(publicKeys) === JSON.stringify(Object.keys(ev.resolution).sort()) &&
+        !publicKeys.some((key) => ['authoritativeContext', 'organizationId', 'evaluationTimestamp'].includes(key)))
+  }
+
+  section('Fail closed when stored state no longer reconstructs the bundle (PROVENANCE_INVARIANT_VIOLATION)')
+  {
+    // The composer re-proves every ID by exact lookup. Each case changes stored state inside ONE
+    // transaction, composes against that same transaction, and is always rolled back — nothing
+    // persists. (The bundle itself cannot be altered, so this is how the cross-checks are reached.)
+    const otherRule = await fx.makeRule('elsewhere')
+    const otherVersion = await fx.makeRuleVersion(otherRule.id, '1')
+    const emptyRule = await fx.makeRule('no-versions')
+    const tampers: [string, string][] = [
+      ['the governing binding is now SUPPORTING', `UPDATE rule_source_bindings SET source_role = 'SUPPORTING' WHERE id = '${governing.binding.id}'`],
+      ['the governing interpretation now points at another source version', `UPDATE source_interpretations SET source_version_id = '${supportA.sourceVersion.id}' WHERE id = '${governing.interpretation.id}'`],
+      ['a supporting binding now belongs to another RuleVersion', `UPDATE rule_source_bindings SET rule_version_id = '${otherVersion.id}' WHERE id = '${supportA.binding.id}'`],
+      ['the RuleVersion now belongs to another RuleDefinition', `UPDATE rule_versions SET rule_id = '${emptyRule.id}' WHERE id = '${ruleVersion.id}'`],
+      ['the RuleVersion label changed', `UPDATE rule_versions SET version = '2' WHERE id = '${ruleVersion.id}'`],
+      ['the rule now belongs to another organization', `UPDATE rule_definitions SET organization_id = '${otherOrg}' WHERE id = '${rule.id}'`],
+      ['the matched applicability now belongs to another RuleVersion', `UPDATE rule_applicabilities SET rule_version_id = '${otherVersion.id}' WHERE id = '${applicability.id}'`],
+    ]
+    const rollback = new Error('rollback')
+    for (const [label, sql] of tampers) {
+      let outcome = 'not run'
+      try {
+        await prisma.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(sql)
+          const out = await compose(ev, null, tx)
+          outcome = out.ok ? 'composed' : out.error.code
+          throw rollback
+        })
+      } catch (error) {
+        if (error !== rollback) outcome = `error: ${String(error).slice(0, 160)}`
+      }
+      check(`${label} -> PROVENANCE_INVARIANT_VIOLATION`, outcome === 'PROVENANCE_INVARIANT_VIOLATION', outcome)
+    }
+    const untouched = await compose(ev)
+    check('after every rollback the original bundle still composes exactly', untouched.ok && JSON.stringify(untouched.value) === JSON.stringify(p))
   }
 
   section('T57–T58 the composer writes nothing')
@@ -303,9 +379,9 @@ async function main() {
     const rvBefore = await prisma.ruleVersion.findUniqueOrThrow({ where: { id: ruleVersion.id } })
     const before = await tableCounts()
     for (let i = 0; i < 3; i += 1) {
-      await compose(ev.resolution)
-      await compose(ev.resolution, member.versionId)
-      await compose({ ...ev.resolution, resolutionStatus: 'NO_MATCH' })
+      await compose(ev)
+      await compose(ev, member.versionId)
+      await compose(noMatchBundle)
     }
     const after = await tableCounts()
     const { audits: auditsBefore, ...rowsBefore } = before

@@ -2,7 +2,7 @@ import { APPLICABILITY_DIMENSIONS_V2, type ApplicabilityContextV2 } from '../../
 import { isValidInstant, parseStrictDateOnly } from '../../shared/rules/date-only.ts'
 import { isWithinPackPeriod, jurisdictionsMatch } from '../rule-pack/rule-pack.validation.ts'
 import type { RuleResolutionDto } from '../rule-resolution/rule-resolution.types.ts'
-import type { ComposeProvenanceInput, ProvenanceCompositionError, ProvenanceContext } from './rule-provenance.types.ts'
+import type { ProvenanceCompositionError, ProvenanceContext } from './rule-provenance.types.ts'
 
 // A3.9 — the pure core of the internal A3-PROV-1 composer: the input gate, the context copy and
 // the pack-version usability rule. No database access, so it is unit-testable on its own; the
@@ -40,8 +40,15 @@ export type PrecheckedInput = {
 // Step 1 and the input invariants, before any lookup. Only a RESOLVED A3.8 result produces
 // provenance; a RESOLVED result missing a winner ID, a non-UUID organization, an invalid
 // evaluation instant or an unparseable businessDate fails closed — nothing is filled in by guessing.
+// The trusted evaluation fields the gate needs (read from the A3.8 bundle registry by the composer).
+export type EvaluationForPrecheck = {
+  resolution: RuleResolutionDto
+  organizationId: string
+  evaluationTimestamp: Date
+}
+
 export function precheckProvenanceInput(
-  input: ComposeProvenanceInput,
+  input: EvaluationForPrecheck & { rulePackVersionId?: string | null },
 ): { ok: true; value: PrecheckedInput } | { ok: false; error: ProvenanceCompositionError } {
   const resolution: RuleResolutionDto = input.resolution
   if (resolution.resolutionStatus !== 'RESOLVED')

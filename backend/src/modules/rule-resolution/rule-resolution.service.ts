@@ -32,7 +32,8 @@ import {
 import { isRuleResolutionUuid, resolutionContextKeys } from './rule-resolution.validation.ts'
 import { isHistoricalOnlyReference, isHistoricalOnlyResolved } from './rule-resolution.currentness.ts'
 import { utcDateOf } from '../../shared/rules/date-only.ts'
-import type { ResolutionStatus, RuleResolutionDto, RuleResolutionResult } from './rule-resolution.types.ts'
+import type { ResolutionStatus, RuleResolutionDto, RuleResolutionEvaluationBundle, RuleResolutionResult } from './rule-resolution.types.ts'
+import { takeEvaluationBundleIssuer } from './rule-resolution.bundle.ts'
 import { withReadSnapshot } from '../../shared/database/read-snapshot.ts'
 import type { DbClient } from '../../shared/database/database.types.ts'
 import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
@@ -121,18 +122,10 @@ export type ResolutionInternalOptions = {
 
 const systemClock = () => new Date()
 
-// A3.9 — the exact evidence one evaluation was performed with, for internal composition only
-// (the A3-PROV-1 composer). REF-02 F04: composition must reuse the exact result and context of
-// that evaluation rather than perform another independent "current" lookup, so the authoritative
-// context — including the server-derived facilityRegulatoryProfileId — and the one captured
-// evaluation instant are handed back with the result instead of being re-derived by a caller.
-// This is not a public contract: the HTTP route still returns only RuleResolutionDto.
-export type RuleResolutionEvidence = {
-  resolution: RuleResolutionDto
-  authoritativeContext: ApplicabilityContextV2
-  organizationId: string
-  evaluationTimestamp: Date
-}
+// A3.9 v1.2 — the only producer of RuleResolutionEvaluationBundle. REF-02 F04: composition must
+// reuse the exact result, authoritative context (including the server-derived
+// facilityRegulatoryProfileId) and captured instant of ONE evaluation, never pieces from two.
+const issueEvaluationBundle = takeEvaluationBundleIssuer()
 
 export async function evaluateRuleResolution(
   ruleDefinitionId: string,
@@ -140,16 +133,17 @@ export async function evaluateRuleResolution(
   contextInputs: Record<string, unknown>,
   internal: ResolutionInternalOptions = {},
 ): Promise<RuleResolutionResult<RuleResolutionDto>> {
-  const result = await evaluateRuleResolutionWithEvidence(ruleDefinitionId, businessDateInput, contextInputs, internal)
+  const result = await evaluateRuleResolutionBundle(ruleDefinitionId, businessDateInput, contextInputs, internal)
   return result.ok ? { ok: true, value: result.value.resolution } : result
 }
 
-export async function evaluateRuleResolutionWithEvidence(
+// Internal only (A3-PROV-1 composer). The HTTP route still returns only RuleResolutionDto.
+export async function evaluateRuleResolutionBundle(
   ruleDefinitionId: string,
   businessDateInput: unknown,
   contextInputs: Record<string, unknown>,
   internal: ResolutionInternalOptions = {},
-): Promise<RuleResolutionResult<RuleResolutionEvidence>> {
+): Promise<RuleResolutionResult<RuleResolutionEvaluationBundle>> {
   // Audit F02: one server timestamp, captured once per request before anything else, and never
   // taken from the client. evaluationDate is its UTC calendar date. It decides only the
   // historicalOnly metadata; businessDate alone decides what is selected.
@@ -163,12 +157,12 @@ export async function evaluateRuleResolutionWithEvidence(
   if (!outcome.ok) return outcome
   return {
     ok: true,
-    value: {
+    value: issueEvaluationBundle({
       resolution: outcome.value,
       authoritativeContext: evidence.context,
       organizationId: evidence.organizationId,
       evaluationTimestamp,
-    },
+    }),
   }
 }
 
