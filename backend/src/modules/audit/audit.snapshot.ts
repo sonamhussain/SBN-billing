@@ -397,3 +397,50 @@ export const externalIdentifierAuditSnapshot = (x: {
     targetId: target.id,
   }
 }
+
+// A3.9 — rule pack audit snapshots.
+export const rulePackAuditSnapshot = (x: {
+  id: string
+  organizationId: string | null
+  packKey: string
+  displayName: string
+  jurisdictionCode: string
+  ownershipScope: string
+}) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  packKey: x.packKey,
+  displayName: x.displayName,
+  jurisdictionCode: x.jurisdictionCode,
+  ownershipScope: x.ownershipScope,
+})
+
+export const rulePackVersionAuditSnapshot = (x: {
+  id: string
+  rulePackId: string
+  version: string
+  effectiveFrom: Date | null
+  effectiveTo: Date | null
+  verificationStatus: string
+  verifiedAt: Date | null
+  activationStatus: string
+  activatedAt: Date | null
+  supersededAt: Date | null
+}) => ({
+  id: x.id,
+  rulePackId: x.rulePackId,
+  version: x.version,
+  effectiveFrom: x.effectiveFrom ? x.effectiveFrom.toISOString().slice(0, 10) : null,
+  effectiveTo: x.effectiveTo ? x.effectiveTo.toISOString().slice(0, 10) : null,
+  verificationStatus: x.verificationStatus,
+  verifiedAt: x.verifiedAt ? x.verifiedAt.toISOString() : null,
+  activationStatus: x.activationStatus,
+  activatedAt: x.activatedAt ? x.activatedAt.toISOString() : null,
+  supersededAt: x.supersededAt ? x.supersededAt.toISOString() : null,
+})
+
+export const rulePackMemberAuditSnapshot = (x: { id: string; rulePackVersionId: string; ruleVersionId: string }) => ({
+  id: x.id,
+  rulePackVersionId: x.rulePackVersionId,
+  ruleVersionId: x.ruleVersionId,
+})

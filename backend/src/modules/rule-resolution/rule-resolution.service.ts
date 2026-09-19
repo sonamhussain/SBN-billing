@@ -121,17 +121,65 @@ export type ResolutionInternalOptions = {
 
 const systemClock = () => new Date()
 
+// A3.9 — the exact evidence one evaluation was performed with, for internal composition only
+// (the A3-PROV-1 composer). REF-02 F04: composition must reuse the exact result and context of
+// that evaluation rather than perform another independent "current" lookup, so the authoritative
+// context — including the server-derived facilityRegulatoryProfileId — and the one captured
+// evaluation instant are handed back with the result instead of being re-derived by a caller.
+// This is not a public contract: the HTTP route still returns only RuleResolutionDto.
+export type RuleResolutionEvidence = {
+  resolution: RuleResolutionDto
+  authoritativeContext: ApplicabilityContextV2
+  organizationId: string
+  evaluationTimestamp: Date
+}
+
 export async function evaluateRuleResolution(
   ruleDefinitionId: string,
   businessDateInput: unknown,
   contextInputs: Record<string, unknown>,
   internal: ResolutionInternalOptions = {},
 ): Promise<RuleResolutionResult<RuleResolutionDto>> {
+  const result = await evaluateRuleResolutionWithEvidence(ruleDefinitionId, businessDateInput, contextInputs, internal)
+  return result.ok ? { ok: true, value: result.value.resolution } : result
+}
+
+export async function evaluateRuleResolutionWithEvidence(
+  ruleDefinitionId: string,
+  businessDateInput: unknown,
+  contextInputs: Record<string, unknown>,
+  internal: ResolutionInternalOptions = {},
+): Promise<RuleResolutionResult<RuleResolutionEvidence>> {
   // Audit F02: one server timestamp, captured once per request before anything else, and never
   // taken from the client. evaluationDate is its UTC calendar date. It decides only the
   // historicalOnly metadata; businessDate alone decides what is selected.
-  const evaluationDate = utcDateOf((internal.clock ?? systemClock)())
+  const evaluationTimestamp = (internal.clock ?? systemClock)()
+  const evaluationDate = utcDateOf(evaluationTimestamp)
   if (!evaluationDate) throw new Error('rule resolution: the evaluation clock returned an invalid instant')
+
+  // Filled in once the authoritative context is final (after server-side profile derivation).
+  const evidence: { context: ApplicabilityContextV2; organizationId: string } = { context: {}, organizationId: '' }
+  const outcome = await evaluateRuleResolutionCore(ruleDefinitionId, businessDateInput, contextInputs, internal, evaluationDate, evidence)
+  if (!outcome.ok) return outcome
+  return {
+    ok: true,
+    value: {
+      resolution: outcome.value,
+      authoritativeContext: evidence.context,
+      organizationId: evidence.organizationId,
+      evaluationTimestamp,
+    },
+  }
+}
+
+async function evaluateRuleResolutionCore(
+  ruleDefinitionId: string,
+  businessDateInput: unknown,
+  contextInputs: Record<string, unknown>,
+  internal: ResolutionInternalOptions,
+  evaluationDate: Date,
+  evidence: { context: ApplicabilityContextV2; organizationId: string },
+): Promise<RuleResolutionResult<RuleResolutionDto>> {
 
   if (!isRuleResolutionUuid(ruleDefinitionId))
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule definition id' }
@@ -198,6 +246,13 @@ export async function evaluateRuleResolution(
         resolvedProfile = resolution.profile
         context.facilityRegulatoryProfileId = resolution.profile.id
       }
+
+      // A3.9: the context is final from here on — record the exact one this evaluation uses, with
+      // every one of the twelve dimensions present (null when not supplied/derived).
+      const finalContext: ApplicabilityContextV2 = {}
+      for (const key of APPLICABILITY_DIMENSIONS_V2) finalContext[key] = context[key] ?? null
+      evidence.context = finalContext
+      evidence.organizationId = ruleOrganizationId
 
       // Internal pause points for the F04 snapshot proof; no-ops in production.
       await concurrencyProbe('rule_resolution.after_context')

@@ -57,10 +57,20 @@ export const auditActionCodes = [
   'tariff_schedule_version.lifecycle_updated',
   'tariff_schedule_version.verification_updated',
   'rule_source_scope.created',
+  // A3.9 — successful rule pack mutations only. The provenance composer writes no audit.
+  'rule_pack.created',
+  'rule_pack.updated',
+  'rule_pack_version.created',
+  'rule_pack_version.updated',
+  'rule_pack_member.added',
+  'rule_pack_member.removed',
+  'rule_pack_version.verified',
+  'rule_pack_version.activated',
+  'rule_pack_version.superseded',
 ] as const
 
 export type AuditActionCode = (typeof auditActionCodes)[number]
-export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY' | 'RULE_SOURCE_BINDING' | 'FACILITY_REGULATORY_PROFILE' | 'INSURANCE_PRODUCT' | 'PRODUCT_NETWORK' | 'PROVIDER_CONTRACT' | 'CONTRACT_FACILITY' | 'TARIFF_SCHEDULE' | 'TARIFF_SCHEDULE_VERSION' | 'RULE_SOURCE_SCOPE'
+export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY' | 'RULE_SOURCE_BINDING' | 'FACILITY_REGULATORY_PROFILE' | 'INSURANCE_PRODUCT' | 'PRODUCT_NETWORK' | 'PROVIDER_CONTRACT' | 'CONTRACT_FACILITY' | 'TARIFF_SCHEDULE' | 'TARIFF_SCHEDULE_VERSION' | 'RULE_SOURCE_SCOPE' | 'RULE_PACK' | 'RULE_PACK_VERSION' | 'RULE_PACK_MEMBER'
 
 export type AuditWriteInput = {
   organizationId: string

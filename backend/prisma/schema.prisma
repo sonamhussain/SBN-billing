@@ -27,6 +27,7 @@ model Organization {
   externalIdentifierTargets ExternalIdentifier[] @relation("ExternalIdentifierOrganizationTarget")
   ruleSources RuleSource[]
   ruleDefinitions RuleDefinition[]
+  rulePacks       RulePack[]
   insuranceProducts InsuranceProduct[]
   providerContracts ProviderContract[]
 
@@ -355,6 +356,7 @@ model RuleVersion {
   rule RuleDefinition @relation(fields: [ruleId], references: [id], onDelete: Restrict)
   applicabilities RuleApplicability[]
   sourceBindings  RuleSourceBinding[]
+  packMemberships RulePackMember[]
 
   @@unique([ruleId, version])
   @@index([ruleId])
@@ -830,4 +832,67 @@ model AuditEvent {
   @@index([actorUserId, occurredAt])
   @@index([entityType, entityId, occurredAt])
   @@map("audit_events")
+}
+
+// A3.9 — Rule Pack Version & Provenance Contract. A RulePack groups exact RuleVersions into
+// versioned, governed snapshots. Membership is an exact RuleVersion UUID and nothing else: no
+// applicability, context, source or commercial copies (A3.6/A3.7 remain their only owners).
+// Ownership, one-ACTIVE and pack-key scope rules are enforced by hand-written SQL in the A3.9
+// migration because Prisma's DSL cannot express them.
+
+model RulePack {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String?  @map("organization_id") @db.Uuid
+  packKey          String   @map("pack_key") @db.Text
+  displayName      String   @map("display_name") @db.Text
+  jurisdictionCode String   @map("jurisdiction_code") @db.Text
+  ownershipScope   String   @map("ownership_scope") @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization?     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  versions     RulePackVersion[]
+
+  @@index([organizationId])
+  @@index([jurisdictionCode])
+  @@map("rule_packs")
+}
+
+model RulePackVersion {
+  id                 String    @id @default(uuid()) @db.Uuid
+  rulePackId         String    @map("rule_pack_id") @db.Uuid
+  version            String    @db.Text
+  effectiveFrom      DateTime? @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+  verificationStatus String    @default("UNVERIFIED") @map("verification_status") @db.Text
+  verifiedAt         DateTime? @map("verified_at") @db.Timestamptz(6)
+  activationStatus   String    @default("INACTIVE") @map("activation_status") @db.Text
+  activatedAt        DateTime? @map("activated_at") @db.Timestamptz(6)
+  supersededAt       DateTime? @map("superseded_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  rulePack RulePack         @relation(fields: [rulePackId], references: [id], onDelete: Restrict)
+  members  RulePackMember[]
+
+  @@unique([rulePackId, version])
+  @@index([rulePackId])
+  @@index([verificationStatus])
+  @@index([activationStatus])
+  @@map("rule_pack_versions")
+}
+
+model RulePackMember {
+  id                String   @id @default(uuid()) @db.Uuid
+  rulePackVersionId String   @map("rule_pack_version_id") @db.Uuid
+  ruleVersionId     String   @map("rule_version_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rulePackVersion RulePackVersion @relation(fields: [rulePackVersionId], references: [id], onDelete: Restrict)
+  ruleVersion     RuleVersion     @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([rulePackVersionId, ruleVersionId])
+  @@index([rulePackVersionId])
+  @@index([ruleVersionId])
+  @@map("rule_pack_members")
 }

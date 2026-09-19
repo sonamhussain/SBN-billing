@@ -27,6 +27,7 @@ import CommercialCoverageCheck from '../modules/commercial-coverage/CommercialCo
 import ReferenceDatasetCheck from '../modules/reference-dataset/ReferenceDatasetCheck.tsx'
 import RuleSourceScopeCheck from '../modules/rule-source-scope/RuleSourceScopeCheck.tsx'
 import RuleResolutionCheck from '../modules/rule-resolution/RuleResolutionCheck.tsx'
+import RulePackCheck from '../modules/rule-pack/RulePackCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -77,6 +78,7 @@ export default function App() {
         {apiStatus === 'online' && <ReferenceDatasetCheck />}
         {apiStatus === 'online' && <RuleSourceScopeCheck />}
         {apiStatus === 'online' && <RuleResolutionCheck />}
+        {apiStatus === 'online' && <RulePackCheck />}
       </div>
     </main>
   )
