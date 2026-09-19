@@ -41,6 +41,15 @@ export function formatDateOnly(date: Date | null): string | null {
   return date.toISOString().slice(0, 10)
 }
 
+// Audit F02 — the calendar date of an instant, in UTC, as a date-only value (UTC midnight). UTC is
+// the explicit engineering convention, consistent with how date-only values are stored; it is not
+// a claim about UAE regulatory calendar rules, and it never reads the host machine's time zone.
+// Returns null for a non-finite instant so callers fail closed.
+export function utcDateOf(instant: Date): Date | null {
+  if (!isValidInstant(instant)) return null
+  return new Date(Date.UTC(instant.getUTCFullYear(), instant.getUTCMonth(), instant.getUTCDate()))
+}
+
 // The one inclusive effective-window rule: a valid effectiveFrom is required, effectiveTo may be
 // null (open-ended), and effectiveFrom <= date <= effectiveTo. Fails closed on any non-finite
 // input and on a contradictory period (effectiveFrom after effectiveTo) — such a period is never

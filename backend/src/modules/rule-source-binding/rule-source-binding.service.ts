@@ -1,5 +1,7 @@
 import { findRuleVersionWithOrganization } from '../rule-version/rule-version.repository.ts'
 import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
+import { withReadSnapshot } from '../../shared/database/read-snapshot.ts'
+import type { DbClient } from '../../shared/database/database.types.ts'
 import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { findRuleApplicabilitiesByVersionId } from '../rule-applicability/rule-applicability.repository.ts'
 import { applicabilityDimensionKeys, normalizeOptionalUuidField, type ApplicabilityDimensionKey } from '../rule-applicability/rule-applicability.validation.ts'
@@ -152,12 +154,17 @@ export async function listRuleSourceBindings(ruleVersionId: string): Promise<Rul
   return { ok: true, value: records.map(toDto) }
 }
 
+// Internal seams only — the HTTP route never passes them. `db` lets a composed evaluation (A3.8)
+// run this gate inside its own read snapshot instead of opening a second one.
+export type ExecutabilityInternalOptions = CandidateInternalOptions & {
+  db?: DbClient
+}
+
 export async function evaluateExecutability(
   ruleVersionId: string,
   businessDateInput: unknown,
   dimensionInputs: Record<ApplicabilityDimensionKey, unknown>,
-  // Internal test seam only — the HTTP route never passes it.
-  internal: CandidateInternalOptions = {},
+  internal: ExecutabilityInternalOptions = {},
 ): Promise<RuleSourceBindingResult<ExecutabilityEvaluationDto>> {
   if (!isRuleSourceBindingUuid(ruleVersionId))
     return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid rule version id' }
@@ -172,153 +179,165 @@ export async function evaluateExecutability(
     context[key] = field.value
   }
 
-  // Rule jurisdiction is authoritative from RuleDefinition — the client can never override it.
-  const version = await findRuleVersionForExecutability(ruleVersionId)
-  if (!version || version.rule.organizationId === null)
-    return { ok: false, code: 'NOT_FOUND', message: 'rule version not found' }
+  // Audit F04: every read below comes from ONE read-only REPEATABLE READ snapshot, or from the
+  // caller's snapshot when composed (A3.8), so the result never mixes facts from before and after
+  // a concurrent governance change.
+  return withReadSnapshot(internal.db, async (tx) => {
+      // Rule jurisdiction is authoritative from RuleDefinition — the client can never override it.
+      const version = await findRuleVersionForExecutability(ruleVersionId, tx)
+      if (!version || version.rule.organizationId === null)
+        return { ok: false, code: 'NOT_FOUND', message: 'rule version not found' }
 
-  const ruleOrgId = version.rule.organizationId
-  const ruleJurisdiction = version.rule.jurisdictionCode
+      const ruleOrgId = version.rule.organizationId
+      const ruleJurisdiction = version.rule.jurisdictionCode
 
-  // facilityRegulatoryProfileId is server-derived from facilityId + businessDate and is never
-  // client-suppliable on this endpoint (REF-01 §10) — any client-supplied value above is
-  // unconditionally discarded and replaced below, exactly like jurisdictionCode above.
-  context.facilityRegulatoryProfileId = null
+      // facilityRegulatoryProfileId is server-derived from facilityId + businessDate and is never
+      // client-suppliable on this endpoint (REF-01 §10) — any client-supplied value above is
+      // unconditionally discarded and replaced below, exactly like jurisdictionCode above.
+      context.facilityRegulatoryProfileId = null
 
-  // Existence, tenancy and ancestry of the client-supplied facts first, so an unknown or foreign
-  // facility keeps its 404/403 rather than being reported as a missing profile.
-  const coherence = await validateApplicabilityContextCoherence(context, ruleOrgId, prisma)
-  if (!coherence.ok) return { ok: false, code: coherence.code, message: coherence.message }
+      // Existence, tenancy and ancestry of the client-supplied facts first, so an unknown or foreign
+      // facility keeps its 404/403 rather than being reported as a missing profile.
+      const coherence = await validateApplicabilityContextCoherence(context, ruleOrgId, tx)
+      if (!coherence.ok) return { ok: false, code: coherence.code, message: coherence.message }
 
-  // Audit F05: an explicitly supplied facility needs exactly one ACTIVE regulatory profile in force
-  // on businessDate. None or several fails closed here — before applicability matching and before
-  // the REFERENCE_ONLY branch — instead of silently evaluating without a profile or picking a row.
-  // Omitting facilityId remains a valid generic evaluation.
-  let resolvedProfile: { id: string; jurisdictionCode: string } | null = null
-  if (context.facilityId) {
-    const resolution = await resolveFacilityRegulatoryProfileForDate(context.facilityId, businessDate)
-    if (resolution.kind === 'none')
-      return {
-        ok: false,
-        code: 'VALIDATION_ERROR',
-        message: 'facilityId has no ACTIVE regulatory profile effective on businessDate',
+      // Audit F05: an explicitly supplied facility needs exactly one ACTIVE regulatory profile in force
+      // on businessDate. None or several fails closed here — before applicability matching and before
+      // the REFERENCE_ONLY branch — instead of silently evaluating without a profile or picking a row.
+      // Omitting facilityId remains a valid generic evaluation.
+      let resolvedProfile: { id: string; jurisdictionCode: string } | null = null
+      if (context.facilityId) {
+        const resolution = await resolveFacilityRegulatoryProfileForDate(context.facilityId, businessDate, tx)
+        if (resolution.kind === 'none')
+          return {
+            ok: false,
+            code: 'VALIDATION_ERROR',
+            message: 'facilityId has no ACTIVE regulatory profile effective on businessDate',
+          }
+        if (resolution.kind === 'many')
+          return {
+            ok: false,
+            code: 'VALIDATION_ERROR',
+            message: 'facilityId has more than one ACTIVE regulatory profile effective on businessDate',
+          }
+        resolvedProfile = resolution.profile
+        context.facilityRegulatoryProfileId = resolution.profile.id
       }
-    if (resolution.kind === 'many')
-      return {
-        ok: false,
-        code: 'VALIDATION_ERROR',
-        message: 'facilityId has more than one ACTIVE regulatory profile effective on businessDate',
+
+      // Internal pause point for the F04 snapshot proof; a no-op in production.
+      await concurrencyProbe('rule_executability.after_context')
+
+      const applicabilityRows = await findRuleApplicabilitiesByVersionId(ruleVersionId, tx)
+      const matchedIds = matchedApplicabilityIds(applicabilityRows, context)
+      const applicabilityOk = ruleVersionMatches(applicabilityRows, context)
+
+      const ruleLevelBlockers = new Set<string>()
+      if (version.verificationStatus !== 'VERIFIED') ruleLevelBlockers.add('RULE_UNVERIFIED')
+      if (!isEffective(version.effectiveFrom, version.effectiveTo, businessDate)) ruleLevelBlockers.add('RULE_NOT_EFFECTIVE')
+      // REF-01 §10: the resolved facility regulatory profile's own jurisdiction must be compatible
+      // with the RuleDefinition's authoritative jurisdiction — reuses the exact same blocker code
+      // A3.3's governing-source jurisdiction check already uses, for a consistent contract.
+      if (resolvedProfile && resolvedProfile.jurisdictionCode.trim().toUpperCase() !== ruleJurisdiction.trim().toUpperCase())
+        ruleLevelBlockers.add('JURISDICTION_INCOMPATIBLE')
+      if (!applicabilityOk) ruleLevelBlockers.add('APPLICABILITY_MISMATCH')
+
+      // REFERENCE_ONLY is evaluated for verification/effective/applicability only — it can never
+      // become POTENTIALLY_ALLOWED, and source-binding gates are not consulted at all.
+      if (version.effectType === 'REFERENCE_ONLY') {
+        return {
+          ok: true,
+          value: {
+            gateStatus: 'REFERENCE_ONLY',
+            compatibilityPolicyVersion,
+            blockers: [...ruleLevelBlockers].sort(),
+            matchedApplicabilityIds: matchedIds,
+            governingBindingIds: [],
+            supportingBindingIds: [],
+            candidateSourceInterpretationIds: [],
+            // REFERENCE_ONLY is deliberately non-executable — it never advances to A3.8 precedence.
+            nextGate: null,
+          },
+        }
       }
-    resolvedProfile = resolution.profile
-    context.facilityRegulatoryProfileId = resolution.profile.id
-  }
 
-  const applicabilityRows = await findRuleApplicabilitiesByVersionId(ruleVersionId)
-  const matchedIds = matchedApplicabilityIds(applicabilityRows, context)
-  const applicabilityOk = ruleVersionMatches(applicabilityRows, context)
+      // RuleSourceScope's own dimension set is a strict subset of ApplicabilityContextV2 — built
+      // once, reused for every governing candidate whose category requires typed scope proof.
+      const scopeContext: ScopeContext = {
+        facilityId: context.facilityId,
+        payerId: context.payerId,
+        tpaId: context.tpaId,
+        networkId: context.networkId,
+        insuranceProductId: context.insuranceProductId,
+        providerContractId: context.providerContractId,
+        tariffScheduleId: context.tariffScheduleId,
+        tariffScheduleVersionId: context.tariffScheduleVersionId,
+      }
 
-  const ruleLevelBlockers = new Set<string>()
-  if (version.verificationStatus !== 'VERIFIED') ruleLevelBlockers.add('RULE_UNVERIFIED')
-  if (!isEffective(version.effectiveFrom, version.effectiveTo, businessDate)) ruleLevelBlockers.add('RULE_NOT_EFFECTIVE')
-  // REF-01 §10: the resolved facility regulatory profile's own jurisdiction must be compatible
-  // with the RuleDefinition's authoritative jurisdiction — reuses the exact same blocker code
-  // A3.3's governing-source jurisdiction check already uses, for a consistent contract.
-  if (resolvedProfile && resolvedProfile.jurisdictionCode.trim().toUpperCase() !== ruleJurisdiction.trim().toUpperCase())
-    ruleLevelBlockers.add('JURISDICTION_INCOMPATIBLE')
-  if (!applicabilityOk) ruleLevelBlockers.add('APPLICABILITY_MISMATCH')
+      const bindings = await findRuleSourceBindingsForEvaluation(ruleVersionId, tx)
+      const governingBindingIds: string[] = []
+      const supportingBindingIds: string[] = []
+      const candidateSourceInterpretationIds: string[] = []
+      const governingFailureBlockers = new Set<string>()
+      let anyGoverningPassed = false
 
-  // REFERENCE_ONLY is evaluated for verification/effective/applicability only — it can never
-  // become POTENTIALLY_ALLOWED, and source-binding gates are not consulted at all.
-  if (version.effectType === 'REFERENCE_ONLY') {
-    return {
-      ok: true,
-      value: {
-        gateStatus: 'REFERENCE_ONLY',
-        compatibilityPolicyVersion,
-        blockers: [...ruleLevelBlockers].sort(),
-        matchedApplicabilityIds: matchedIds,
-        governingBindingIds: [],
-        supportingBindingIds: [],
-        candidateSourceInterpretationIds: [],
-        // REFERENCE_ONLY is deliberately non-executable — it never advances to A3.8 precedence.
-        nextGate: null,
-      },
-    }
-  }
+      for (const binding of bindings) {
+        if (binding.sourceRole === 'SUPPORTING') {
+          supportingBindingIds.push(binding.id)
+          continue
+        }
 
-  // RuleSourceScope's own dimension set is a strict subset of ApplicabilityContextV2 — built
-  // once, reused for every governing candidate whose category requires typed scope proof.
-  const scopeContext: ScopeContext = {
-    facilityId: context.facilityId,
-    payerId: context.payerId,
-    tpaId: context.tpaId,
-    networkId: context.networkId,
-    insuranceProductId: context.insuranceProductId,
-    providerContractId: context.providerContractId,
-    tariffScheduleId: context.tariffScheduleId,
-    tariffScheduleVersionId: context.tariffScheduleVersionId,
-  }
+        governingBindingIds.push(binding.id)
 
-  const bindings = await findRuleSourceBindingsForEvaluation(ruleVersionId)
-  const governingBindingIds: string[] = []
-  const supportingBindingIds: string[] = []
-  const candidateSourceInterpretationIds: string[] = []
-  const governingFailureBlockers = new Set<string>()
-  let anyGoverningPassed = false
+        // A3.8 §14: A3.8's historical resolver reuses this same per-candidate gate. 'CURRENT'
+        // preserves A3.7's behaviour exactly.
+        const bindingBlockers = await evaluateGoverningCandidateBlockers(
+          binding.sourceInterpretation,
+          {
+            ruleOrganizationId: ruleOrgId,
+            ruleJurisdictionCode: ruleJurisdiction,
+            ruleEffectType: version.effectType,
+            businessDate,
+            scopeContext,
+            mode: 'CURRENT',
+            db: tx,
+          },
+          internal,
+        )
 
-  for (const binding of bindings) {
-    if (binding.sourceRole === 'SUPPORTING') {
-      supportingBindingIds.push(binding.id)
-      continue
-    }
+        if (bindingBlockers.size === 0) {
+          anyGoverningPassed = true
+          candidateSourceInterpretationIds.push(binding.sourceInterpretationId)
+        } else {
+          for (const code of bindingBlockers) governingFailureBlockers.add(code)
+        }
+      }
 
-    governingBindingIds.push(binding.id)
+      // A valid alternative governing candidate makes the rule potentially allowed regardless of
+      // why sibling candidates failed — their individual reasons are not surfaced when unused.
+      if (!anyGoverningPassed) {
+        ruleLevelBlockers.add('MISSING_GOVERNING_SOURCE')
+        for (const code of governingFailureBlockers) ruleLevelBlockers.add(code)
+      }
 
-    const bindingBlockers = await evaluateGoverningCandidateBlockers(
-      binding.sourceInterpretation,
-      {
-        ruleOrganizationId: ruleOrgId,
-        ruleJurisdictionCode: ruleJurisdiction,
-        ruleEffectType: version.effectType,
-        businessDate,
-        scopeContext,
-      },
-      internal,
-    )
+      const gateStatus: ExecutabilityGateStatus =
+        ruleLevelBlockers.size === 0 && anyGoverningPassed ? 'POTENTIALLY_ALLOWED' : 'BLOCKED'
 
-    if (bindingBlockers.size === 0) {
-      anyGoverningPassed = true
-      candidateSourceInterpretationIds.push(binding.sourceInterpretationId)
-    } else {
-      for (const code of bindingBlockers) governingFailureBlockers.add(code)
-    }
-  }
+      // Only a rule that has actually passed this gate may advance to A3.8 precedence —
+      // BLOCKED has not passed, and REFERENCE_ONLY (handled above) is deliberately non-executable.
+      const nextGate = gateStatus === 'POTENTIALLY_ALLOWED' ? 'A3.8_PRECEDENCE' : null
 
-  // A valid alternative governing candidate makes the rule potentially allowed regardless of
-  // why sibling candidates failed — their individual reasons are not surfaced when unused.
-  if (!anyGoverningPassed) {
-    ruleLevelBlockers.add('MISSING_GOVERNING_SOURCE')
-    for (const code of governingFailureBlockers) ruleLevelBlockers.add(code)
-  }
-
-  const gateStatus: ExecutabilityGateStatus =
-    ruleLevelBlockers.size === 0 && anyGoverningPassed ? 'POTENTIALLY_ALLOWED' : 'BLOCKED'
-
-  // Only a rule that has actually passed this gate may advance to A3.8 precedence —
-  // BLOCKED has not passed, and REFERENCE_ONLY (handled above) is deliberately non-executable.
-  const nextGate = gateStatus === 'POTENTIALLY_ALLOWED' ? 'A3.8_PRECEDENCE' : null
-
-  return {
-    ok: true,
-    value: {
-      gateStatus,
-      compatibilityPolicyVersion,
-      blockers: [...ruleLevelBlockers].sort(),
-      matchedApplicabilityIds: matchedIds,
-      governingBindingIds,
-      supportingBindingIds,
-      candidateSourceInterpretationIds,
-      nextGate,
-    },
-  }
+      return {
+        ok: true,
+        value: {
+          gateStatus,
+          compatibilityPolicyVersion,
+          blockers: [...ruleLevelBlockers].sort(),
+          matchedApplicabilityIds: matchedIds,
+          governingBindingIds,
+          supportingBindingIds,
+          candidateSourceInterpretationIds,
+          nextGate,
+        },
+      }
+  })
 }

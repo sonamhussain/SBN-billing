@@ -33,6 +33,7 @@ import { organizationProviderContractRouter, providerContractRouter, contractFac
 import { providerContractTariffSchedulesRouter, tariffScheduleRouter, tariffScheduleVersionRouter } from './modules/commercial-coverage/tariff-schedule.route.ts'
 import { referenceDatasetRouter, referenceDatasetVersionRouter } from './modules/reference-dataset/reference-dataset.route.ts'
 import { sourceScopesRouter, ruleSourceScopeRouter } from './modules/rule-source-scope/rule-source-scope.route.ts'
+import { ruleDefinitionResolutionRouter } from './modules/rule-resolution/rule-resolution.route.ts'
 
 export const app = express()
 
@@ -148,6 +149,9 @@ app.use('/api/reference-dataset-versions', referenceDatasetVersionRouter)
 // REF-01 / R4
 app.use('/api/rule-sources', sourceScopesRouter)
 app.use('/api/rule-source-scopes', ruleSourceScopeRouter)
+
+// A3.8
+app.use('/api/rule-definitions', ruleDefinitionResolutionRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

@@ -78,6 +78,7 @@ export const permissionCodes = [
   'reference_dataset.read',
   'rule_source_scope.create',
   'rule_source_scope.read',
+  'rule_resolution.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
