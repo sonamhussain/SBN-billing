@@ -39,7 +39,8 @@
     "test:a3:successor-usability": "node --env-file=.env src/scripts/test-a3-8-successor-usability.ts",
     "test:a3:rule-pack-http": "node --env-file=.env src/scripts/test-a3-9-rule-pack-http.ts",
     "test:a3:provenance": "node --env-file=.env src/scripts/test-a3-9-provenance.ts",
-    "test:a3:scope": "node --env-file=.env src/scripts/test-a3-9-scope.ts"
+    "test:a3:scope": "node --env-file=.env src/scripts/test-a3-9-scope.ts",
+    "test:a3:integration": "node --env-file=.env src/integration/a3-governance/a3-governance.integration.ts"
   },
   "keywords": [],
   "author": "",
