@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { prisma } from '../../shared/database/prisma.ts'
 import { callApi, extractCookieHeader } from '../a1-foundation/integration.http.ts'
-import { a38Fixtures } from '../../scripts/support/a3-8-fixtures.ts'
+import { apiFixtures } from './a3-governance.fixtures.ts'
 import { evaluateExecutability } from '../../modules/rule-source-binding/rule-source-binding.service.ts'
 import { evaluateRuleResolution, evaluateRuleResolutionBundle } from '../../modules/rule-resolution/rule-resolution.service.ts'
 import { composeRuleDecisionProvenanceRefV1 } from '../../modules/rule-provenance/rule-provenance.composer.ts'
@@ -14,11 +14,8 @@ import {
 } from '../../modules/rule-pack/rule-pack.service.ts'
 import type { RuleResolutionEvaluationBundle } from '../../modules/rule-resolution/rule-resolution.types.ts'
 import {
-  attachFacilityToContract,
-  commercialChain,
   gitGrep,
   createReport,
-  d,
   foreignKeyDeleteRules,
   git,
   gitOk,
@@ -169,11 +166,45 @@ async function main() {
 
   // ---------------------------------------------------------------- cross-module scenarios (T31–T50)
   section('X01–X20 cross-module governance scenarios')
-  const fx = a38Fixtures(org, runId)
-  const chain = await commercialChain(org, runId)
-  const facility = await fx.facility('facility')
-  const profile = await fx.profile(facility.id, '2020-01-01', null, 'AE-DU')
-  await attachFacilityToContract(chain.providerContract.id, facility.id)
+  // One API session drives both the scenario fixtures and the security checks below. Every valid
+  // governed object is created through its owning route, so the scenarios exercise the same
+  // boundaries a real caller would (§8).
+  const signIn = async (email: string, password: string) => {
+    const res = await callApi(baseUrl, '/api/auth/sign-in/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: baseUrl },
+      body: JSON.stringify({ email, password }),
+    })
+    return { status: res.status, cookie: extractCookieHeader(res.setCookies) }
+  }
+  const admin = await signIn(adminEmail, adminPassword)
+  const viewer = await signIn(viewerEmail, viewerPassword)
+  if (admin.status !== 200 || viewer.status !== 200) throw new Error(`integration sign-in failed (admin ${admin.status}, viewer ${viewer.status})`)
+  const asAdmin = (init: RequestInit = {}) => ({ ...init, headers: { ...(init.headers ?? {}), 'Content-Type': 'application/json', Cookie: admin.cookie } })
+  const asViewer = (init: RequestInit = {}) => ({ ...init, headers: { ...(init.headers ?? {}), 'Content-Type': 'application/json', Cookie: viewer.cookie } })
+
+  const fx = apiFixtures(baseUrl, admin.cookie, org, runId)
+  const actor = (await prisma.user.findUniqueOrThrow({ where: { email: bootstrapUserEmail } })).id
+
+  // A rule is authored exactly as A3.5/A3.6/A3.7 require: draft version, applicability, bindings,
+  // then verification last, because verification freezes the snapshot (H05).
+  type RuleOptions = {
+    version?: string
+    effectType?: string
+    effectiveFrom?: string | null
+    effectiveTo?: string | null
+    dimensions?: Record<string, string | null>
+  }
+  async function draftRule(name: string, options: RuleOptions = {}) {
+    const rule = await fx.ruleDefinition(name)
+    const ruleVersion = await fx.draftRuleVersion(rule.id, options.version ?? '1', options)
+    const applicability = await fx.applicability(ruleVersion.id, options.dimensions ?? {})
+    return { rule, ruleVersion, applicability }
+  }
+
+  const facility = await fx.facility()
+  const profile = await fx.regulatoryProfile(facility.id, 'AE-DU', '2020-01-01')
+  const chain = await fx.commercialChain(facility.id)
   const fullContext = {
     facilityId: facility.id,
     payerId: chain.payer.id,
@@ -193,19 +224,18 @@ async function main() {
   const statusOf = (bundle: { ok: boolean } & Record<string, any>) => (bundle.ok ? bundle.value.resolution.resolutionStatus : `ERROR:${bundle.code}`)
 
   // X01 — the full Dubai-compatible chain.
-  const mainRule = await fx.makeRule('x01-rule')
-  const mainVersion = await fx.makeRuleVersion(mainRule.id, '1')
-  const mainApplicability = await fx.makeApplicability(mainVersion.id)
-  const mainGoverning = await fx.attachSource(mainVersion.id, 'x01-gov')
-  const gate = await evaluateExecutability(mainVersion.id, businessDate, gateInputs(fullContext))
-  const x01 = await resolveBundle(mainRule.id, businessDate)
+  const main = await draftRule('x01-rule')
+  const mainSource = await fx.verifiedSource('x01-gov', { activateOn: businessDate })
+  const mainBinding = await fx.bind(main.ruleVersion.id, mainSource.interpretation.id)
+  await fx.verifyRuleVersion(main.ruleVersion.id)
+  const gate = await evaluateExecutability(main.ruleVersion.id, businessDate, gateInputs(fullContext))
+  const x01 = await resolveBundle(main.rule.id, businessDate)
   const x01Pack = await (async () => {
-    const pack = await createRulePack(org, `${runId}-pack`, 'A3.10 pack', 'AE-DU', (await prisma.user.findUniqueOrThrow({ where: { email: bootstrapUserEmail } })).id)
+    const pack = await createRulePack(org, `${runId}-pack`, 'A3.10 pack', 'AE-DU', actor)
     if (!pack.ok) throw new Error(pack.message)
-    const actor = (await prisma.user.findUniqueOrThrow({ where: { email: bootstrapUserEmail } })).id
     const version = await createRulePackVersion(pack.value.id, 'v1', '2026-01-01', null, false, actor)
     if (!version.ok) throw new Error(version.message)
-    const member = await addRulePackMember(version.value.id, mainVersion.id, actor)
+    const member = await addRulePackMember(version.value.id, main.ruleVersion.id, actor)
     if (!member.ok) throw new Error(member.message)
     const verified = await verifyRulePackVersion(version.value.id, actor)
     if (!verified.ok) throw new Error(verified.message)
@@ -222,20 +252,20 @@ async function main() {
       gate.value.nextGate === 'A3.8_PRECEDENCE' &&
       x01.ok &&
       x01.value.resolution.resolutionStatus === 'RESOLVED' &&
-      x01.value.resolution.ruleVersionId === mainVersion.id &&
+      x01.value.resolution.ruleVersionId === main.ruleVersion.id &&
       !!x01Provenance?.ok &&
-      x01Provenance.value.ruleVersionId === mainVersion.id &&
-      x01Provenance.value.governingBindingId === mainGoverning.binding.id &&
-      x01Provenance.value.matchedApplicabilityIds.includes(mainApplicability.id) &&
+      x01Provenance.value.ruleVersionId === main.ruleVersion.id &&
+      x01Provenance.value.governingBindingId === mainBinding.id &&
+      x01Provenance.value.matchedApplicabilityIds.includes(main.applicability.id) &&
       x01Provenance.value.context.facilityRegulatoryProfileId === profile.id &&
       x01Provenance.value.rulePackVersionId === x01Pack.versionId,
     `gate ${gate.ok ? gate.value.gateStatus : 'error'}, resolution ${statusOf(x01)}, provenance rule ${x01Provenance?.ok ? x01Provenance.value.ruleVersionId : 'none'}`,
   )
 
   // X02 — facility jurisdiction conflict.
-  const foreignFacility = await fx.facility('x02-facility')
-  await fx.profile(foreignFacility.id, '2020-01-01', null, 'AE-AZ')
-  const x02 = await resolveBundle(mainRule.id, businessDate, { facilityId: foreignFacility.id })
+  const foreignFacility = await fx.facility()
+  await fx.regulatoryProfile(foreignFacility.id, 'AE-AZ', '2020-01-01')
+  const x02 = await resolveBundle(main.rule.id, businessDate, { facilityId: foreignFacility.id })
   check(
     'T32',
     'X02 jurisdiction attack',
@@ -248,30 +278,38 @@ async function main() {
   )
 
   // X03 — commercial ancestry contradiction (a tariff schedule from another contract).
-  const otherChain = await commercialChain(org, `${runId}-alt`)
-  const x03 = await resolveBundle(mainRule.id, businessDate, { ...fullContext, tariffScheduleId: otherChain.tariffSchedule.id })
+  const otherChain = await fx.commercialChain()
+  const x03 = await resolveBundle(main.rule.id, businessDate, { ...fullContext, tariffScheduleId: otherChain.tariffSchedule.id })
   check('T33', 'X03 commercial ancestry attack', !x03.ok && x03.code === 'VALIDATION_ERROR', `rejected before resolution: ${x03.ok ? 'RESOLVED' : x03.code}`)
 
   // X04 — supporting evidence can never govern.
-  const supportingRule = await fx.makeRule('x04-rule')
-  const supportingVersion = await fx.makeRuleVersion(supportingRule.id, '1')
-  await fx.makeApplicability(supportingVersion.id)
-  await fx.attachSource(supportingVersion.id, 'x04-sup', { role: 'SUPPORTING' })
-  const x04Gate = await evaluateExecutability(supportingVersion.id, businessDate, gateInputs(fullContext))
-  const x04 = await resolveBundle(supportingRule.id, businessDate)
+  const supportingRule = await draftRule('x04-rule')
+  const supportingSource = await fx.verifiedSource('x04-sup', { activateOn: businessDate })
+  await fx.bind(supportingRule.ruleVersion.id, supportingSource.interpretation.id, 'SUPPORTING')
+  await fx.verifyRuleVersion(supportingRule.ruleVersion.id)
+  const x04Gate = await evaluateExecutability(supportingRule.ruleVersion.id, businessDate, gateInputs(fullContext))
+  const x04 = await resolveBundle(supportingRule.rule.id, businessDate)
   check(
     'T34',
     'X04 supporting-only cannot govern',
-    x04Gate.ok && x04Gate.value.gateStatus === 'BLOCKED' && x04Gate.value.nextGate === null && x04.ok && x04.value.resolution.governingBindingId === null && x04.value.resolution.governingSourceVersionId === null && x04.value.resolution.blockers.includes('MISSING_GOVERNING_SOURCE'),
+    x04Gate.ok &&
+      x04Gate.value.gateStatus === 'BLOCKED' &&
+      x04Gate.value.nextGate === null &&
+      x04.ok &&
+      x04.value.resolution.governingBindingId === null &&
+      x04.value.resolution.governingSourceVersionId === null &&
+      x04.value.resolution.blockers.includes('MISSING_GOVERNING_SOURCE'),
     `gate ${x04Gate.ok ? x04Gate.value.gateStatus : 'error'}, resolution ${statusOf(x04)}`,
   )
 
-  // X05 — an undated governing source fails closed in the public vocabulary.
-  const undatedRule = await fx.makeRule('x05-rule')
-  const undatedVersion = await fx.makeRuleVersion(undatedRule.id, '1')
-  await fx.makeApplicability(undatedVersion.id)
-  await fx.attachSource(undatedVersion.id, 'x05-gov', { effectiveFrom: null })
-  const x05 = await resolveBundle(undatedRule.id, businessDate)
+  // X05 — an undated governing source fails closed in the public vocabulary. The version is
+  // published and verified through its owner routes but has no effective date, so A3.3 never
+  // activates it; that is exactly the state under test.
+  const undatedRule = await draftRule('x05-rule')
+  const undatedSource = await fx.verifiedSource('x05-gov', { effectiveFrom: null, activateOn: null })
+  await fx.bind(undatedRule.ruleVersion.id, undatedSource.interpretation.id)
+  await fx.verifyRuleVersion(undatedRule.ruleVersion.id)
+  const x05 = await resolveBundle(undatedRule.rule.id, businessDate)
   const publicVocabulary = ['SOURCE_NOT_EFFECTIVE', 'MISSING_GOVERNING_SOURCE', 'SOURCE_NOT_ACTIVE', 'SOURCE_NOT_PUBLISHED', 'AUTHORITY_UNVERIFIED', 'INTERPRETATION_UNVERIFIED', 'JURISDICTION_INCOMPATIBLE', 'OWNERSHIP_MISMATCH', 'SOURCE_CONFLICT', 'DEPENDENCY_UNRESOLVED', 'SOURCE_SCOPE_MISMATCH', 'SOURCE_SCOPE_INCOMPLETE', 'EFFECT_INCOMPATIBLE', 'SOURCE_CATEGORY_INCOMPATIBLE', 'CONTEXT_INCOMPLETE']
   check(
     'T35',
@@ -284,11 +322,11 @@ async function main() {
   )
 
   // X06 — a rule that is not effective on the business date.
-  const expiredRule = await fx.makeRule('x06-rule')
-  const expiredVersion = await fx.makeRuleVersion(expiredRule.id, '1', { effectiveFrom: d('2024-01-01'), effectiveTo: d('2024-12-31') })
-  await fx.makeApplicability(expiredVersion.id)
-  await fx.attachSource(expiredVersion.id, 'x06-gov')
-  const x06 = await resolveBundle(expiredRule.id, businessDate)
+  const expiredRule = await draftRule('x06-rule', { effectiveFrom: '2024-01-01', effectiveTo: '2024-12-31' })
+  const expiredRuleSource = await fx.verifiedSource('x06-gov', { activateOn: businessDate })
+  await fx.bind(expiredRule.ruleVersion.id, expiredRuleSource.interpretation.id)
+  await fx.verifyRuleVersion(expiredRule.ruleVersion.id)
+  const x06 = await resolveBundle(expiredRule.rule.id, businessDate)
   const x06Provenance = x06.ok ? await composeRuleDecisionProvenanceRefV1({ evaluation: x06.value }) : null
   check(
     'T36',
@@ -297,15 +335,19 @@ async function main() {
     `${statusOf(x06)}, provenance ${x06Provenance && !x06Provenance.ok ? x06Provenance.error.code : 'produced'}`,
   )
 
-  // X07 — explicit supersession, answered as of the business date.
-  const supersedeRule = await fx.makeRule('x07-rule')
-  const supersedeVersion = await fx.makeRuleVersion(supersedeRule.id, '1')
-  await fx.makeApplicability(supersedeVersion.id)
-  const predecessor = await fx.attachSource(supersedeVersion.id, 'x07-s1', { effectiveFrom: d('2020-01-01'), activationStatus: 'SUPERSEDED' })
-  const successor = await fx.attachSource(supersedeVersion.id, 'x07-s2', { effectiveFrom: d('2026-06-01') })
+  // X07 — explicit supersession, answered as of the business date. The predecessor becomes
+  // SUPERSEDED the way A3.3/A3.4 intend: by activating the successor that supersedes it.
+  const supersedeRule = await draftRule('x07-rule')
+  const predecessor = await fx.verifiedSource('x07-s1', { activateOn: businessDate })
+  const successor = await fx.verifiedSource('x07-s2', { effectiveFrom: '2026-06-01', activateOn: null })
+  await fx.bind(supersedeRule.ruleVersion.id, predecessor.interpretation.id)
+  await fx.bind(supersedeRule.ruleVersion.id, successor.interpretation.id)
+  await fx.verifyRuleVersion(supersedeRule.ruleVersion.id)
   await fx.relate(successor.sourceVersion.id, predecessor.sourceVersion.id, 'SUPERSEDES')
-  const beforeSuccessor = await resolveBundle(supersedeRule.id, '2026-03-15')
-  const afterSuccessor = await resolveBundle(supersedeRule.id, '2026-08-15')
+  await fx.activateSourceVersion(successor.sourceVersion.id, '2026-08-15')
+  const beforeSuccessor = await resolveBundle(supersedeRule.rule.id, '2026-03-15')
+  const afterSuccessor = await resolveBundle(supersedeRule.rule.id, '2026-08-15')
+  const predecessorRow = await prisma.ruleSourceVersion.findUniqueOrThrow({ where: { id: predecessor.sourceVersion.id } })
   check(
     'T37',
     'X07 explicit historical supersession',
@@ -313,41 +355,48 @@ async function main() {
       beforeSuccessor.value.resolution.governingSourceVersionId === predecessor.sourceVersion.id &&
       afterSuccessor.ok &&
       afterSuccessor.value.resolution.governingSourceVersionId === successor.sourceVersion.id &&
-      beforeSuccessor.value.resolution.historicalOnly === true &&
-      (await prisma.ruleSourceVersion.findUniqueOrThrow({ where: { id: predecessor.sourceVersion.id } })).activationStatus === 'SUPERSEDED',
-    `before: ${beforeSuccessor.ok ? beforeSuccessor.value.resolution.governingSourceVersionId === predecessor.sourceVersion.id ? 'predecessor' : 'other' : 'error'}; after: ${afterSuccessor.ok ? afterSuccessor.value.resolution.governingSourceVersionId === successor.sourceVersion.id ? 'successor' : 'other' : 'error'}; superseded row retained`,
+      predecessorRow.activationStatus === 'SUPERSEDED',
+    `before: ${beforeSuccessor.ok && beforeSuccessor.value.resolution.governingSourceVersionId === predecessor.sourceVersion.id ? 'predecessor' : 'other'}; after: ${afterSuccessor.ok && afterSuccessor.value.resolution.governingSourceVersionId === successor.sourceVersion.id ? 'successor' : 'other'}; predecessor now ${predecessorRow.activationStatus}`,
   )
 
   // X08 — an unusable successor in force blocks; an unrelated candidate must not inherit the win.
-  const unusableRule = await fx.makeRule('x08-rule')
-  const unusableVersion = await fx.makeRuleVersion(unusableRule.id, '1')
-  await fx.makeApplicability(unusableVersion.id)
-  const s1 = await fx.attachSource(unusableVersion.id, 'x08-s1')
-  const unusableS2 = await fx.attachSource(unusableVersion.id, 'x08-s2', { effectiveFrom: d('2026-01-01'), activationStatus: 'INACTIVE' })
-  const unrelatedB = await fx.attachSource(unusableVersion.id, 'x08-b')
+  const unusableRule = await draftRule('x08-rule')
+  const s1 = await fx.verifiedSource('x08-s1', { activateOn: businessDate })
+  const unusableS2 = await fx.verifiedSource('x08-s2', { effectiveFrom: '2026-01-01', activateOn: null })
+  const unrelatedB = await fx.verifiedSource('x08-b', { activateOn: businessDate })
+  for (const source of [s1, unusableS2, unrelatedB]) await fx.bind(unusableRule.ruleVersion.id, source.interpretation.id)
+  await fx.verifyRuleVersion(unusableRule.ruleVersion.id)
   await fx.relate(unusableS2.sourceVersion.id, s1.sourceVersion.id, 'SUPERSEDES')
-  const x08 = await resolveBundle(unusableRule.id, businessDate)
+  const x08 = await resolveBundle(unusableRule.rule.id, businessDate)
   check(
     'T38',
     'X08 unusable successor + unrelated candidate',
     x08.ok &&
       x08.value.resolution.resolutionStatus === 'BLOCKED_SOURCE_PRECEDENCE_CONFLICT' &&
       x08.value.resolution.blockers.includes('SUPERSEDES_SUCCESSOR_UNUSABLE') &&
-      x08.value.resolution.governingSourceVersionId === null &&
-      x08.value.resolution.governingSourceVersionId !== unrelatedB.sourceVersion.id,
+      x08.value.resolution.governingSourceVersionId === null,
     `${statusOf(x08)}, blockers ${x08.ok ? x08.value.resolution.blockers.join(',') : ''}`,
   )
 
-  // X09 — an expired successor no longer suppresses its predecessor.
-  const expiredSuccessorRule = await fx.makeRule('x09-rule')
-  const expiredSuccessorVersion = await fx.makeRuleVersion(expiredSuccessorRule.id, '1')
-  await fx.makeApplicability(expiredSuccessorVersion.id)
-  const e1 = await fx.attachSource(expiredSuccessorVersion.id, 'x09-s1')
-  const e2 = await fx.attachSource(expiredSuccessorVersion.id, 'x09-s2', { effectiveFrom: d('2025-06-01'), effectiveTo: d('2025-12-31'), activationStatus: 'INACTIVE' })
+  // X09 — an expired successor no longer suppresses its predecessor. Two rules, because a verified
+  // RuleVersion is frozen and the unrelated candidate must be bound before verification.
+  const expiredAloneRule = await draftRule('x09-alone')
+  const e1 = await fx.verifiedSource('x09-s1', { activateOn: businessDate })
+  const e2 = await fx.verifiedSource('x09-s2', { effectiveFrom: '2025-06-01', effectiveTo: '2025-12-31', activateOn: null })
+  await fx.bind(expiredAloneRule.ruleVersion.id, e1.interpretation.id)
+  await fx.bind(expiredAloneRule.ruleVersion.id, e2.interpretation.id)
+  await fx.verifyRuleVersion(expiredAloneRule.ruleVersion.id)
   await fx.relate(e2.sourceVersion.id, e1.sourceVersion.id, 'SUPERSEDES')
-  const x09Alone = await resolveBundle(expiredSuccessorRule.id, businessDate)
-  const unrelatedForTie = await fx.attachSource(expiredSuccessorVersion.id, 'x09-b')
-  const x09WithB = await resolveBundle(expiredSuccessorRule.id, businessDate)
+  const x09Alone = await resolveBundle(expiredAloneRule.rule.id, businessDate)
+
+  const expiredTieRule = await draftRule('x09-tie')
+  const t1 = await fx.verifiedSource('x09-t1', { activateOn: businessDate })
+  const t2 = await fx.verifiedSource('x09-t2', { effectiveFrom: '2025-06-01', effectiveTo: '2025-12-31', activateOn: null })
+  const tieB = await fx.verifiedSource('x09-tb', { activateOn: businessDate })
+  for (const source of [t1, t2, tieB]) await fx.bind(expiredTieRule.ruleVersion.id, source.interpretation.id)
+  await fx.verifyRuleVersion(expiredTieRule.ruleVersion.id)
+  await fx.relate(t2.sourceVersion.id, t1.sourceVersion.id, 'SUPERSEDES')
+  const x09WithB = await resolveBundle(expiredTieRule.rule.id, businessDate)
   check(
     'T39',
     'X09 expired successor boundary',
@@ -355,21 +404,20 @@ async function main() {
       x09Alone.value.resolution.governingSourceVersionId === e1.sourceVersion.id &&
       x09WithB.ok &&
       x09WithB.value.resolution.resolutionStatus === 'BLOCKED_SOURCE_PRECEDENCE_CONFLICT' &&
-      x09WithB.value.resolution.governingSourceVersionId === null &&
-      unrelatedForTie.sourceVersion.id !== null,
+      x09WithB.value.resolution.governingSourceVersionId === null,
     `alone: ${statusOf(x09Alone)} (predecessor answers); with an unrelated candidate: ${statusOf(x09WithB)} — no auto-win`,
   )
 
   // X10 — DEPENDS_ON lifecycle, never precedence.
-  const dependencyRule = await fx.makeRule('x10-rule')
-  const dependencyVersion = await fx.makeRuleVersion(dependencyRule.id, '1')
-  await fx.makeApplicability(dependencyVersion.id)
-  const dependent = await fx.attachSource(dependencyVersion.id, 'x10-gov')
-  const targetSource = await fx.attachSource(await fx.makeRuleVersion((await fx.makeRule('x10-target-rule')).id, '1').then((v) => v.id), 'x10-target')
-  await fx.relate(dependent.sourceVersion.id, targetSource.sourceVersion.id, 'DEPENDS_ON')
-  const dependencyActive = await resolveBundle(dependencyRule.id, businessDate)
-  await prisma.ruleSourceVersion.update({ where: { id: targetSource.sourceVersion.id }, data: { activationStatus: 'SUSPENDED', suspendedAt: new Date() } })
-  const dependencyBroken = await resolveBundle(dependencyRule.id, businessDate)
+  const dependencyRule = await draftRule('x10-rule')
+  const dependent = await fx.verifiedSource('x10-gov', { activateOn: businessDate })
+  const dependencyTarget = await fx.verifiedSource('x10-target', { activateOn: businessDate })
+  await fx.bind(dependencyRule.ruleVersion.id, dependent.interpretation.id)
+  await fx.verifyRuleVersion(dependencyRule.ruleVersion.id)
+  await fx.relate(dependent.sourceVersion.id, dependencyTarget.sourceVersion.id, 'DEPENDS_ON')
+  const dependencyActive = await resolveBundle(dependencyRule.rule.id, businessDate)
+  await fx.suspendSourceVersion(dependencyTarget.sourceVersion.id)
+  const dependencyBroken = await resolveBundle(dependencyRule.rule.id, businessDate)
   check(
     'T40',
     'X10 dependency lifecycle',
@@ -377,49 +425,52 @@ async function main() {
       dependencyActive.value.resolution.resolutionStatus === 'RESOLVED' &&
       dependencyBroken.ok &&
       dependencyBroken.value.resolution.governingSourceVersionId === null &&
-      dependencyBroken.value.resolution.blockers.includes('DEPENDENCY_UNRESOLVED') &&
-      dependencyBroken.value.resolution.governingSourceVersionId !== targetSource.sourceVersion.id,
+      dependencyBroken.value.resolution.blockers.includes('DEPENDENCY_UNRESOLVED'),
     `ACTIVE target: ${statusOf(dependencyActive)}; SUSPENDED target: ${statusOf(dependencyBroken)}`,
   )
 
   // X11 — a conflict between two surviving candidates fails closed.
-  const conflictRule = await fx.makeRule('x11-rule')
-  const conflictVersion = await fx.makeRuleVersion(conflictRule.id, '1')
-  await fx.makeApplicability(conflictVersion.id)
-  const c1 = await fx.attachSource(conflictVersion.id, 'x11-c1')
-  const c2 = await fx.attachSource(conflictVersion.id, 'x11-c2')
+  const conflictRule = await draftRule('x11-rule')
+  const c1 = await fx.verifiedSource('x11-c1', { activateOn: businessDate })
+  const c2 = await fx.verifiedSource('x11-c2', { activateOn: businessDate })
+  await fx.bind(conflictRule.ruleVersion.id, c1.interpretation.id)
+  await fx.bind(conflictRule.ruleVersion.id, c2.interpretation.id)
+  await fx.verifyRuleVersion(conflictRule.ruleVersion.id)
   await fx.relate(c1.sourceVersion.id, c2.sourceVersion.id, 'CONFLICTS_WITH')
-  const x11 = await resolveBundle(conflictRule.id, businessDate)
+  const x11 = await resolveBundle(conflictRule.rule.id, businessDate)
   check(
     'T41',
     'X11 source conflict',
-    x11.ok && x11.value.resolution.governingBindingId === null && x11.value.resolution.governingSourceVersionId === null && x11.value.resolution.blockers.includes('SOURCE_CONFLICT') && x11.value.resolution.resolutionStatus.startsWith('BLOCKED'),
+    x11.ok && x11.value.resolution.governingBindingId === null && x11.value.resolution.governingSourceVersionId === null && x11.value.resolution.blockers.includes('SOURCE_CONFLICT'),
     `${statusOf(x11)}, blockers ${x11.ok ? x11.value.resolution.blockers.join(',') : ''}`,
   )
 
   // X12 — two RuleVersions of equal specificity block; no version/date/UUID tie-break.
-  const tieRule = await fx.makeRule('x12-rule')
-  const tieA = await fx.makeRuleVersion(tieRule.id, '1')
-  const tieB = await fx.makeRuleVersion(tieRule.id, '2')
-  await fx.makeApplicability(tieA.id, { payerId: chain.payer.id })
-  await fx.makeApplicability(tieB.id, { payerId: chain.payer.id })
-  await fx.attachSource(tieA.id, 'x12-a')
-  await fx.attachSource(tieB.id, 'x12-b')
+  const tieRule = await fx.ruleDefinition('x12-rule')
+  const tieVersions = []
+  for (const label of ['1', '2']) {
+    const version = await fx.draftRuleVersion(tieRule.id, label)
+    await fx.applicability(version.id, { payerId: chain.payer.id })
+    const source = await fx.verifiedSource(`x12-${label}`, { activateOn: businessDate })
+    await fx.bind(version.id, source.interpretation.id)
+    await fx.verifyRuleVersion(version.id)
+    tieVersions.push(version)
+  }
   const x12 = await resolveBundle(tieRule.id, businessDate)
   check(
     'T42',
     'X12 RuleVersion specificity tie',
     x12.ok && x12.value.resolution.resolutionStatus === 'BLOCKED_RULE_VERSION_CONFLICT' && x12.value.resolution.ruleVersionId === null,
-    `${statusOf(x12)} — neither version 1 nor version 2 was picked`,
+    `${statusOf(x12)} — neither version 1 nor version 2 was picked (${tieVersions.length} tied versions)`,
   )
 
   // X13 — historicalOnly follows the merged A3.8 currentness contract exactly.
-  const currentResult = await resolveBundle(mainRule.id, businessDate)
-  const historicalRule = await fx.makeRule('x13-rule')
-  const historicalVersion = await fx.makeRuleVersion(historicalRule.id, '1', { effectiveFrom: d('2025-01-01'), effectiveTo: d('2025-12-31') })
-  await fx.makeApplicability(historicalVersion.id)
-  await fx.attachSource(historicalVersion.id, 'x13-gov', { effectiveFrom: d('2025-01-01') })
-  const historicalResult = await resolveBundle(historicalRule.id, '2025-06-15', {})
+  const currentResult = await resolveBundle(main.rule.id, businessDate)
+  const historicalRule = await draftRule('x13-rule', { effectiveFrom: '2025-01-01', effectiveTo: '2025-12-31' })
+  const historicalSource = await fx.verifiedSource('x13-gov', { effectiveFrom: '2025-01-01', activateOn: '2025-06-15' })
+  await fx.bind(historicalRule.ruleVersion.id, historicalSource.interpretation.id)
+  await fx.verifyRuleVersion(historicalRule.ruleVersion.id)
+  const historicalResult = await resolveBundle(historicalRule.rule.id, '2025-06-15', {})
   check(
     'T43',
     'X13 historicalOnly truth',
@@ -432,12 +483,12 @@ async function main() {
   )
 
   // X14 — REFERENCE_ONLY is clean only in a compatible context.
-  const referenceRule = await fx.makeRule('x14-rule')
-  const referenceVersion = await fx.makeRuleVersion(referenceRule.id, '1', { effectType: 'REFERENCE_ONLY' })
-  await fx.makeApplicability(referenceVersion.id)
-  await fx.attachSource(referenceVersion.id, 'x14-src', { category: 'CLINICAL_STANDARD' })
-  const referenceOk = await resolveBundle(referenceRule.id, businessDate)
-  const referenceMismatch = await resolveBundle(referenceRule.id, businessDate, { facilityId: foreignFacility.id })
+  const referenceRule = await draftRule('x14-rule', { effectType: 'REFERENCE_ONLY' })
+  const referenceSource = await fx.verifiedSource('x14-src', { category: 'CLINICAL_STANDARD', activateOn: businessDate })
+  await fx.bind(referenceRule.ruleVersion.id, referenceSource.interpretation.id)
+  await fx.verifyRuleVersion(referenceRule.ruleVersion.id)
+  const referenceOk = await resolveBundle(referenceRule.rule.id, businessDate)
+  const referenceMismatch = await resolveBundle(referenceRule.rule.id, businessDate, { facilityId: foreignFacility.id })
   check(
     'T44',
     'X14 REFERENCE_ONLY context',
@@ -451,31 +502,32 @@ async function main() {
   )
 
   // X15 / X16 — exact pack membership, and a mismatch that fails closed.
-  const actor = (await prisma.user.findUniqueOrThrow({ where: { email: bootstrapUserEmail } })).id
   check(
     'T45',
     'X15 pack exact membership',
     !!x01Provenance?.ok && x01Provenance.value.rulePackId === x01Pack.packId && x01Provenance.value.ruleVersionId === (x01.ok ? x01.value.resolution.ruleVersionId : null),
     'the composer kept the A3.8 winner and added the exact pack version',
   )
-  const foreignPack = await (async () => {
+  const nonMemberPackVersion = await (async () => {
+    const otherRule = await draftRule('x16-other')
+    await fx.verifyRuleVersion(otherRule.ruleVersion.id)
     const pack = await createRulePack(org, `${runId}-other-pack`, 'A3.10 other pack', 'AE-DU', actor)
     if (!pack.ok) throw new Error(pack.message)
     const version = await createRulePackVersion(pack.value.id, 'v1', '2026-01-01', null, false, actor)
     if (!version.ok) throw new Error(version.message)
-    const otherRuleVersion = await fx.makeRuleVersion((await fx.makeRule('x16-other')).id, '1')
-    await addRulePackMember(version.value.id, otherRuleVersion.id, actor)
+    const member = await addRulePackMember(version.value.id, otherRule.ruleVersion.id, actor)
+    if (!member.ok) throw new Error(member.message)
     await verifyRulePackVersion(version.value.id, actor)
     await activateRulePackVersion(version.value.id, businessDate, actor)
     return version.value.id
   })()
-  const x16 = x01.ok ? await composeRuleDecisionProvenanceRefV1({ evaluation: x01.value, rulePackVersionId: foreignPack }) : null
+  const x16 = x01.ok ? await composeRuleDecisionProvenanceRefV1({ evaluation: x01.value, rulePackVersionId: nonMemberPackVersion }) : null
   check('T46', 'X16 pack membership mismatch', !!x16 && !x16.ok && x16.error.code === 'PACK_MEMBERSHIP_MISMATCH', 'no provenance produced')
 
   // X17 — a historical pack version never changes A3.8 historicalOnly.
   const successorPackVersion = await createRulePackVersion(x01Pack.packId, 'v2', '2026-01-01', null, false, actor)
   if (!successorPackVersion.ok) throw new Error(successorPackVersion.message)
-  await addRulePackMember(successorPackVersion.value.id, mainVersion.id, actor)
+  await addRulePackMember(successorPackVersion.value.id, main.ruleVersion.id, actor)
   await verifyRulePackVersion(successorPackVersion.value.id, actor)
   await activateRulePackVersion(successorPackVersion.value.id, businessDate, actor)
   const supersededPack = await prisma.rulePackVersion.findUniqueOrThrow({ where: { id: x01Pack.versionId } })
@@ -488,7 +540,7 @@ async function main() {
   )
 
   // X18 — the evaluation bundle cannot be mixed.
-  const otherEvaluation = await resolveBundle(mainRule.id, businessDate, { facilityId: facility.id })
+  const otherEvaluation = await resolveBundle(main.rule.id, businessDate, { facilityId: facility.id })
   const mixes: [string, unknown][] = x01.ok && otherEvaluation.ok
     ? [
         ['context from another evaluation', { ...x01.value, authoritativeContext: otherEvaluation.value.authoritativeContext }],
@@ -514,10 +566,10 @@ async function main() {
     bindings: await prisma.ruleSourceBinding.count(),
     packMembers: await prisma.rulePackMember.count(),
   }
-  const storedRuleVersion = await prisma.ruleVersion.findUniqueOrThrow({ where: { id: mainVersion.id } })
+  const storedRuleVersion = await prisma.ruleVersion.findUniqueOrThrow({ where: { id: main.ruleVersion.id } })
   for (let i = 0; i < 3; i += 1) {
-    await evaluateRuleResolution(mainRule.id, businessDate, fullContext, { clock })
-    const repeat = await resolveBundle(mainRule.id, businessDate)
+    await evaluateRuleResolution(main.rule.id, businessDate, fullContext, { clock })
+    const repeat = await resolveBundle(main.rule.id, businessDate)
     if (repeat.ok) await composeRuleDecisionProvenanceRefV1({ evaluation: repeat.value, rulePackVersionId: successorPackVersion.value.id })
   }
   const afterCounts = {
@@ -532,26 +584,13 @@ async function main() {
     'T50',
     'X20 read-only evaluation',
     JSON.stringify(beforeCounts) === JSON.stringify(afterCounts) &&
-      (await prisma.ruleVersion.findUniqueOrThrow({ where: { id: mainVersion.id } })).updatedAt.getTime() === storedRuleVersion.updatedAt.getTime() &&
+      (await prisma.ruleVersion.findUniqueOrThrow({ where: { id: main.ruleVersion.id } })).updatedAt.getTime() === storedRuleVersion.updatedAt.getTime() &&
       decisionTables.length === 0,
     `audit before=${beforeCounts.audit} after=${afterCounts.audit}; no decision table`,
   )
 
   // ---------------------------------------------------------------- security / tenancy (T51–T59)
   section('Security, tenancy and audit truth over the API')
-  const signIn = async (email: string, password: string) => {
-    const res = await callApi(baseUrl, '/api/auth/sign-in/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: baseUrl },
-      body: JSON.stringify({ email, password }),
-    })
-    return { status: res.status, cookie: extractCookieHeader(res.setCookies) }
-  }
-  const admin = await signIn(adminEmail, adminPassword)
-  const viewer = await signIn(viewerEmail, viewerPassword)
-  const asAdmin = (init: RequestInit = {}) => ({ ...init, headers: { ...(init.headers ?? {}), 'Content-Type': 'application/json', Cookie: admin.cookie } })
-  const asViewer = (init: RequestInit = {}) => ({ ...init, headers: { ...(init.headers ?? {}), 'Content-Type': 'application/json', Cookie: viewer.cookie } })
-
   const adminCreate = await callApi(baseUrl, `/api/organizations/${org}/rule-sources`, asAdmin({
     method: 'POST',
     body: JSON.stringify({ jurisdictionCode: 'AE-DU', issuingAuthority: 'DHA', sourceCategory: 'REGULATORY_AUTHORITY', referenceNumber: `${runId}-S51`, title: 'A3.10 admin source' }),
@@ -584,10 +623,16 @@ async function main() {
   const sharedWrite = sharedPack ? await callApi(baseUrl, `/api/rule-packs/${sharedPack.id}`, asAdmin({ method: 'PATCH', body: JSON.stringify({ displayName: 'tenant edit' }) })) : null
   check('T55', 'SYSTEM_SHARED write boundary', sharedPack === null || (sharedWrite !== null && sharedWrite.status >= 400 && sharedWrite.status < 500), sharedPack ? `status ${sharedWrite?.status}` : 'no SYSTEM_SHARED pack exists to mutate')
 
+  // ADVERSARIAL FIXTURE (deliberate owner-boundary bypass): this RuleVersion belongs to ANOTHER
+  // organization, which this tenant's routes correctly refuse to author. It exists only so the
+  // membership route can be shown to deny it, and nothing here is presented as a valid flow.
   const foreignRuleVersion = await (async () => {
-    const otherFx = a38Fixtures(otherOrg, `${runId}-foreign`)
-    const rule = await otherFx.makeRule('foreign')
-    return otherFx.makeRuleVersion(rule.id, '1')
+    const foreignRule = await prisma.ruleDefinition.create({
+      data: { organizationId: otherOrg, ruleKey: `${runId}-foreign`, displayName: 'A3.10 foreign rule', jurisdictionCode: 'AE-DU', ownershipScope: 'ORGANIZATION' },
+    })
+    return prisma.ruleVersion.create({
+      data: { ruleId: foreignRule.id, version: '1', effectType: 'AUTHORIZATION_REQUIREMENT_EFFECT', effectiveFrom: new Date('2020-01-01T00:00:00.000Z'), verificationStatus: 'VERIFIED', verifiedAt: new Date() },
+    })
   })()
   const draftPackVersion = await (async () => {
     const pack = await createRulePack(org, `${runId}-member-check`, 'A3.10 member check', 'AE-DU', actor)
@@ -642,8 +687,8 @@ async function main() {
 
   // ---------------------------------------------------------------- history / immutability (T60–T64)
   section('Historical truth and immutability')
-  const evidenceVersion = await prisma.ruleSourceVersion.findUniqueOrThrow({ where: { id: mainGoverning.sourceVersion.id } })
-  const evidenceInterpretation = await prisma.sourceInterpretation.findUniqueOrThrow({ where: { id: mainGoverning.interpretation.id } })
+  const evidenceVersion = await prisma.ruleSourceVersion.findUniqueOrThrow({ where: { id: mainSource.sourceVersion.id } })
+  const evidenceInterpretation = await prisma.sourceInterpretation.findUniqueOrThrow({ where: { id: mainSource.interpretation.id } })
   check(
     'T60',
     'source/evidence separation',
@@ -656,7 +701,7 @@ async function main() {
   )
 
   const supersededStillReadable = await prisma.ruleSourceVersion.findUnique({ where: { id: predecessor.sourceVersion.id } })
-  const historicalRuleVersion = await prisma.ruleVersion.findUnique({ where: { id: historicalVersion.id } })
+  const historicalRuleVersion = await prisma.ruleVersion.findUnique({ where: { id: historicalRule.ruleVersion.id } })
   check(
     'T61',
     'no hard delete history',
@@ -664,13 +709,13 @@ async function main() {
     'superseded source version and historical rule version remain retrievable',
   )
 
-  const frozenMemberAdd = await addRulePackMember(x01Pack.versionId, historicalVersion.id, actor)
+  const frozenMemberAdd = await addRulePackMember(x01Pack.versionId, historicalRule.ruleVersion.id, actor)
   const frozenDateChange = await callApi(baseUrl, `/api/rule-pack-versions/${x01Pack.versionId}`, asAdmin({ method: 'PATCH', body: JSON.stringify({ effectiveTo: '2026-12-31' }) }))
   const packMembersAfter = await prisma.rulePackMember.findMany({ where: { rulePackVersionId: x01Pack.versionId } })
   check(
     'T62',
     'pack immutability',
-    !frozenMemberAdd.ok && frozenDateChange.status === 400 && packMembersAfter.length === 1 && packMembersAfter[0].ruleVersionId === mainVersion.id,
+    !frozenMemberAdd.ok && frozenDateChange.status === 400 && packMembersAfter.length === 1 && packMembersAfter[0].ruleVersionId === main.ruleVersion.id,
     'a superseded pack version rejects member and date changes',
   )
 

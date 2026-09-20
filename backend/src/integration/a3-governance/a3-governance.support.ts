@@ -63,12 +63,12 @@ export function createReport() {
 // Only trailing whitespace is removed: `git status --porcelain` encodes the state in the first two
 // columns, so a leading space is data, not padding.
 export function git(args: string): string {
-  const out = spawnSync('git', args.split(' '), { cwd: process.cwd(), encoding: 'utf8', shell: true })
+  const out = spawnSync('git', args.split(' '), { cwd: process.cwd(), encoding: 'utf8' })
   return (out.stdout ?? '').replace(/\s+$/, '')
 }
 
 export function gitOk(args: string): boolean {
-  return spawnSync('git', args.split(' '), { cwd: process.cwd(), encoding: 'utf8', shell: true }).status === 0
+  return spawnSync('git', args.split(' '), { cwd: process.cwd(), encoding: 'utf8' }).status === 0
 }
 
 export type SuiteRun = { script: string; ok: boolean; summary: string; seconds: number }
@@ -77,7 +77,9 @@ export type SuiteRun = { script: string; ok: boolean; summary: string; seconds: 
 // Nothing of the child suite is reimplemented here; only its exit code and summary line are read.
 export function runSuite(script: string, cwd?: string): SuiteRun {
   const started = Date.now()
-  const out = spawnSync('npm', ['run', script], { cwd: cwd ?? process.cwd(), encoding: 'utf8', shell: true })
+  // One command string with shell:true. npm is a shell script on Windows, so it cannot be spawned
+  // directly; passing a separate args array with shell:true is what raises Node's DEP0190 warning.
+  const out = spawnSync(`npm run ${script}`, { cwd: cwd ?? process.cwd(), encoding: 'utf8', shell: true })
   const text = `${out.stdout ?? ''}\n${out.stderr ?? ''}`
   const summaryLine =
     text
@@ -101,7 +103,7 @@ export function gitGrep(pattern: string, paths: string[]): { matched: boolean; f
 }
 
 export function runCommand(command: string, args: string[]): { ok: boolean; output: string } {
-  const out = spawnSync(command, args, { encoding: 'utf8', shell: true })
+  const out = spawnSync(command, args, { encoding: 'utf8' })
   return { ok: out.status === 0, output: `${out.stdout ?? ''}${out.stderr ?? ''}`.trim() }
 }
 
