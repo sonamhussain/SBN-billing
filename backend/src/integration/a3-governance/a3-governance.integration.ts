@@ -82,6 +82,16 @@ async function main() {
   console.log(`[A3.10] cumulative A3 integration acceptance — run ${runId}`)
   console.log(`[A3.10] HEAD ${headAtStart} on branch ${git('rev-parse --abbrev-ref HEAD')} against ${baseUrl}`)
 
+  const ready = async () => (await fetch(`${baseUrl}/api/ready`).catch(() => null))?.status ?? 0
+  const health = async () => (await fetch(`${baseUrl}/api/health`).catch(() => null))?.status ?? 0
+  // `db:generate` rewrites the generated Prisma client, which restarts an API started with
+  // `npm run dev` (--watch). Waiting for the API to answer again keeps that environment choice from
+  // being reported as a product failure; nothing about the checks themselves is relaxed.
+  const apiReady = async (what: string) => {
+    if (!(await waitFor(async () => (await ready()) === 200, 120_000)))
+      throw new Error(`the API at ${baseUrl} is not ready before ${what}; start it with \`npm start\``)
+  }
+
   // ---------------------------------------------------------------- gates (T01–T06)
   section('Start gate, ancestry and schema closure')
   const a38Merge = '7671f0787f46a4f555902d18f2165f7413f4711a'
@@ -115,13 +125,17 @@ async function main() {
 
   // ---------------------------------------------------------------- A1/A2 baseline (T07–T10)
   section('A1 / A2 baseline truth')
-  const ready = async () => (await fetch(`${baseUrl}/api/ready`).catch(() => null))?.status ?? 0
-  const health = async () => (await fetch(`${baseUrl}/api/health`).catch(() => null))?.status ?? 0
+  await apiReady('the A1 health/readiness check')
   const upHealth = await health()
   const upReady = await ready()
   const stopped = runCommand('docker', ['stop', dbContainer])
-  const downHealth = await health()
   const downReady = await waitFor(async () => (await ready()) === 503, 30_000)
+  const downHealthSamples: number[] = []
+  for (let i = 0; i < 5; i += 1) {
+    downHealthSamples.push(await health())
+    await new Promise((resolve) => setTimeout(resolve, 400))
+  }
+  const downHealth = downHealthSamples.every((status) => status === 200) ? 200 : Math.min(...downHealthSamples)
   const started = runCommand('docker', ['start', dbContainer])
   const recovered = await waitFor(async () => (await ready()) === 200, 90_000)
   check(
@@ -131,6 +145,7 @@ async function main() {
     `up 200/200, DB down health ${downHealth} ready 503, recovery 200`,
   )
   exception('T08', 'A1 worker proof', 'Windows SIGTERM cannot be delivered by the automated harness; manual `npm run worker:start` + Ctrl+C evidence is attached separately')
+  await apiReady('the A2 acceptance suite')
   const a2 = runSuite('test:a2:integration')
   check('T09', 'A2 cumulative', a2.ok && /36\/36 PASS/.test(a2.summary), a2.summary)
   check('T10', 'A2.9 DB CHECK', await hasConstraint('external_identifiers_exactly_one_target_chk'), 'exactly-one-target constraint present')
@@ -183,6 +198,7 @@ async function main() {
   const asAdmin = (init: RequestInit = {}) => ({ ...init, headers: { ...(init.headers ?? {}), 'Content-Type': 'application/json', Cookie: admin.cookie } })
   const asViewer = (init: RequestInit = {}) => ({ ...init, headers: { ...(init.headers ?? {}), 'Content-Type': 'application/json', Cookie: viewer.cookie } })
 
+  await apiReady('the cross-module scenarios')
   const fx = apiFixtures(baseUrl, admin.cookie, org, runId)
   const actor = (await prisma.user.findUniqueOrThrow({ where: { email: bootstrapUserEmail } })).id
 
