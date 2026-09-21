@@ -82,6 +82,11 @@ export const permissionCodes = [
   // A3.9 — the only two new permissions. There is deliberately no rule_provenance.read.
   'rule_pack.read',
   'rule_pack.write',
+  // A4.1 — Patient identity only. There is deliberately no patient.delete, patient.merge,
+  // patient.external_id or patient.insurance permission.
+  'patient.create',
+  'patient.read',
+  'patient.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

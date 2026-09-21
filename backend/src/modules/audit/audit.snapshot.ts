@@ -444,3 +444,14 @@ export const rulePackMemberAuditSnapshot = (x: { id: string; rulePackVersionId: 
   rulePackVersionId: x.rulePackVersionId,
   ruleVersionId: x.ruleVersionId,
 })
+
+// A4.1 §12 — the PHI boundary. A patient AuditEvent records only safe metadata: which row, which
+// tenant, when it changed and (on update) WHICH fields changed. Names, dates of birth, phone
+// numbers, e-mail addresses and the request body are deliberately absent, because business audit
+// must stay useful without becoming a second store of patient-identifying data.
+export const patientAuditSnapshot = (x: { id: string; organizationId: string; updatedAt: Date }, changedFields?: string[]) => ({
+  id: x.id,
+  organizationId: x.organizationId,
+  updatedAt: x.updatedAt.toISOString(),
+  ...(changedFields ? { changedFields: [...changedFields].sort() } : {}),
+})
