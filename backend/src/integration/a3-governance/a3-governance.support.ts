@@ -116,46 +116,6 @@ export async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 60_
   return false
 }
 
-export function d(text: string): Date {
-  return new Date(`${text}T00:00:00.000Z`)
-}
-
-// The synthetic REF-01 commercial chain plus service/procedure/diagnosis masters. Written once
-// here because no shared helper exposes it; it is plain fixture data, not business logic.
-export async function commercialChain(organizationId: string, tag: string) {
-  const payer = await prisma.payer.create({ data: { organizationId, displayName: `${tag} payer` } })
-  const tpa = await prisma.tpa.create({ data: { organizationId, displayName: `${tag} tpa` } })
-  const network = await prisma.network.create({ data: { organizationId, displayName: `${tag} network` } })
-  const insuranceProduct = await prisma.insuranceProduct.create({
-    data: { organizationId, payerId: payer.id, productCode: `${tag}-PROD`, displayName: `${tag} product` },
-  })
-  await prisma.productNetwork.create({ data: { insuranceProductId: insuranceProduct.id, networkId: network.id } })
-  const providerContract = await prisma.providerContract.create({
-    data: {
-      organizationId,
-      payerId: payer.id,
-      tpaId: tpa.id,
-      networkId: network.id,
-      insuranceProductId: insuranceProduct.id,
-      contractKey: `${tag}-CONTRACT`,
-      displayName: `${tag} contract`,
-      effectiveFrom: d('2020-01-01'),
-    },
-  })
-  const tariffSchedule = await prisma.tariffSchedule.create({
-    data: { providerContractId: providerContract.id, tariffKey: `${tag}-TARIFF`, displayName: `${tag} tariff` },
-  })
-  const tariffScheduleVersion = await prisma.tariffScheduleVersion.create({ data: { tariffScheduleId: tariffSchedule.id, version: '1' } })
-  const service = await prisma.service.create({ data: { organizationId, internalCode: `${tag}-SVC`, displayName: `${tag} service` } })
-  const procedureCode = await prisma.procedureCode.create({ data: { organizationId, internalCode: `${tag}-PROC`, displayName: `${tag} procedure` } })
-  const diagnosisCode = await prisma.diagnosisCode.create({ data: { organizationId, code: `${tag}-DX`, displayName: `${tag} diagnosis` } })
-  return { payer, tpa, network, insuranceProduct, providerContract, tariffSchedule, tariffScheduleVersion, service, procedureCode, diagnosisCode }
-}
-
-export async function attachFacilityToContract(providerContractId: string, facilityId: string) {
-  return prisma.contractFacility.create({ data: { providerContractId, facilityId } })
-}
-
 // Read-only structural helpers (§14, §15): the database is only ever asked what it holds.
 export async function hasConstraint(name: string): Promise<boolean> {
   const rows = await prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM pg_constraint WHERE conname = ${name}`
