@@ -83,9 +83,12 @@ async function main() {
   // started with `npm run dev` (--watch). Waiting for the API to answer again keeps that
   // environment choice from being reported as a product failure; no check is relaxed by it.
   const apiReady = async (what: string) => {
-    if (!(await waitFor(async () => (await ready()) === 200, 120_000)))
+    if (!(await waitFor(async () => (await ready()) === 200, 60_000)))
       throw new Error(`the API at ${baseUrl} is not ready before ${what}; start it with \`npm start\``)
   }
+
+  // Fail with a readable instruction rather than a raw socket error when nothing is listening.
+  await apiReady('signing in')
 
   const signIn = async (email: string, password: string) => {
     const res = await callApi(baseUrl, '/api/auth/sign-in/email', {
