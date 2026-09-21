@@ -96,7 +96,11 @@ async function main() {
   const dirty = git('status --porcelain').split(/\r?\n/).filter(Boolean)
   check('T02', 'git clean', dirty.length === 0, dirty.length === 0 ? 'working tree clean' : `uncommitted: ${dirty.length} path(s)`)
 
-  const migrationDirs = run('git ls-files backend/prisma/migrations | findstr a4_1').output.split(/\r?\n/).filter(Boolean)
+  // Filtered here rather than in the shell, so the check behaves the same in every terminal.
+  const migrationDirs = run('git ls-files backend/prisma/migrations')
+    .output.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.includes('a4_1_patient_identity_demographics') && line.endsWith('migration.sql'))
   const migrationSql = migrationDirs.length > 0 ? run(`git show HEAD:${migrationDirs[0]}`).output : ''
   const createdTables = [...migrationSql.matchAll(/CREATE TABLE "(\w+)"/g)].map((m) => m[1])
   const alteredTables = [...migrationSql.replace(/--.*$/gm, '').matchAll(/ALTER TABLE "(\w+)"/g)].map((m) => m[1])
@@ -416,24 +420,26 @@ async function main() {
   const build = run('npm run build --prefix ../frontend')
   check('T46', 'frontend build', build.ok, (build.output.match(/built in [\dms.]+/) ?? ['build output unavailable'])[0])
 
-  // The A3.10 harness also checks its OWN branch identity and diff scope (T01 start gate, T03 clean
-  // baseline, T73 git scope, T76 single branch off main). Those four describe the A3.10 branch and
-  // cannot hold while A4.1 files exist, so they are named explicitly here; every governance check
-  // it makes must still pass, and any other failure fails this case.
+  // The A3.10 harness also checks its OWN branch identity and the repository state as of A3.10:
+  //   T01 start gate / T03 clean baseline / T73 git scope / T76 single branch — the A3.10 branch.
+  // Every A3 governance check it makes must still pass, and any other failure fails this case.
   const a310 = run('npm run test:a3:integration')
   const a310Failures = a310.output
     .split(/\r?\n/)
     .filter((line) => /^\[A3\.10\] T\d+ .* FAIL/.test(line))
     .map((line) => (line.match(/^\[A3\.10\] (T\d+)/) ?? ['', ''])[1])
-  const branchIdentityOnly = ['T01', 'T03', 'T73', 'T76']
-  const unexpectedA310 = a310Failures.filter((id) => !branchIdentityOnly.includes(id))
+  //   T04 no feature schema — A4.1 legitimately adds the first A4 migration;
+  //   T66 no A4 entities — A3.10 proved A4 had not started; A4.1 starting it is the roadmap.
+  // The merged A3.10 harness is deliberately left untouched: it still passes as-is on main.
+  const expectedOnA4Branch = ['T01', 'T03', 'T73', 'T76', 'T04', 'T66']
+  const unexpectedA310 = a310Failures.filter((id) => !expectedOnA4Branch.includes(id))
   const governancePassed = /T31 X01 full governance chain \.* PASS/.test(a310.output) && /T50 X20 read-only evaluation \.* PASS/.test(a310.output)
   check(
     'T47',
     'A3.10 regression',
     unexpectedA310.length === 0 && governancePassed,
     unexpectedA310.length === 0
-      ? `${(a310.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0]}; only A3.10's own branch-identity checks differ (${a310Failures.join(', ') || 'none'}), because this is the A4.1 branch`
+      ? `${(a310.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0]}; every A3 governance check still passes. Only A3.10's own repository-state checks differ (${a310Failures.join(', ') || 'none'}): this branch adds the first A4 migration and the first A4 entity by design`
       : `unexpected A3.10 failures: ${unexpectedA310.join(', ')}`,
   )
   const a2 = run('npm run test:a2:integration')
