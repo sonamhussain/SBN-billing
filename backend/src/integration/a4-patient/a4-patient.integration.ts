@@ -4,6 +4,7 @@ import { prisma } from '../../shared/database/prisma.ts'
 import { callApi, extractCookieHeader } from '../a1-foundation/integration.http.ts'
 import { clearConcurrencyProbes, setConcurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { updatePatient } from '../../modules/patient/patient.service.ts'
+import { findPatientOrganizationId } from '../../modules/patient/patient.repository.ts'
 
 // A4.1 — focused Patient acceptance (T01–T55). Everything a real caller can do goes through the
 // four patient routes; the database is only READ, for structural proof. Synthetic data only: no
@@ -307,6 +308,32 @@ async function main() {
     'cross-tenant by-ID',
     (crossById.status === 403 || crossById.status === 404) && !crossBody.includes('Foreign') && !crossBody.includes('1985-05-05'),
     `status ${crossById.status}; response carries no demographics`,
+  )
+
+  // P01–P03 — the auditor's privacy-hardening correction: the permission resolver must learn WHO
+  // OWNS a patient without reading any demographic column, because it runs before the caller is
+  // known to be allowed to see that patient at all. These are extra to the package's T01–T55.
+  const ownership = await findPatientOrganizationId(patientId)
+  check(
+    'P01',
+    'ownership lookup selects only organizationId',
+    ownership !== null && JSON.stringify(Object.keys(ownership)) === JSON.stringify(['organizationId']) && ownership.organizationId === org,
+    `keys: ${JSON.stringify(Object.keys(ownership ?? {}))} — no name, date of birth, phone or e-mail is fetched for authorization`,
+  )
+  const foreignOwnership = await findPatientOrganizationId(foreignPatient.id)
+  check(
+    'P02',
+    'ownership lookup of a foreign patient',
+    foreignOwnership?.organizationId === otherOrg && JSON.stringify(Object.keys(foreignOwnership ?? {})) === JSON.stringify(['organizationId']),
+    'the other tenant is identified for the denial, still without any demographic column',
+  )
+  const unknownOwnership = await findPatientOrganizationId('11111111-1111-4111-8111-111111111111')
+  const malformedById = await get('/api/patients/not-a-uuid')
+  check(
+    'P03',
+    'missing and malformed by-ID',
+    unknownOwnership === null && malformedById.status >= 400 && malformedById.status < 500,
+    `an unknown id resolves to no owner; a malformed id is refused with ${malformedById.status} and never reaches the database`,
   )
 
   const missing = await get('/api/patients/11111111-1111-4111-8111-111111111111')

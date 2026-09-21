@@ -12,6 +12,13 @@ export async function findPatientById(id: string, db: DbClient = prisma) {
   return db.patient.findUnique({ where: { id } })
 }
 
+// Ownership only. Authorization is decided before the caller is known to be allowed to see this
+// patient at all, so that decision must not pull demographics out of the database: this selects
+// organizationId and nothing else. The full read stays in getPatient(), after authorization.
+export async function findPatientOrganizationId(id: string, db: DbClient = prisma) {
+  return db.patient.findUnique({ where: { id }, select: { organizationId: true } })
+}
+
 export async function findPatientsByOrganizationId(organizationId: string, db: DbClient = prisma) {
   return db.patient.findMany({ where: { organizationId }, orderBy: { createdAt: 'desc' } })
 }

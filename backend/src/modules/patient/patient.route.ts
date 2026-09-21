@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express'
 import { requireOrganizationPermission } from '../../shared/authorization/require-permission.ts'
 import { sendApiError } from '../../shared/errors/error-response.ts'
-import { findPatientById } from './patient.repository.ts'
+import { findPatientOrganizationId } from './patient.repository.ts'
 import { createPatient, getPatient, listPatients, updatePatient } from './patient.service.ts'
 import type { PatientErrorCode } from './patient.types.ts'
 import { isPatientUuid } from './patient.validation.ts'
@@ -22,14 +22,15 @@ function statusFor(code: PatientErrorCode) {
 const idParam = (req: Request) => String(req.params.id)
 const organizationIdParam = (req: Request) => String(req.params.organizationId)
 
-// By-ID routes resolve the owning organization from the stored row before authorization, so a
-// foreign-tenant patient is denied by the existing privacy-safe pattern and no demographic value
-// is ever read into the response.
+// By-ID routes resolve the owning organization before authorization, so a foreign-tenant patient is
+// denied by the existing privacy-safe pattern. The lookup reads ownership ONLY — no demographic
+// column is fetched for a caller who has not been authorized yet, and a malformed id never reaches
+// the database at all.
 async function organizationIdFromPatient(req: Request): Promise<string | null> {
   const id = idParam(req)
   if (!isPatientUuid(id)) return null
-  const patient = await findPatientById(id)
-  return patient?.organizationId ?? null
+  const ownership = await findPatientOrganizationId(id)
+  return ownership?.organizationId ?? null
 }
 
 organizationPatientRouter.post(
