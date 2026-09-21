@@ -97,7 +97,8 @@ async function main() {
   check('T02', 'git clean', dirty.length === 0, dirty.length === 0 ? 'working tree clean' : `uncommitted: ${dirty.length} path(s)`)
 
   // Filtered here rather than in the shell, so the check behaves the same in every terminal.
-  const migrationDirs = run('git ls-files backend/prisma/migrations')
+  // The harness runs from backend/, so the path is relative to that directory.
+  const migrationDirs = run('git ls-files prisma/migrations')
     .output.split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.includes('a4_1_patient_identity_demographics') && line.endsWith('migration.sql'))
