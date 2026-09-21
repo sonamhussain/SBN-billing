@@ -102,7 +102,9 @@ async function main() {
     .output.split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.includes('a4_1_patient_identity_demographics') && line.endsWith('migration.sql'))
-  const migrationSql = migrationDirs.length > 0 ? run(`git show HEAD:${migrationDirs[0]}`).output : ''
+  // `git show` resolves a path from the repository root unless it starts with ./, which makes it
+  // relative to the current directory — the committed SQL is read, never the working copy.
+  const migrationSql = migrationDirs.length > 0 ? run(`git show HEAD:./${migrationDirs[0]}`).output : ''
   const createdTables = [...migrationSql.matchAll(/CREATE TABLE "(\w+)"/g)].map((m) => m[1])
   const alteredTables = [...migrationSql.replace(/--.*$/gm, '').matchAll(/ALTER TABLE "(\w+)"/g)].map((m) => m[1])
   check(
