@@ -68,6 +68,24 @@ async function main() {
   console.log(`[A4.1] Patient identity and demographics — run ${runId}`)
   console.log(`[A4.1] HEAD ${git('rev-parse HEAD')} on branch ${git('rev-parse --abbrev-ref HEAD')} against ${baseUrl}`)
 
+  const ready = async () => (await fetch(`${baseUrl}/api/ready`).catch(() => null))?.status ?? 0
+  const health = async () => (await fetch(`${baseUrl}/api/health`).catch(() => null))?.status ?? 0
+  const waitFor = async (predicate: () => Promise<boolean>, timeoutMs: number) => {
+    const started = Date.now()
+    while (Date.now() - started < timeoutMs) {
+      if (await predicate()) return true
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    }
+    return false
+  }
+  // T04 runs db:generate, which rewrites the generated Prisma client and therefore restarts an API
+  // started with `npm run dev` (--watch). Waiting for the API to answer again keeps that
+  // environment choice from being reported as a product failure; no check is relaxed by it.
+  const apiReady = async (what: string) => {
+    if (!(await waitFor(async () => (await ready()) === 200, 120_000)))
+      throw new Error(`the API at ${baseUrl} is not ready before ${what}; start it with \`npm start\``)
+  }
+
   const signIn = async (email: string, password: string) => {
     const res = await callApi(baseUrl, '/api/auth/sign-in/email', {
       method: 'POST',
@@ -134,6 +152,7 @@ async function main() {
 
   // ---------------------------------------------------------------- create (T07–T14)
   section('Create, ownership and validation')
+  await apiReady('the patient routes')
   const auditBeforeCreate = await patientAuditCount()
   const created = await post(`/api/organizations/${org}/patients`, synthetic('A'))
   const patientId = created.body?.id
@@ -426,6 +445,7 @@ async function main() {
   // The A3.10 harness also checks its OWN branch identity and the repository state as of A3.10:
   //   T01 start gate / T03 clean baseline / T73 git scope / T76 single branch — the A3.10 branch.
   // Every A3 governance check it makes must still pass, and any other failure fails this case.
+  await apiReady('the A3.10 regression')
   const a310 = run('npm run test:a3:integration')
   const a310Failures = a310.output
     .split(/\r?\n/)
@@ -445,23 +465,14 @@ async function main() {
       ? `${(a310.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0]}; every A3 governance check still passes. Only A3.10's own repository-state checks differ (${a310Failures.join(', ') || 'none'}): this branch adds the first A4 migration and the first A4 entity by design`
       : `unexpected A3.10 failures: ${unexpectedA310.join(', ')}`,
   )
+  await apiReady('the A2 regression')
   const a2 = run('npm run test:a2:integration')
   check('T48', 'A2 regression', a2.ok && /36\/36 PASS/.test(a2.output), (a2.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0])
   const a1 = run('npm run test:a1:integration')
   const a1Summary = (a1.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0]
   check('T49', 'A1 regression', /26\/27 PASS/.test(a1.output) && /worker graceful stop/.test(a1.output), `${a1Summary} (only the known Windows SIGTERM limitation)`)
 
-  const health = async () => (await fetch(`${baseUrl}/api/health`).catch(() => null))?.status ?? 0
-  const ready = async () => (await fetch(`${baseUrl}/api/ready`).catch(() => null))?.status ?? 0
-  const waitFor = async (predicate: () => Promise<boolean>, timeoutMs: number) => {
-    const started = Date.now()
-    while (Date.now() - started < timeoutMs) {
-      if (await predicate()) return true
-      await new Promise((resolve) => setTimeout(resolve, 400))
-    }
-    return false
-  }
-  await waitFor(async () => (await ready()) === 200, 120_000)
+  await apiReady('the DB on/off truth check')
   check('T50', 'health DB up', (await health()) === 200 && (await ready()) === 200, 'health 200, ready 200')
   const dbContainer = process.env.A3_IT_DB_CONTAINER ?? 'sbn-billing-db-1'
   const stopped = spawnSync('docker', ['stop', dbContainer], { encoding: 'utf8' }).status === 0
