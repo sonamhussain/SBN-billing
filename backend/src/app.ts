@@ -41,6 +41,11 @@ import {
   rulePackVersionRouter,
 } from './modules/rule-pack/rule-pack.route.ts'
 import { organizationPatientRouter, patientRouter } from './modules/patient/patient.route.ts'
+import {
+  clinicianAssignmentRouter,
+  facilityAssignmentRouter,
+  specialtyAssignmentRouter,
+} from './modules/clinician-assignment/clinician-assignment.route.ts'
 
 export const app = express()
 
@@ -169,6 +174,11 @@ app.use('/api/rule-pack-members', rulePackMemberRouter)
 // A4.1 — Patient identity and demographics (create / list / get / patch only; no delete).
 app.use('/api/organizations', organizationPatientRouter)
 app.use('/api/patients', patientRouter)
+
+// A4.2 — effective-dated clinician practice assignments (create / list / get / close only).
+app.use('/api/clinicians', clinicianAssignmentRouter)
+app.use('/api/clinician-facility-assignments', facilityAssignmentRouter)
+app.use('/api/clinician-specialty-assignments', specialtyAssignmentRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

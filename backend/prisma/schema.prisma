@@ -75,6 +75,7 @@ model Facility {
   contractFacilities ContractFacility[]
   ruleSourceScopes RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
+  clinicianAssignments ClinicianFacilityAssignment[]
 
   @@index([organizationId])
   @@map("facilities")
@@ -89,6 +90,8 @@ model Clinician {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
+  facilityAssignments ClinicianFacilityAssignment[]
+  specialtyAssignments ClinicianSpecialtyAssignment[]
 
   @@index([organizationId])
   @@map("clinicians")
@@ -103,9 +106,55 @@ model Specialty {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
+  clinicianAssignments ClinicianSpecialtyAssignment[]
 
   @@index([organizationId])
   @@map("specialties")
+}
+
+// A4.2 — an effective-dated operational fact: this clinician practised at this facility between
+// these dates. It is NOT credentialing, NOT a licence, and NOT commercial participation
+// (ProviderContract -> ContractFacility owns that). There is deliberately no organizationId here:
+// ownership comes from the Clinician and Facility masters and is checked to be equal on every
+// write. There is no status flag either — currentness is derived from the period for a requested
+// date, so a historical service date can always be answered.
+model ClinicianFacilityAssignment {
+  id            String    @id @default(uuid()) @db.Uuid
+  clinicianId   String    @map("clinician_id") @db.Uuid
+  facilityId    String    @map("facility_id") @db.Uuid
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  clinician Clinician @relation(fields: [clinicianId], references: [id], onDelete: Restrict)
+  facility  Facility  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+
+  @@index([clinicianId])
+  @@index([facilityId])
+  @@index([clinicianId, facilityId])
+  @@map("clinician_facility_assignments")
+}
+
+// A4.2 — the same effective-dated fact for a specialty. A clinician may practise several
+// specialties at once, so there is deliberately no "primary" or "rank" field: A4.2 records what
+// was assigned, not which one matters most.
+model ClinicianSpecialtyAssignment {
+  id            String    @id @default(uuid()) @db.Uuid
+  clinicianId   String    @map("clinician_id") @db.Uuid
+  specialtyId   String    @map("specialty_id") @db.Uuid
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  clinician Clinician @relation(fields: [clinicianId], references: [id], onDelete: Restrict)
+  specialty Specialty @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+
+  @@index([clinicianId])
+  @@index([specialtyId])
+  @@index([clinicianId, specialtyId])
+  @@map("clinician_specialty_assignments")
 }
 
 model Payer {

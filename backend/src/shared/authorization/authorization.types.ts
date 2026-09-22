@@ -87,6 +87,11 @@ export const permissionCodes = [
   'patient.create',
   'patient.read',
   'patient.update',
+  // A4.2 — one permission family covers both assignment types. There is deliberately no update or
+  // delete permission: an assignment is created and closed, never rewritten.
+  'clinicianAssignment.create',
+  'clinicianAssignment.read',
+  'clinicianAssignment.close',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

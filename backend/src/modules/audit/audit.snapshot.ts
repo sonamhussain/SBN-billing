@@ -455,3 +455,21 @@ export const patientAuditSnapshot = (x: { id: string; organizationId: string; up
   updatedAt: x.updatedAt.toISOString(),
   ...(changedFields ? { changedFields: [...changedFields].sort() } : {}),
 })
+
+// A4.2 §16 — assignment audit is bounded to identifiers and dates. Clinician, facility and
+// specialty display names, and any external licence value, stay with their own owners and are
+// never duplicated into AuditEvent.
+export const clinicianAssignmentAuditSnapshot = (x: {
+  id: string
+  clinicianId: string
+  targetField: 'facilityId' | 'specialtyId'
+  targetId: string
+  effectiveFrom: Date
+  effectiveTo: Date | null
+}) => ({
+  id: x.id,
+  clinicianId: x.clinicianId,
+  [x.targetField]: x.targetId,
+  effectiveFrom: x.effectiveFrom.toISOString().slice(0, 10),
+  effectiveTo: x.effectiveTo ? x.effectiveTo.toISOString().slice(0, 10) : null,
+})

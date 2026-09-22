@@ -70,10 +70,15 @@ export const auditActionCodes = [
   // A4.1 — patient audit carries safe metadata only; demographics never enter AuditEvent.
   'patient.created',
   'patient.updated',
+  // A4.2 — assignments are created and closed; there is no update or delete action.
+  'clinicianFacilityAssignment.created',
+  'clinicianFacilityAssignment.closed',
+  'clinicianSpecialtyAssignment.created',
+  'clinicianSpecialtyAssignment.closed',
 ] as const
 
 export type AuditActionCode = (typeof auditActionCodes)[number]
-export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY' | 'RULE_SOURCE_BINDING' | 'FACILITY_REGULATORY_PROFILE' | 'INSURANCE_PRODUCT' | 'PRODUCT_NETWORK' | 'PROVIDER_CONTRACT' | 'CONTRACT_FACILITY' | 'TARIFF_SCHEDULE' | 'TARIFF_SCHEDULE_VERSION' | 'RULE_SOURCE_SCOPE' | 'RULE_PACK' | 'RULE_PACK_VERSION' | 'RULE_PACK_MEMBER' | 'PATIENT'
+export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY' | 'RULE_SOURCE_BINDING' | 'FACILITY_REGULATORY_PROFILE' | 'INSURANCE_PRODUCT' | 'PRODUCT_NETWORK' | 'PROVIDER_CONTRACT' | 'CONTRACT_FACILITY' | 'TARIFF_SCHEDULE' | 'TARIFF_SCHEDULE_VERSION' | 'RULE_SOURCE_SCOPE' | 'RULE_PACK' | 'RULE_PACK_VERSION' | 'RULE_PACK_MEMBER' | 'PATIENT' | 'CLINICIAN_FACILITY_ASSIGNMENT' | 'CLINICIAN_SPECIALTY_ASSIGNMENT'
 
 export type AuditWriteInput = {
   organizationId: string
