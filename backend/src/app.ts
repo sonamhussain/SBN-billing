@@ -40,6 +40,7 @@ import {
   rulePackRouter,
   rulePackVersionRouter,
 } from './modules/rule-pack/rule-pack.route.ts'
+import { organizationPatientRouter, patientRouter } from './modules/patient/patient.route.ts'
 
 export const app = express()
 
@@ -164,6 +165,10 @@ app.use('/api/organizations', organizationRulePackRouter)
 app.use('/api/rule-packs', rulePackRouter)
 app.use('/api/rule-pack-versions', rulePackVersionRouter)
 app.use('/api/rule-pack-members', rulePackMemberRouter)
+
+// A4.1 — Patient identity and demographics (create / list / get / patch only; no delete).
+app.use('/api/organizations', organizationPatientRouter)
+app.use('/api/patients', patientRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

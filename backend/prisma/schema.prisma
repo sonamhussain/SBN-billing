@@ -30,8 +30,36 @@ model Organization {
   rulePacks       RulePack[]
   insuranceProducts InsuranceProduct[]
   providerContracts ProviderContract[]
+  patients          Patient[]
 
   @@map("organizations")
+}
+
+// A4.1 — the canonical organization-scoped person identity. Patient answers only "who is this
+// person inside this Organization?". It deliberately carries no coverage, no facility, no encounter
+// and no external-system identifier: InsuranceMembership (A4.3), Encounter (A4.4) and the
+// ExternalIdentifier target (A4.8) attach later and stay separate. Demographics are kept small and
+// jurisdiction-neutral, and are never made unique — two people can share a name and date of birth.
+model Patient {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+
+  givenName      String   @map("given_name") @db.Text
+  middleName     String?  @map("middle_name") @db.Text
+  familyName     String   @map("family_name") @db.Text
+  // A calendar date, never a timestamp; age is calculated when needed, never stored.
+  dateOfBirth    DateTime @map("date_of_birth") @db.Date
+
+  mobilePhone    String?  @map("mobile_phone") @db.Text
+  email          String?  @db.Text
+
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@map("patients")
 }
 
 model Facility {

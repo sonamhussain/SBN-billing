@@ -23,6 +23,9 @@ const lockableTables = [
   // A3.9: every rule-pack version writer (dates, members, verification, activation) serializes on
   // the parent pack row, so a freeze or a one-ACTIVE decision is never read stale.
   'rule_packs',
+  // A4.1: a patient update locks its own row, so two concurrent partial updates serialize and
+  // the audit before-state is never read outside the transaction.
+  'patients',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]
