@@ -123,8 +123,14 @@ async function main() {
     for (const name of required) {
       check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))
     }
-    // A4.1: the hand-written Patient CHECKs must survive a clean replay too.
-    for (const name of ['patients_given_name_not_blank_chk', 'patients_family_name_not_blank_chk', 'patients_middle_name_not_blank_chk']) {
+    // A4.1/A4.2: the hand-written Patient and assignment-period CHECKs must survive a clean replay too.
+    for (const name of [
+      'patients_given_name_not_blank_chk',
+      'patients_family_name_not_blank_chk',
+      'patients_middle_name_not_blank_chk',
+      'clinician_facility_assignments_effective_period_chk',
+      'clinician_specialty_assignments_effective_period_chk',
+    ]) {
       check(`${name} is present after a clean replay`, replay.constraints.some((line) => line.includes(name)))
     }
 

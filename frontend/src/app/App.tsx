@@ -29,6 +29,7 @@ import RuleSourceScopeCheck from '../modules/rule-source-scope/RuleSourceScopeCh
 import RuleResolutionCheck from '../modules/rule-resolution/RuleResolutionCheck.tsx'
 import RulePackCheck from '../modules/rule-pack/RulePackCheck.tsx'
 import PatientCheck from '../modules/patient/PatientCheck.tsx'
+import ClinicianAssignmentCheck from '../modules/clinician-assignment/ClinicianAssignmentCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -81,6 +82,7 @@ export default function App() {
         {apiStatus === 'online' && <RuleResolutionCheck />}
         {apiStatus === 'online' && <RulePackCheck />}
         {apiStatus === 'online' && <PatientCheck />}
+        {apiStatus === 'online' && <ClinicianAssignmentCheck />}
       </div>
     </main>
   )

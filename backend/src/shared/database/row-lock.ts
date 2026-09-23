@@ -26,6 +26,9 @@ const lockableTables = [
   // A4.1: a patient update locks its own row, so two concurrent partial updates serialize and
   // the audit before-state is never read outside the transaction.
   'patients',
+  // A4.2: every assignment writer for one clinician serializes on that clinician's row, so a
+  // create-vs-create or create-vs-close race can never admit an overlapping period.
+  'clinicians',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]
