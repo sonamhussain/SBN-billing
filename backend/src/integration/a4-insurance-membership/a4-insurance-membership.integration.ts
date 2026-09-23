@@ -553,17 +553,29 @@ async function main() {
     SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`).map((row) => row.table_name)
   const laterScope = tables.filter((name) => /(encounter|eligib|authoriz|claim|evidence|remittance|payment)/i.test(name))
   check('T57', 'no Encounter/A5/A6 schema', laterScope.length === 0, laterScope.length === 0 ? 'scope clean' : `unexpected: ${laterScope.join(', ')}`)
-  // `:/` pathspecs are repository-root relative, so these searches really cover the named trees
-  // even though the harness runs from backend/. The sanity search proves the pathspec resolves.
-  const logged = run('git grep -nE "console\\.(log|info|warn|error|debug)\\(.*(memberIdentifier|policyIdentifier)" -- :/backend/src :/frontend/src')
-  const stored = run('git grep -nE "(localStorage|sessionStorage)" -- :/frontend/src/modules/insurance-membership')
-  const urlLeak = run('git grep -nE "\\$\\{[^}]*(memberIdentifier|policyIdentifier)" -- :/frontend/src/modules/insurance-membership/insurance-membership.api.ts :/backend/src/modules/insurance-membership/insurance-membership.route.ts')
-  const sanity = run('git grep -c "memberIdentifier" -- :/frontend/src/modules/insurance-membership/insurance-membership.api.ts')
+  // git is called WITHOUT a shell (no quoting/escaping differences between cmd, PowerShell and
+  // bash), with `:/` pathspecs that are repository-root relative even though the harness runs from
+  // backend/. Exit 1 = no match (the wanted result), 0 = match, anything else = the search itself
+  // failed, which is a FAIL — a broken search must never pass silently. The sanity search proves the
+  // pathspecs really reach the sources.
+  const gitGrep = (pattern: string, paths: string[]) => {
+    const out = spawnSync('git', ['grep', '-nE', pattern, '--', ...paths], { encoding: 'utf8' })
+    return { status: out.status, output: `${out.stdout ?? ''}${out.stderr ?? ''}`.trim() }
+  }
+  const logged = gitGrep('console[.](log|info|warn|error|debug)[(].*(memberIdentifier|policyIdentifier)', [':/backend/src', ':/frontend/src'])
+  const stored = gitGrep('(localStorage|sessionStorage)[.][A-Za-z]+[(]', [':/frontend/src/modules/insurance-membership'])
+  const urlLeak = gitGrep('[$][{][^}]*(memberIdentifier|policyIdentifier)', [
+    ':/frontend/src/modules/insurance-membership/insurance-membership.api.ts',
+    ':/backend/src/modules/insurance-membership/insurance-membership.route.ts',
+  ])
+  const sanity = gitGrep('memberIdentifier', [':/frontend/src/modules/insurance-membership/insurance-membership.api.ts'])
   check(
     'T58',
     'no sensitive logs',
-    sanity.ok && logged.output.trim() === '' && stored.output.trim() === '' && urlLeak.output.trim() === '',
-    'no member/policy value logged, kept in browser storage or placed in a URL (searches verified to cover the sources)',
+    sanity.status === 0 && logged.status === 1 && stored.status === 1 && urlLeak.status === 1,
+    logged.status === 1 && stored.status === 1 && urlLeak.status === 1
+      ? 'no member/policy value logged, kept in browser storage or placed in a URL (searches verified to reach the sources)'
+      : `logged=${logged.status} storage=${stored.status} url=${urlLeak.status}: ${[logged.output, stored.output, urlLeak.output].join(' | ').slice(0, 200)}`,
   )
   const constraints = await prisma.$queryRaw<{ conname: string; contype: string; deltype: string }[]>`
     SELECT conname, contype::text AS contype, confdeltype::text AS deltype FROM pg_constraint
