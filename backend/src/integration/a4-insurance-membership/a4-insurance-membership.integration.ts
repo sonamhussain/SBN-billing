@@ -609,7 +609,7 @@ async function main() {
     'A4.2 regression',
     a42Unexpected.length === 0 && /T48 facility create race \.* PASS/.test(a42.output),
     a42Unexpected.length === 0
-      ? `${(a42.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0]}; only A4.2's own branch/diff checks differ (${a42Failures.join(', ') || 'none'})`
+      ? `${(a42.output.match(/\[A4\.2\] automated summary: [^\n]*/) ?? ['no summary'])[0]}; only A4.2's own branch/diff checks differ (${a42Failures.join(', ') || 'none'})`
       : `unexpected A4.2 failures: ${a42Unexpected.join(', ')}`,
   )
 
@@ -622,7 +622,7 @@ async function main() {
     'A4.1 regression',
     a41Unexpected.length === 0 && /P01 ownership lookup selects only organizationId \.* PASS/.test(a41.output),
     a41Unexpected.length === 0
-      ? `${(a41.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0]}; only A4.1's own branch/diff checks differ (${a41Failures.join(', ') || 'none'})`
+      ? `${(a41.output.match(/\[A4\.1\] automated summary: [^\n]*/) ?? ['no summary'])[0]}; only A4.1's own branch/diff checks differ (${a41Failures.join(', ') || 'none'})`
       : `unexpected A4.1 failures: ${a41Unexpected.join(', ')}`,
   )
 
@@ -635,7 +635,7 @@ async function main() {
     'A3 governance regression',
     a310Unexpected.length === 0 && /T31 X01 full governance chain \.* PASS/.test(a310.output),
     a310Unexpected.length === 0
-      ? `${(a310.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0]}; substantive A3 checks pass (repository-state checks ${a310Failures.join(', ') || 'none'} describe the A3.10 branch)`
+      ? `${(a310.output.match(/\[A3\.10\] automated summary: [^\n]*/) ?? ['no summary'])[0]}; substantive A3 checks pass (repository-state checks ${a310Failures.join(', ') || 'none'} describe the A3.10 branch)`
       : `unexpected A3.10 failures: ${a310Unexpected.join(', ') || 'X01 not PASS'}`,
   )
 
