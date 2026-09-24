@@ -97,6 +97,11 @@ export const permissionCodes = [
   'insuranceMembership.create',
   'insuranceMembership.read',
   'insuranceMembership.update',
+  // A4.4 — encounter registration and correction only. There is deliberately no delete,
+  // eligibility, authorization, diagnosis, claim or submit permission.
+  'encounter.create',
+  'encounter.read',
+  'encounter.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

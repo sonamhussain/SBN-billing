@@ -32,6 +32,9 @@ const lockableTables = [
   // A4.3: a membership PATCH locks its own row, re-reads it and revalidates the resulting commercial
   // context, so two concurrent partial corrections serialize and neither erases the other.
   'insurance_memberships',
+  // A4.4: an encounter PATCH locks its own row first, then the resulting clinician, facility and
+  // membership, so concurrent partial corrections serialize and context is read stable.
+  'encounters',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

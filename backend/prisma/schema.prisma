@@ -58,6 +58,7 @@ model Patient {
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   insuranceMemberships InsuranceMembership[]
+  encounters     Encounter[]
 
   @@index([organizationId])
   @@map("patients")
@@ -95,12 +96,52 @@ model InsuranceMembership {
   tpa                Tpa?              @relation(fields: [tpaId], references: [id], onDelete: Restrict)
   network            Network?          @relation(fields: [networkId], references: [id], onDelete: Restrict)
   insuranceProduct   InsuranceProduct? @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  encounters         Encounter[]
 
   @@index([patientId])
   @@index([payerId])
   @@index([insuranceProductId])
   @@index([patientId, coverageFrom])
   @@map("insurance_memberships")
+}
+
+// A4.4 — one patient service event and its authoritative operational context. The server, never the
+// client, resolves the exact ClinicianFacilityAssignment (A4.2) and ACTIVE FacilityRegulatoryProfile
+// (A3) effective on serviceDate and stores those IDs, so downstream packages consume the context
+// that applied when the Encounter was written instead of silently reselecting it. The membership is
+// optional (self-pay stays possible) and is a recorded registration, never eligibility. There is
+// deliberately no organizationId (ownership derives from the Patient), no status/eligibility/claim/
+// price field, no diagnosis/activity column, no specialty and no external visit ID.
+model Encounter {
+  id                            String   @id @default(uuid()) @db.Uuid
+  patientId                     String   @map("patient_id") @db.Uuid
+  facilityId                    String   @map("facility_id") @db.Uuid
+  clinicianId                   String   @map("clinician_id") @db.Uuid
+  insuranceMembershipId         String?  @map("insurance_membership_id") @db.Uuid
+
+  // A calendar date, never a timestamp. Not eligibility evidence.
+  serviceDate                   DateTime @map("service_date") @db.Date
+
+  // Server-resolved at write time; never accepted from client input.
+  clinicianFacilityAssignmentId String   @map("clinician_facility_assignment_id") @db.Uuid
+  facilityRegulatoryProfileId   String   @map("facility_regulatory_profile_id") @db.Uuid
+
+  createdAt                     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  patient                     Patient                     @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  facility                    Facility                    @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  clinician                   Clinician                   @relation(fields: [clinicianId], references: [id], onDelete: Restrict)
+  insuranceMembership         InsuranceMembership?        @relation(fields: [insuranceMembershipId], references: [id], onDelete: Restrict)
+  clinicianFacilityAssignment ClinicianFacilityAssignment @relation(fields: [clinicianFacilityAssignmentId], references: [id], onDelete: Restrict)
+  facilityRegulatoryProfile   FacilityRegulatoryProfile   @relation(fields: [facilityRegulatoryProfileId], references: [id], onDelete: Restrict)
+
+  @@index([patientId])
+  @@index([facilityId])
+  @@index([clinicianId])
+  @@index([insuranceMembershipId])
+  @@index([serviceDate])
+  @@map("encounters")
 }
 
 model Facility {
@@ -117,6 +158,7 @@ model Facility {
   ruleSourceScopes RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
   clinicianAssignments ClinicianFacilityAssignment[]
+  encounters Encounter[]
 
   @@index([organizationId])
   @@map("facilities")
@@ -133,6 +175,7 @@ model Clinician {
   externalIdentifiers ExternalIdentifier[]
   facilityAssignments ClinicianFacilityAssignment[]
   specialtyAssignments ClinicianSpecialtyAssignment[]
+  encounters Encounter[]
 
   @@index([organizationId])
   @@map("clinicians")
@@ -170,6 +213,7 @@ model ClinicianFacilityAssignment {
 
   clinician Clinician @relation(fields: [clinicianId], references: [id], onDelete: Restrict)
   facility  Facility  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  encounters Encounter[]
 
   @@index([clinicianId])
   @@index([facilityId])
@@ -564,6 +608,7 @@ model FacilityRegulatoryProfile {
 
   facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
   ruleApplicabilities RuleApplicability[]
+  encounters Encounter[]
 
   @@index([facilityId])
   @@index([status])
