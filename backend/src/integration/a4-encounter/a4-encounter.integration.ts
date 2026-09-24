@@ -125,8 +125,11 @@ async function main() {
   check(
     'T01',
     'start gate',
-    gitOk(`merge-base --is-ancestor ${a43Merge} HEAD`) && gitOk(`merge-base --is-ancestor ${a43Merge} origin/main`) && branch === a44Branch,
-    `branch ${branch}; A4.3 merge ${a43Merge} (PR #39) is on main and is an ancestor`,
+    gitOk(`merge-base --is-ancestor ${a43Merge} HEAD`) &&
+      gitOk(`merge-base --is-ancestor ${a43Merge} origin/main`) &&
+      gitOk('merge-base --is-ancestor origin/main HEAD') &&
+      branch === a44Branch,
+    `branch ${branch}; A4.3 merge ${a43Merge} (PR #39) is on main and is an ancestor; the branch contains the latest main ${git('rev-parse --short origin/main')}`,
   )
   const dirty = git('status --porcelain').split(/\r?\n/).filter(Boolean)
   check('T02', 'git clean', dirty.length === 0, dirty.length === 0 ? 'working tree clean' : `uncommitted: ${dirty.length} path(s)`)
@@ -766,7 +769,9 @@ async function main() {
 
   // ---------------------------------------------------------------- git (T82–T83)
   section('Git scope')
-  const changedPaths = git(`diff --name-only ${a43Merge} HEAD`).split(/\r?\n/).filter(Boolean)
+  // Scope is measured against the latest main this branch contains (three-dot = from their merge
+  // base), so main's own later changes — merged into this branch — are never counted as A4.4's.
+  const changedPaths = git('diff --name-only origin/main...HEAD').split(/\r?\n/).filter(Boolean)
   const allowed = [
     'backend/package.json',
     'backend/prisma/schema.prisma',
