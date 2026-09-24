@@ -192,13 +192,13 @@ async function main() {
     })
     return { status: res.status, cookie: extractCookieHeader(res.setCookies) }
   }
+  await apiReady('the cross-module scenarios')
   const admin = await signIn(adminEmail, adminPassword)
   const viewer = await signIn(viewerEmail, viewerPassword)
   if (admin.status !== 200 || viewer.status !== 200) throw new Error(`integration sign-in failed (admin ${admin.status}, viewer ${viewer.status})`)
   const asAdmin = (init: RequestInit = {}) => ({ ...init, headers: { ...(init.headers ?? {}), 'Content-Type': 'application/json', Cookie: admin.cookie } })
   const asViewer = (init: RequestInit = {}) => ({ ...init, headers: { ...(init.headers ?? {}), 'Content-Type': 'application/json', Cookie: viewer.cookie } })
 
-  await apiReady('the cross-module scenarios')
   const fx = apiFixtures(baseUrl, admin.cookie, org, runId)
   const actor = (await prisma.user.findUniqueOrThrow({ where: { email: bootstrapUserEmail } })).id
 
