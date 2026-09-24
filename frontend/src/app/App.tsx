@@ -32,6 +32,7 @@ import PatientCheck from '../modules/patient/PatientCheck.tsx'
 import ClinicianAssignmentCheck from '../modules/clinician-assignment/ClinicianAssignmentCheck.tsx'
 import InsuranceMembershipCheck from '../modules/insurance-membership/InsuranceMembershipCheck.tsx'
 import EncounterCheck from '../modules/encounter/EncounterCheck.tsx'
+import EncounterDiagnosisCheck from '../modules/encounter-diagnosis/EncounterDiagnosisCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -87,6 +88,7 @@ export default function App() {
         {apiStatus === 'online' && <ClinicianAssignmentCheck />}
         {apiStatus === 'online' && <InsuranceMembershipCheck />}
         {apiStatus === 'online' && <EncounterCheck />}
+        {apiStatus === 'online' && <EncounterDiagnosisCheck />}
       </div>
     </main>
   )

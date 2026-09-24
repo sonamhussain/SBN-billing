@@ -51,6 +51,7 @@ import {
   patientInsuranceMembershipRouter,
 } from './modules/insurance-membership/insurance-membership.route.ts'
 import { encounterRouter, patientEncounterRouter } from './modules/encounter/encounter.route.ts'
+import { encounterDiagnosesRouter, encounterDiagnosisRouter } from './modules/encounter-diagnosis/encounter-diagnosis.route.ts'
 
 export const app = express()
 
@@ -192,6 +193,10 @@ app.use('/api/insurance-memberships', insuranceMembershipRouter)
 // A4.4 — encounters with server-resolved provider/regulatory context (create / list / get / patch; no delete).
 app.use('/api/patients', patientEncounterRouter)
 app.use('/api/encounters', encounterRouter)
+
+// A4.5 — ordered, correctable encounter diagnoses (add / list / reorder / remove; no delete).
+app.use('/api/encounters', encounterDiagnosesRouter)
+app.use('/api/encounter-diagnoses', encounterDiagnosisRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
