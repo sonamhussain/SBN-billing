@@ -46,6 +46,10 @@ import {
   facilityAssignmentRouter,
   specialtyAssignmentRouter,
 } from './modules/clinician-assignment/clinician-assignment.route.ts'
+import {
+  insuranceMembershipRouter,
+  patientInsuranceMembershipRouter,
+} from './modules/insurance-membership/insurance-membership.route.ts'
 
 export const app = express()
 
@@ -179,6 +183,10 @@ app.use('/api/patients', patientRouter)
 app.use('/api/clinicians', clinicianAssignmentRouter)
 app.use('/api/clinician-facility-assignments', facilityAssignmentRouter)
 app.use('/api/clinician-specialty-assignments', specialtyAssignmentRouter)
+
+// A4.3 — patient insurance membership registration (create / list / get / patch only; no delete).
+app.use('/api/patients', patientInsuranceMembershipRouter)
+app.use('/api/insurance-memberships', insuranceMembershipRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

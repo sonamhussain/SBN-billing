@@ -29,6 +29,9 @@ const lockableTables = [
   // A4.2: every assignment writer for one clinician serializes on that clinician's row, so a
   // create-vs-create or create-vs-close race can never admit an overlapping period.
   'clinicians',
+  // A4.3: a membership PATCH locks its own row, re-reads it and revalidates the resulting commercial
+  // context, so two concurrent partial corrections serialize and neither erases the other.
+  'insurance_memberships',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

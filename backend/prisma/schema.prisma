@@ -57,9 +57,50 @@ model Patient {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  insuranceMemberships InsuranceMembership[]
 
   @@index([organizationId])
   @@map("patients")
+}
+
+// A4.3 — the patient-owned record of an insurance membership: which payer (and, when known, which
+// TPA, network and product) this patient was registered under, the member/policy identifiers that
+// were recorded, and the coverage dates that were recorded. It is registration truth, NOT
+// eligibility: nothing here says coverage is verified, active, primary or billable — A5 owns that
+// evidence. There is deliberately no organizationId (ownership derives from the Patient and every
+// referenced master is checked against it), no status/eligible/primary/rank field, no provider
+// contract or tariff, and no uniqueness on member/policy values, whose semantics belong to payers.
+model InsuranceMembership {
+  id                 String    @id @default(uuid()) @db.Uuid
+  patientId          String    @map("patient_id") @db.Uuid
+  payerId            String    @map("payer_id") @db.Uuid
+  tpaId              String?   @map("tpa_id") @db.Uuid
+  networkId          String?   @map("network_id") @db.Uuid
+  insuranceProductId String?   @map("insurance_product_id") @db.Uuid
+
+  // Sensitive insurance identifiers: returned to authorized callers, never written to AuditEvent,
+  // logs, URLs or browser storage.
+  memberIdentifier   String    @map("member_identifier") @db.Text
+  policyIdentifier   String?   @map("policy_identifier") @db.Text
+
+  // Recorded calendar dates, never timestamps. Null means unknown, not "active".
+  coverageFrom       DateTime? @map("coverage_from") @db.Date
+  coverageTo         DateTime? @map("coverage_to") @db.Date
+
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  patient            Patient           @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  payer              Payer             @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                Tpa?              @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network            Network?          @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  insuranceProduct   InsuranceProduct? @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+
+  @@index([patientId])
+  @@index([payerId])
+  @@index([insuranceProductId])
+  @@index([patientId, coverageFrom])
+  @@map("insurance_memberships")
 }
 
 model Facility {
@@ -170,6 +211,7 @@ model Payer {
   insuranceProducts InsuranceProduct[]
   ruleSourceScopes RuleSourceScope[]
   providerContracts ProviderContract[]
+  insuranceMemberships InsuranceMembership[]
 
   @@index([organizationId])
   @@map("payers")
@@ -187,6 +229,7 @@ model Tpa {
   ruleApplicabilities RuleApplicability[]
   ruleSourceScopes RuleSourceScope[]
   providerContracts ProviderContract[]
+  insuranceMemberships InsuranceMembership[]
 
   @@index([organizationId])
   @@map("tpas")
@@ -205,6 +248,7 @@ model Network {
   productNetworks ProductNetwork[]
   ruleSourceScopes RuleSourceScope[]
   providerContracts ProviderContract[]
+  insuranceMemberships InsuranceMembership[]
 
   @@index([organizationId])
   @@map("networks")
@@ -543,6 +587,7 @@ model InsuranceProduct {
   providerContracts  ProviderContract[]
   ruleSourceScopes   RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
+  insuranceMemberships InsuranceMembership[]
 
   @@unique([organizationId, productCode])
   @@index([organizationId])

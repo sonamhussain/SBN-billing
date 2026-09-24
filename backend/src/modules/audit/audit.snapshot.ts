@@ -473,3 +473,33 @@ export const clinicianAssignmentAuditSnapshot = (x: {
   effectiveFrom: x.effectiveFrom.toISOString().slice(0, 10),
   effectiveTo: x.effectiveTo ? x.effectiveTo.toISOString().slice(0, 10) : null,
 })
+
+// A4.3 §14 — the sensitive-identifier boundary. Member and policy identifiers are insurance card
+// data: the audit records WHICH membership and commercial context changed, and on update WHICH
+// fields changed, but never a member/policy value, a patient demographic or the request body. So a
+// changed memberIdentifier appears only as the name 'memberIdentifier' in changedFields.
+export const insuranceMembershipAuditSnapshot = (
+  x: {
+    id: string
+    patientId: string
+    payerId: string
+    tpaId: string | null
+    networkId: string | null
+    insuranceProductId: string | null
+    coverageFrom: Date | null
+    coverageTo: Date | null
+    updatedAt: Date
+  },
+  changedFields?: string[],
+) => ({
+  id: x.id,
+  patientId: x.patientId,
+  payerId: x.payerId,
+  tpaId: x.tpaId,
+  networkId: x.networkId,
+  insuranceProductId: x.insuranceProductId,
+  coverageFrom: x.coverageFrom ? x.coverageFrom.toISOString().slice(0, 10) : null,
+  coverageTo: x.coverageTo ? x.coverageTo.toISOString().slice(0, 10) : null,
+  updatedAt: x.updatedAt.toISOString(),
+  ...(changedFields ? { changedFields: [...changedFields].sort() } : {}),
+})

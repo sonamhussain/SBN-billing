@@ -91,6 +91,9 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'clinicianAssignment.create', name: 'Create Clinician Assignment' },
   { code: 'clinicianAssignment.read', name: 'Read Clinician Assignment' },
   { code: 'clinicianAssignment.close', name: 'Close Clinician Assignment' },
+  { code: 'insuranceMembership.create', name: 'Create Insurance Membership' },
+  { code: 'insuranceMembership.read', name: 'Read Insurance Membership' },
+  { code: 'insuranceMembership.update', name: 'Update Insurance Membership' },
 ]
 
 const roleCatalogue = [
@@ -186,12 +189,15 @@ const roleCatalogue = [
       'clinicianAssignment.create',
       'clinicianAssignment.read',
       'clinicianAssignment.close',
+      'insuranceMembership.create',
+      'insuranceMembership.read',
+      'insuranceMembership.update',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read', 'rule_resolution.read', 'rule_pack.read', 'patient.read', 'clinicianAssignment.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read', 'rule_resolution.read', 'rule_pack.read', 'patient.read', 'clinicianAssignment.read', 'insuranceMembership.read'],
   },
 ] as const
 

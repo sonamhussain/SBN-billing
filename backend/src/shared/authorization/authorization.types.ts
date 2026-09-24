@@ -92,6 +92,11 @@ export const permissionCodes = [
   'clinicianAssignment.create',
   'clinicianAssignment.read',
   'clinicianAssignment.close',
+  // A4.3 — insurance membership registration only. There is deliberately no delete, eligibility,
+  // verify, primary/rank, authorization or claim permission.
+  'insuranceMembership.create',
+  'insuranceMembership.read',
+  'insuranceMembership.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
