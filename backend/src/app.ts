@@ -50,6 +50,7 @@ import {
   insuranceMembershipRouter,
   patientInsuranceMembershipRouter,
 } from './modules/insurance-membership/insurance-membership.route.ts'
+import { encounterRouter, patientEncounterRouter } from './modules/encounter/encounter.route.ts'
 
 export const app = express()
 
@@ -187,6 +188,10 @@ app.use('/api/clinician-specialty-assignments', specialtyAssignmentRouter)
 // A4.3 — patient insurance membership registration (create / list / get / patch only; no delete).
 app.use('/api/patients', patientInsuranceMembershipRouter)
 app.use('/api/insurance-memberships', insuranceMembershipRouter)
+
+// A4.4 — encounters with server-resolved provider/regulatory context (create / list / get / patch; no delete).
+app.use('/api/patients', patientEncounterRouter)
+app.use('/api/encounters', encounterRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

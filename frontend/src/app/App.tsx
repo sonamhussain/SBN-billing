@@ -31,6 +31,7 @@ import RulePackCheck from '../modules/rule-pack/RulePackCheck.tsx'
 import PatientCheck from '../modules/patient/PatientCheck.tsx'
 import ClinicianAssignmentCheck from '../modules/clinician-assignment/ClinicianAssignmentCheck.tsx'
 import InsuranceMembershipCheck from '../modules/insurance-membership/InsuranceMembershipCheck.tsx'
+import EncounterCheck from '../modules/encounter/EncounterCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -85,6 +86,7 @@ export default function App() {
         {apiStatus === 'online' && <PatientCheck />}
         {apiStatus === 'online' && <ClinicianAssignmentCheck />}
         {apiStatus === 'online' && <InsuranceMembershipCheck />}
+        {apiStatus === 'online' && <EncounterCheck />}
       </div>
     </main>
   )

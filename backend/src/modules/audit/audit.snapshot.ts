@@ -503,3 +503,14 @@ export const insuranceMembershipAuditSnapshot = (
   updatedAt: x.updatedAt.toISOString(),
   ...(changedFields ? { changedFields: [...changedFields].sort() } : {}),
 })
+
+// A4.4 §16 — the PHI boundary for encounters. "This patient had a service event on this date with
+// this clinician" is itself health information, so business audit records only WHICH encounter
+// changed, when, and on update WHICH fields changed. patientId, serviceDate, facility, clinician,
+// membership and the resolved context IDs never enter AuditEvent; the organization boundary is
+// already carried by AuditEvent.organizationId.
+export const encounterAuditSnapshot = (x: { id: string; updatedAt: Date }, changedFields?: string[]) => ({
+  id: x.id,
+  updatedAt: x.updatedAt.toISOString(),
+  ...(changedFields ? { changedFields: [...changedFields].sort() } : {}),
+})
