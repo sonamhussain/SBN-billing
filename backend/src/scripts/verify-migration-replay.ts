@@ -122,12 +122,15 @@ async function main() {
       // A4.5: the two active-row partial unique indexes Prisma cannot express.
       'encounter_diagnoses_active_code_uidx',
       'encounter_diagnoses_active_sequence_uidx',
+      // A4.6: modifier position and code are each unique within one activity.
+      'encounter_activity_modifiers_encounter_activity_id_sequence_key',
+      'encounter_activity_modifiers_encounter_activity_id_code_key',
     ]
     for (const name of required) {
       check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))
     }
-    // A4.1–A4.5: the hand-written Patient, assignment-period, coverage-period and diagnosis-sequence
-    // CHECKs must survive a clean replay too.
+    // A4.1–A4.6: the hand-written Patient, assignment-period, coverage-period, diagnosis-sequence
+    // and activity identity/quantity/unit/modifier CHECKs must survive a clean replay too.
     for (const name of [
       'patients_given_name_not_blank_chk',
       'patients_family_name_not_blank_chk',
@@ -136,6 +139,11 @@ async function main() {
       'clinician_specialty_assignments_effective_period_chk',
       'insurance_memberships_coverage_period_chk',
       'encounter_diagnoses_sequence_positive_chk',
+      'encounter_activities_identity_chk',
+      'encounter_activities_quantity_positive_chk',
+      'encounter_activities_unit_code_nonblank_chk',
+      'encounter_activity_modifiers_sequence_positive_chk',
+      'encounter_activity_modifiers_code_nonblank_chk',
     ]) {
       check(`${name} is present after a clean replay`, replay.constraints.some((line) => line.includes(name)))
     }
