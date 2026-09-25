@@ -525,3 +525,13 @@ export const encounterDiagnosisAuditSnapshot = (x: { id: string; sequence?: numb
   ...(x.removedAt !== undefined ? { removedAt: x.removedAt ? x.removedAt.toISOString() : null } : {}),
   ...(x.updatedAt !== undefined ? { updatedAt: x.updatedAt.toISOString() } : {}),
 })
+
+// A4.6 §24 — an encounter activity is a clinical/billing fact, so business audit records only WHICH
+// activity row changed and its removal state. encounterId, serviceId, procedureCodeId, quantity,
+// unitCode, modifier codes, patient and provider data never enter AuditEvent; the immutable domain
+// row holds the facts and AuditEvent.organizationId carries the organization boundary.
+export const encounterActivityAuditSnapshot = (x: { id: string; removedAt?: Date | null; updatedAt?: Date }) => ({
+  id: x.id,
+  ...(x.removedAt !== undefined ? { removedAt: x.removedAt ? x.removedAt.toISOString() : null } : {}),
+  ...(x.updatedAt !== undefined ? { updatedAt: x.updatedAt.toISOString() } : {}),
+})

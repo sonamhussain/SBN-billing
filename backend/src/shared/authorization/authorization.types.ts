@@ -107,6 +107,11 @@ export const permissionCodes = [
   'encounterDiagnosis.create',
   'encounterDiagnosis.read',
   'encounterDiagnosis.update',
+  // A4.6 — encounter activity capture: add, list/get and remove. There is deliberately no delete,
+  // restore, patch, pricing or claim permission.
+  'encounterActivity.create',
+  'encounterActivity.read',
+  'encounterActivity.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

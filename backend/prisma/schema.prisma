@@ -136,6 +136,7 @@ model Encounter {
   clinicianFacilityAssignment ClinicianFacilityAssignment @relation(fields: [clinicianFacilityAssignmentId], references: [id], onDelete: Restrict)
   facilityRegulatoryProfile   FacilityRegulatoryProfile   @relation(fields: [facilityRegulatoryProfileId], references: [id], onDelete: Restrict)
   diagnoses                   EncounterDiagnosis[]
+  activities                  EncounterActivity[]
 
   @@index([patientId])
   @@index([facilityId])
@@ -169,6 +170,55 @@ model EncounterDiagnosis {
   @@index([diagnosisCodeId])
   @@index([encounterId, removedAt])
   @@map("encounter_diagnoses")
+}
+
+// A4.6 — one performed/billable activity fact captured under an Encounter: an A2.6 Service and/or
+// an A2.7 ProcedureCode (at least one; no Service<->Procedure mapping is asserted), an exact
+// positive Decimal quantity, an optional opaque unit code and ordered opaque modifier codes. Rows
+// are append-and-remove facts: a correction marks the row removed and adds a NEW row, and nothing
+// is patched or deleted. There is deliberately no organizationId/patient/context copy (ownership
+// derives from the Encounter), no code/name snapshot, no sequence/line number (A6 owns ClaimLine
+// order), no diagnosis pointer and no price/tariff field.
+model EncounterActivity {
+  id              String    @id @default(uuid()) @db.Uuid
+  encounterId     String    @map("encounter_id") @db.Uuid
+  serviceId       String?   @map("service_id") @db.Uuid
+  procedureCodeId String?   @map("procedure_code_id") @db.Uuid
+
+  quantity        Decimal   @db.Decimal(18, 4)
+  unitCode        String?   @map("unit_code") @db.Text
+  removedAt       DateTime? @map("removed_at") @db.Timestamptz(6)
+
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  encounter       Encounter       @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  service         Service?        @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  procedureCode   ProcedureCode?  @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
+  modifiers       EncounterActivityModifier[]
+
+  @@index([encounterId])
+  @@index([serviceId])
+  @@index([procedureCodeId])
+  @@index([encounterId, removedAt])
+  @@map("encounter_activities")
+}
+
+// A4.6 — the ordered modifier codes of one EncounterActivity (sequence 1..N in supplied order).
+// Immutable children: removing the activity leaves them untouched as history.
+model EncounterActivityModifier {
+  id                  String   @id @default(uuid()) @db.Uuid
+  encounterActivityId String   @map("encounter_activity_id") @db.Uuid
+  sequence            Int
+  code                String   @db.Text
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  encounterActivity EncounterActivity @relation(fields: [encounterActivityId], references: [id], onDelete: Restrict)
+
+  @@unique([encounterActivityId, sequence])
+  @@unique([encounterActivityId, code])
+  @@index([encounterActivityId])
+  @@map("encounter_activity_modifiers")
 }
 
 model Facility {
@@ -336,6 +386,7 @@ model Service {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
+  encounterActivities EncounterActivity[]
 
   @@unique([organizationId, internalCode])
   @@index([organizationId])
@@ -355,6 +406,7 @@ model ProcedureCode {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
+  encounterActivities EncounterActivity[]
 
   @@unique([organizationId, internalCode])
   @@index([organizationId])

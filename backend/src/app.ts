@@ -52,6 +52,7 @@ import {
 } from './modules/insurance-membership/insurance-membership.route.ts'
 import { encounterRouter, patientEncounterRouter } from './modules/encounter/encounter.route.ts'
 import { encounterDiagnosesRouter, encounterDiagnosisRouter } from './modules/encounter-diagnosis/encounter-diagnosis.route.ts'
+import { encounterActivitiesRouter, encounterActivityRouter } from './modules/encounter-activity/encounter-activity.route.ts'
 
 export const app = express()
 
@@ -197,6 +198,10 @@ app.use('/api/encounters', encounterRouter)
 // A4.5 — ordered, correctable encounter diagnoses (add / list / reorder / remove; no delete).
 app.use('/api/encounters', encounterDiagnosesRouter)
 app.use('/api/encounter-diagnoses', encounterDiagnosisRouter)
+
+// A4.6 — immutable encounter activity facts (add / list / get / remove; no patch, no delete).
+app.use('/api/encounters', encounterActivitiesRouter)
+app.use('/api/encounter-activities', encounterActivityRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

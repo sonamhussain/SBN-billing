@@ -33,6 +33,7 @@ import ClinicianAssignmentCheck from '../modules/clinician-assignment/ClinicianA
 import InsuranceMembershipCheck from '../modules/insurance-membership/InsuranceMembershipCheck.tsx'
 import EncounterCheck from '../modules/encounter/EncounterCheck.tsx'
 import EncounterDiagnosisCheck from '../modules/encounter-diagnosis/EncounterDiagnosisCheck.tsx'
+import EncounterActivityCheck from '../modules/encounter-activity/EncounterActivityCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -89,6 +90,7 @@ export default function App() {
         {apiStatus === 'online' && <InsuranceMembershipCheck />}
         {apiStatus === 'online' && <EncounterCheck />}
         {apiStatus === 'online' && <EncounterDiagnosisCheck />}
+        {apiStatus === 'online' && <EncounterActivityCheck />}
       </div>
     </main>
   )
