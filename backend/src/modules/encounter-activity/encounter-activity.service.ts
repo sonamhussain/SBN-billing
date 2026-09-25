@@ -5,6 +5,7 @@ import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
 import { encounterActivityAuditSnapshot } from '../audit/audit.snapshot.ts'
 import { findEncounterOwnership } from '../encounter/encounter.repository.ts'
+import { findActiveObservationCountForActivity } from '../encounter-observation/encounter-observation.repository.ts'
 import {
   createEncounterActivityModifiers,
   createEncounterActivityRecord,
@@ -142,6 +143,9 @@ export async function removeEncounterActivity(id: string, body: unknown, actorUs
     const current = await findEncounterActivityById(id, tx)
     if (!current) return refused('NOT_FOUND', 'encounter activity not found')
     if (current.removedAt !== null) return refused('VALIDATION_ERROR', 'this encounter activity is already removed')
+    // A4.7 §17 dependency guard, checked under the same Encounter lock the observation writers take:
+    // an activity with active observations is never removed (and they are never cascade-removed).
+    if ((await findActiveObservationCountForActivity(id, tx)) > 0) return refused('VALIDATION_ERROR', 'remove active activity observations first')
 
     // Only removedAt changes; the modifier children are left untouched as history.
     const removed = await markEncounterActivityRemoved(id, new Date(), tx)

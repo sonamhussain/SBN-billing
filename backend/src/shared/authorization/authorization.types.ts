@@ -112,6 +112,11 @@ export const permissionCodes = [
   'encounterActivity.create',
   'encounterActivity.read',
   'encounterActivity.update',
+  // A4.7 — encounter observations (typed structured facts): add, list/get and remove. There is
+  // deliberately no delete, restore, patch, evaluate, execute or verify permission.
+  'encounterObservation.create',
+  'encounterObservation.read',
+  'encounterObservation.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

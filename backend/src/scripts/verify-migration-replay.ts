@@ -129,8 +129,9 @@ async function main() {
     for (const name of required) {
       check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))
     }
-    // A4.1–A4.6: the hand-written Patient, assignment-period, coverage-period, diagnosis-sequence
-    // and activity identity/quantity/unit/modifier CHECKs must survive a clean replay too.
+    // A4.1–A4.7: the hand-written Patient, assignment-period, coverage-period, diagnosis-sequence,
+    // activity identity/quantity/unit/modifier and observation typed-value CHECKs (plus the two
+    // observation anchor FKs) must survive a clean replay too.
     for (const name of [
       'patients_given_name_not_blank_chk',
       'patients_family_name_not_blank_chk',
@@ -144,6 +145,13 @@ async function main() {
       'encounter_activities_unit_code_nonblank_chk',
       'encounter_activity_modifiers_sequence_positive_chk',
       'encounter_activity_modifiers_code_nonblank_chk',
+      'encounter_observations_fact_key_nonblank_chk',
+      'encounter_observations_value_type_chk',
+      'encounter_observations_text_nonblank_chk',
+      'encounter_observations_unit_nonblank_chk',
+      'encounter_observations_typed_value_chk',
+      'encounter_observations_encounter_id_fkey',
+      'encounter_observations_encounter_activity_id_fkey',
     ]) {
       check(`${name} is present after a clean replay`, replay.constraints.some((line) => line.includes(name)))
     }
