@@ -102,6 +102,11 @@ export const permissionCodes = [
   'encounter.create',
   'encounter.read',
   'encounter.update',
+  // A4.5 — encounter diagnosis linkage: add, list, reorder and remove. There is deliberately no
+  // delete, restore, primary/role, claim or coding-rule permission.
+  'encounterDiagnosis.create',
+  'encounterDiagnosis.read',
+  'encounterDiagnosis.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

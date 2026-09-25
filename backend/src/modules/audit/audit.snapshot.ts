@@ -514,3 +514,14 @@ export const encounterAuditSnapshot = (x: { id: string; updatedAt: Date }, chang
   updatedAt: x.updatedAt.toISOString(),
   ...(changedFields ? { changedFields: [...changedFields].sort() } : {}),
 })
+
+// A4.5 §20 — clinical data minimization. Which diagnosis sits on which encounter is clinical
+// information, so business audit records only WHICH link row changed and its position/removal
+// state. encounterId, diagnosisCodeId, the code text and display name, patient and provider data
+// never enter AuditEvent; the organization boundary is carried by AuditEvent.organizationId.
+export const encounterDiagnosisAuditSnapshot = (x: { id: string; sequence?: number; removedAt?: Date | null; updatedAt?: Date }) => ({
+  id: x.id,
+  ...(x.sequence !== undefined ? { sequence: x.sequence } : {}),
+  ...(x.removedAt !== undefined ? { removedAt: x.removedAt ? x.removedAt.toISOString() : null } : {}),
+  ...(x.updatedAt !== undefined ? { updatedAt: x.updatedAt.toISOString() } : {}),
+})

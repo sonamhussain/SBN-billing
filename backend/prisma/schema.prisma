@@ -135,6 +135,7 @@ model Encounter {
   insuranceMembership         InsuranceMembership?        @relation(fields: [insuranceMembershipId], references: [id], onDelete: Restrict)
   clinicianFacilityAssignment ClinicianFacilityAssignment @relation(fields: [clinicianFacilityAssignmentId], references: [id], onDelete: Restrict)
   facilityRegulatoryProfile   FacilityRegulatoryProfile   @relation(fields: [facilityRegulatoryProfileId], references: [id], onDelete: Restrict)
+  diagnoses                   EncounterDiagnosis[]
 
   @@index([patientId])
   @@index([facilityId])
@@ -142,6 +143,32 @@ model Encounter {
   @@index([insuranceMembershipId])
   @@index([serviceDate])
   @@map("encounters")
+}
+
+// A4.5 — the ordered, correctable link between one Encounter and the authoritative A2.8
+// DiagnosisCode identities attached to it. Active rows (removedAt IS NULL) form a contiguous 1..N
+// sequence owned by the server; a correction marks a row removed and adds a NEW row, so history is
+// never overwritten or deleted. There is deliberately no organizationId/patientId (ownership derives
+// from the Encounter), no code/displayName snapshot (A2.8 stays the master; A6 freezes submitted
+// coding), no isPrimary/role (sequence 1 is simply the first listed) and no claim/procedure field.
+model EncounterDiagnosis {
+  id              String    @id @default(uuid()) @db.Uuid
+  encounterId     String    @map("encounter_id") @db.Uuid
+  diagnosisCodeId String    @map("diagnosis_code_id") @db.Uuid
+  // 1-based position among the ACTIVE rows of the Encounter; never supplied by the client.
+  sequence        Int
+  // Set once when the row is removed; the row itself is kept as correction history.
+  removedAt       DateTime? @map("removed_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  encounter     Encounter     @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  diagnosisCode DiagnosisCode @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
+
+  @@index([encounterId])
+  @@index([diagnosisCodeId])
+  @@index([encounterId, removedAt])
+  @@map("encounter_diagnoses")
 }
 
 model Facility {
@@ -345,6 +372,7 @@ model DiagnosisCode {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
+  encounterDiagnoses EncounterDiagnosis[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
