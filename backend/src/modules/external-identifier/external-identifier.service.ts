@@ -2,7 +2,12 @@ import { getOrganization } from '../organization/organization.service.ts'
 import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
 import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import type { ExternalIdentifierDto, ExternalIdentifierResult } from './external-identifier.types.ts'
-import { isExternalIdentifierUuid, normalizeExternalValue, normalizeSourceSystem } from './external-identifier.validation.ts'
+import {
+  isExternalIdentifierUuid,
+  normalizeExternalValue,
+  normalizeSourceSystem,
+  validateUpdateBody,
+} from './external-identifier.validation.ts'
 import { deriveTargetFromRecord, resolveTarget, targetForeignKeyColumn, type PersistedTargetColumns } from './external-identifier.target.ts'
 import {
   createExternalIdentifierRecord,
@@ -141,18 +146,18 @@ export async function listExternalIdentifiers(
 
 export async function updateExternalIdentifier(
   id: string,
-  sourceSystemInput: unknown,
-  externalValueInput: unknown,
-  targetInput: unknown,
-  targetTypeInput: unknown,
-  targetIdInput: unknown,
+  body: unknown,
   actorUserId: string,
 ): Promise<ExternalIdentifierResult<ExternalIdentifierDto>> {
   if (!isExternalIdentifierUuid(id)) return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid external identifier id' }
 
-  if (targetInput !== undefined || targetTypeInput !== undefined || targetIdInput !== undefined)
-    return { ok: false, code: 'VALIDATION_ERROR', message: 'target cannot be changed' }
+  // A4.8 — the body is judged as a whole before anything is read out of it, so a legitimate field
+  // can never carry an unknown or immutable one through with it. Nothing below this line runs, and
+  // no transaction is opened, unless every supplied key is one this endpoint owns.
+  const validated = validateUpdateBody(body)
+  if (!validated.ok) return { ok: false, code: 'VALIDATION_ERROR', message: validated.message }
 
+  const { sourceSystem: sourceSystemInput, externalValue: externalValueInput } = validated
   const hasSourceSystem = sourceSystemInput !== undefined
   const hasExternalValue = externalValueInput !== undefined
 

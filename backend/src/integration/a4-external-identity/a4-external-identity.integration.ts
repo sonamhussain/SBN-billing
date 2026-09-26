@@ -674,6 +674,40 @@ async function main() {
     'identical values are refused with 400; updatedAt is untouched and no AuditEvent is written',
   )
 
+  // A4.8 audit correction — the PATCH endpoint used to read five named fields off the body, so any
+  // other key sent ALONGSIDE a legitimate one was silently discarded: the source changed and the
+  // attempted retarget vanished without a word, leaving the caller to believe it had happened. Each
+  // case below must fail the WHOLE request and leave the row and the audit trail untouched.
+  const mixedFieldCases: [string, string, Record<string, unknown>][] = [
+    ['T40a', 'Mixed PATCH sourceSystem+patientId', { sourceSystem: `MIX1-${tail}`, patientId: encounter.id }],
+    ['T40b', 'Mixed PATCH externalValue+encounterId', { externalValue: `MIX2-${tail}`, encounterId: encounter.id }],
+    ['T40c', 'Mixed PATCH sourceSystem+payerId', { sourceSystem: `MIX3-${tail}`, payerId: payer.id }],
+    ['T40d', 'Mixed PATCH externalValue+unknown field', { externalValue: `MIX4-${tail}`, unexpectedField: 'x' }],
+  ]
+  for (const [id, title, mixedBody] of mixedFieldCases) {
+    const before = await prisma.externalIdentifier.findUniqueOrThrow({ where: { id: patientIdentifier.id } })
+    const auditBefore = await identifierAuditCount()
+    const response = await patch(`/api/external-identifiers/${patientIdentifier.id}`, mixedBody)
+    const after = await prisma.externalIdentifier.findUniqueOrThrow({ where: { id: patientIdentifier.id } })
+    const auditAfter = await identifierAuditCount()
+    const unchanged =
+      after.sourceSystem === before.sourceSystem &&
+      after.externalValue === before.externalValue &&
+      after.patientId === before.patientId &&
+      after.encounterId === before.encounterId &&
+      after.payerId === before.payerId
+    const offendingField = Object.keys(mixedBody).find((key) => key !== 'sourceSystem' && key !== 'externalValue') ?? ''
+    const namesTheField = JSON.stringify(response.body ?? {}).includes(offendingField)
+    check(
+      id,
+      title,
+      response.status === 400 && unchanged && after.updatedAt.getTime() === before.updatedAt.getTime() && auditAfter === auditBefore && namesTheField,
+      response.status === 400 && unchanged
+        ? `400 naming ${offendingField}; no field changed, updatedAt untouched, no AuditEvent`
+        : `status ${response.status}; unchanged=${unchanged}; audit ${auditBefore}->${auditAfter}`,
+    )
+  }
+
   // ---------------------------------------------------------------- uniqueness (T41–T45)
   section('Uniqueness and value handling — unchanged from A2.9')
   const duplicate = await post(`/api/organizations/${org}/external-identifiers`, {
@@ -852,9 +886,9 @@ async function main() {
   const actorUserId = (await prisma.user.findFirstOrThrow({ where: { email: adminEmail } })).id
   const concurrentUpdate = async (label: string, identifierId: string, firstValue: string, secondValue: string) => {
     const gate = holdAt('external_identifier.update')
-    const first = updateExternalIdentifier(identifierId, undefined, firstValue, undefined, undefined, undefined, actorUserId)
+    const first = updateExternalIdentifier(identifierId, { externalValue: firstValue }, actorUserId)
     await gate.arrived
-    const second = updateExternalIdentifier(identifierId, undefined, secondValue, undefined, undefined, undefined, actorUserId)
+    const second = updateExternalIdentifier(identifierId, { externalValue: secondValue }, actorUserId)
     const blocked = await waitForLockWaiter()
     gate.release()
     await Promise.all([first, second])
@@ -1133,6 +1167,9 @@ async function main() {
     'backend/prisma/schema.prisma',
     'backend/src/modules/audit/audit.snapshot.ts',
     'backend/src/scripts/verify-migration-replay.ts',
+    // The PATCH-validation correction moved the update service onto a whole-body signature, which
+    // this A3 concurrency script also calls. Mechanical call-site update, no behaviour change.
+    'backend/src/scripts/test-a3-write-atomicity.ts',
     'frontend/src/modules/external-identifier/external-identifier.api.ts',
     'frontend/src/modules/external-identifier/ExternalIdentifierCheck.tsx',
   ]
