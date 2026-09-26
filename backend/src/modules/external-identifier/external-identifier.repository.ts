@@ -15,6 +15,8 @@ export type CreateExternalIdentifierData = {
   serviceId?: string
   procedureCodeId?: string
   diagnosisCodeId?: string
+  patientId?: string
+  encounterId?: string
 }
 
 export async function createExternalIdentifierRecord(

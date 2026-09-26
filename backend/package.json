@@ -47,7 +47,8 @@
     "test:a4:encounter": "node --env-file=.env src/integration/a4-encounter/a4-encounter.integration.ts",
     "test:a4:diagnoses": "node --env-file=.env src/integration/a4-encounter-diagnosis/a4-encounter-diagnosis.integration.ts",
     "test:a4:activities": "node --env-file=.env src/integration/a4-encounter-activity/a4-encounter-activity.integration.ts",
-    "test:a4:observations": "node --env-file=.env src/integration/a4-encounter-observation/a4-encounter-observation.integration.ts"
+    "test:a4:observations": "node --env-file=.env src/integration/a4-encounter-observation/a4-encounter-observation.integration.ts",
+    "test:a4:external-identity": "node --env-file=.env src/integration/a4-external-identity/a4-external-identity.integration.ts"
   },
   "keywords": [],
   "author": "",

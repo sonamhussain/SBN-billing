@@ -371,23 +371,44 @@ export const ruleSourceScopeAuditSnapshot = (x: {
   tariffScheduleVersionId: x.tariffScheduleVersionId,
 })
 
-export const externalIdentifierAuditSnapshot = (x: {
-  id: string
-  organizationId: string
-  sourceSystem: string
-  externalValue: string
-  organizationTargetId: string | null
-  facilityId: string | null
-  clinicianId: string | null
-  specialtyId: string | null
-  payerId: string | null
-  tpaId: string | null
-  networkId: string | null
-  serviceId: string | null
-  procedureCodeId: string | null
-  diagnosisCodeId: string | null
-}) => {
+// A4.8 — an external identifier that points at a Patient or an Encounter is itself a sensitive
+// identifier: it is exactly the string an outside system uses to name a person or a visit. The
+// domain row stores it and returns it to authorized callers, but AuditEvent must not become a
+// second identifier store, so for those two target types the snapshot carries neither the value
+// nor the target id. A change is proven by changedFields, not by keeping the old and new strings.
+// The other ten target types are business references, and their existing snapshot is unchanged.
+export const externalIdentifierAuditSnapshot = (
+  x: {
+    id: string
+    organizationId: string
+    sourceSystem: string
+    externalValue: string
+    organizationTargetId: string | null
+    facilityId: string | null
+    clinicianId: string | null
+    specialtyId: string | null
+    payerId: string | null
+    tpaId: string | null
+    networkId: string | null
+    serviceId: string | null
+    procedureCodeId: string | null
+    diagnosisCodeId: string | null
+    patientId: string | null
+    encounterId: string | null
+  },
+  changedFields?: string[],
+) => {
   const target = deriveTargetFromRecord(x)
+
+  if (target.type === 'PATIENT' || target.type === 'ENCOUNTER') {
+    return {
+      id: x.id,
+      sourceSystem: x.sourceSystem,
+      targetType: target.type,
+      ...(changedFields ? { changedFields: [...changedFields].sort() } : {}),
+    }
+  }
+
   return {
     id: x.id,
     organizationId: x.organizationId,

@@ -11,6 +11,10 @@ export const targetTypes = [
   'SERVICE',
   'PROCEDURE_CODE',
   'DIAGNOSIS_CODE',
+  // A4.8 — the two additive targets. The check UI renders this list directly, so the selector
+  // gains PATIENT and ENCOUNTER without a second identity component.
+  'PATIENT',
+  'ENCOUNTER',
 ] as const
 
 export type TargetType = (typeof targetTypes)[number]

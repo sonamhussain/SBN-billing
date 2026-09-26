@@ -125,6 +125,9 @@ async function main() {
       // A4.6: modifier position and code are each unique within one activity.
       'encounter_activity_modifiers_encounter_activity_id_sequence_key',
       'encounter_activity_modifiers_encounter_activity_id_code_key',
+      // A4.8: the two lookup indexes for the additive Patient/Encounter identity targets.
+      'external_identifiers_patient_id_idx',
+      'external_identifiers_encounter_id_idx',
     ]
     for (const name of required) {
       check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))
@@ -152,6 +155,12 @@ async function main() {
       'encounter_observations_typed_value_chk',
       'encounter_observations_encounter_id_fkey',
       'encounter_observations_encounter_activity_id_fkey',
+      // A4.8: the exact-one-target gate is dropped and re-added under its original name, so a
+      // replay that lost it would leave the identity table with no target invariant at all.
+      // Its column list is asserted separately below.
+      'external_identifiers_exactly_one_target_chk',
+      'external_identifiers_patient_id_fkey',
+      'external_identifiers_encounter_id_fkey',
     ]) {
       check(`${name} is present after a clean replay`, replay.constraints.some((line) => line.includes(name)))
     }
@@ -159,6 +168,32 @@ async function main() {
     check(
       'the append-only trigger on the dataset history is present after a clean replay',
       replay.triggers.some((line) => line.includes('reference_dataset_lifecycle_events_append_only_trg')),
+    )
+
+    // A4.8 — the exact-one-target CHECK surviving is not enough: after a clean replay it must
+    // still name all twelve approved target columns. A replay that rebuilt the A2.9 version
+    // would pass the presence check above while silently allowing a Patient or Encounter row
+    // to carry a second target.
+    const exactOneTarget = replay.constraints.find((line) => line.includes('external_identifiers_exactly_one_target_chk')) ?? ''
+    const targetColumns = [
+      'organization_target_id',
+      'facility_id',
+      'clinician_id',
+      'specialty_id',
+      'payer_id',
+      'tpa_id',
+      'network_id',
+      'service_id',
+      'procedure_code_id',
+      'diagnosis_code_id',
+      'patient_id',
+      'encounter_id',
+    ]
+    const missingTargets = targetColumns.filter((column) => !exactOneTarget.includes(column))
+    check(
+      'the exact-one-target CHECK names all 12 approved targets after a clean replay',
+      missingTargets.length === 0 && exactOneTarget.includes('= 1'),
+      JSON.stringify({ missingTargets, definition: exactOneTarget.slice(0, 200) }),
     )
 
     const appliedCount = await (async () => {
