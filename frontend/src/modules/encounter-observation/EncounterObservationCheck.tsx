@@ -42,14 +42,20 @@ export default function EncounterObservationCheck() {
   function buildValue(): ObservationValue {
     if (valueType === 'TEXT') return { type: 'TEXT', text: rawValue }
     if (valueType === 'DECIMAL') return { type: 'DECIMAL', decimal: rawValue, unitCode: unitCode.trim() === '' ? null : unitCode }
-    if (valueType === 'BOOLEAN') return { type: 'BOOLEAN', boolean: rawValue === 'true' }
+    if (valueType === 'BOOLEAN') {
+      // An unchosen selector must not silently become false: the check UI never guesses a typed value.
+      if (rawValue !== 'true' && rawValue !== 'false') throw new Error('Choose true or false')
+      return { type: 'BOOLEAN', boolean: rawValue === 'true' }
+    }
     return { type: 'DATE', date: rawValue }
   }
 
   function handleAdd(event: FormEvent) {
     event.preventDefault()
     void run(async () => {
-      await addObservation(encounterId, { encounterActivityId: activityId.trim() === '' ? null : activityId.trim(), factKey, value: buildValue() })
+      // Built inside run() so a refused typed value is reported in the error line, not swallowed.
+      const value = buildValue()
+      await addObservation(encounterId, { encounterActivityId: activityId.trim() === '' ? null : activityId.trim(), factKey, value })
       setItems(await listObservations(encounterId))
     })
   }
