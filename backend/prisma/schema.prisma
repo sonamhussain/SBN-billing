@@ -137,6 +137,7 @@ model Encounter {
   facilityRegulatoryProfile   FacilityRegulatoryProfile   @relation(fields: [facilityRegulatoryProfileId], references: [id], onDelete: Restrict)
   diagnoses                   EncounterDiagnosis[]
   activities                  EncounterActivity[]
+  observations                EncounterObservation[]
 
   @@index([patientId])
   @@index([facilityId])
@@ -196,6 +197,7 @@ model EncounterActivity {
   service         Service?        @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   procedureCode   ProcedureCode?  @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
   modifiers       EncounterActivityModifier[]
+  observations    EncounterObservation[]
 
   @@index([encounterId])
   @@index([serviceId])
@@ -219,6 +221,40 @@ model EncounterActivityModifier {
   @@unique([encounterActivityId, code])
   @@index([encounterActivityId])
   @@map("encounter_activity_modifiers")
+}
+
+// A4.7 — one typed, non-executable structured billing fact recorded at Encounter scope or at the
+// scope of one active EncounterActivity of the SAME Encounter. The value is exactly one of TEXT,
+// DECIMAL (optionally with an opaque unit), BOOLEAN or DATE, enforced by database CHECKs — never a
+// JSON bag, formula, operator or rule. Rows are append-and-remove facts: a correction marks the row
+// removed and adds a NEW row. There is deliberately no organizationId/patient/provider/payer copy,
+// no evidence, eligibility, authorization, claim or pricing field, and no sequence column.
+model EncounterObservation {
+  id                  String    @id @default(uuid()) @db.Uuid
+  encounterId         String    @map("encounter_id") @db.Uuid
+  encounterActivityId String?   @map("encounter_activity_id") @db.Uuid
+
+  factKey             String    @map("fact_key") @db.Text
+  valueType           String    @map("value_type") @db.Text
+
+  valueText           String?   @map("value_text") @db.Text
+  valueDecimal        Decimal?  @map("value_decimal") @db.Decimal(24, 8)
+  valueBoolean        Boolean?  @map("value_boolean")
+  valueDate           DateTime? @map("value_date") @db.Date
+  unitCode            String?   @map("unit_code") @db.Text
+
+  removedAt           DateTime? @map("removed_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  encounter           Encounter          @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  encounterActivity   EncounterActivity? @relation(fields: [encounterActivityId], references: [id], onDelete: Restrict)
+
+  @@index([encounterId])
+  @@index([encounterActivityId])
+  @@index([encounterId, removedAt])
+  @@index([factKey])
+  @@map("encounter_observations")
 }
 
 model Facility {

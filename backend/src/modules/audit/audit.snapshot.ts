@@ -535,3 +535,13 @@ export const encounterActivityAuditSnapshot = (x: { id: string; removedAt?: Date
   ...(x.removedAt !== undefined ? { removedAt: x.removedAt ? x.removedAt.toISOString() : null } : {}),
   ...(x.updatedAt !== undefined ? { updatedAt: x.updatedAt.toISOString() } : {}),
 })
+
+// A4.7 §20 — a structured observation is a clinical/billing fact, so business audit records only
+// WHICH observation row changed and its removal state. encounterId, encounterActivityId, factKey,
+// the typed value, unitCode, patient/provider/payer context and the request body never enter
+// AuditEvent; the domain row holds the fact and AuditEvent.organizationId carries the boundary.
+export const encounterObservationAuditSnapshot = (x: { id: string; removedAt?: Date | null; updatedAt?: Date }) => ({
+  id: x.id,
+  ...(x.removedAt !== undefined ? { removedAt: x.removedAt ? x.removedAt.toISOString() : null } : {}),
+  ...(x.updatedAt !== undefined ? { updatedAt: x.updatedAt.toISOString() } : {}),
+})

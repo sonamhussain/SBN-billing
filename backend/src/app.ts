@@ -53,6 +53,7 @@ import {
 import { encounterRouter, patientEncounterRouter } from './modules/encounter/encounter.route.ts'
 import { encounterDiagnosesRouter, encounterDiagnosisRouter } from './modules/encounter-diagnosis/encounter-diagnosis.route.ts'
 import { encounterActivitiesRouter, encounterActivityRouter } from './modules/encounter-activity/encounter-activity.route.ts'
+import { encounterObservationsRouter, encounterObservationRouter } from './modules/encounter-observation/encounter-observation.route.ts'
 
 export const app = express()
 
@@ -202,6 +203,10 @@ app.use('/api/encounter-diagnoses', encounterDiagnosisRouter)
 // A4.6 — immutable encounter activity facts (add / list / get / remove; no patch, no delete).
 app.use('/api/encounters', encounterActivitiesRouter)
 app.use('/api/encounter-activities', encounterActivityRouter)
+
+// A4.7 — typed, non-executable encounter observations (add / list / get / remove; no patch, no delete).
+app.use('/api/encounters', encounterObservationsRouter)
+app.use('/api/encounter-observations', encounterObservationRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
