@@ -609,7 +609,20 @@ async function main() {
   check('T62', 'no A5 fields', !columns.some((name) => /(eligib|authoriz|evidence|readiness|status)/i.test(name)), 'no A5 field')
   check('T63', 'no A4.6 fields', !columns.some((name) => /(procedure|service|quantity|modifier|activity)/i.test(name)), 'no A4.6 field')
   const externalIdentifierColumns = await columnsOf('external_identifiers')
-  check('T64', 'no external-ID extension', !externalIdentifierColumns.some((name) => /(encounter|diagnosis_link)/i.test(name)), 'A2.9 ExternalIdentifier targets unchanged')
+  // A4.8 (PR #46) added the approved `encounter_id` target. A4.5's own boundary is unchanged: the
+  // diagnosis LINK is not an identity target — only the DiagnosisCode master ever was — so no
+  // encounter_diagnosis / diagnosis_link column may appear on the identity table.
+  const diagnosisLinkLeak = externalIdentifierColumns.filter((name) =>
+    /(encounter_diagnosis|diagnosis_link)/i.test(name),
+  )
+  check(
+    'T64',
+    'no external-ID extension',
+    diagnosisLinkLeak.length === 0 && externalIdentifierColumns.includes('diagnosis_code_id'),
+    diagnosisLinkLeak.length === 0
+      ? 'EncounterDiagnosis is not an external-ID target; only the DiagnosisCode master is, and the approved encounter_id target is allowed'
+      : `EncounterDiagnosis leaked into the identity table: ${diagnosisLinkLeak.join(', ')}`,
+  )
 
   // ---------------------------------------------------------------- build and regressions (T65–T75)
   section('Unit, typecheck, build, regressions and DB truth')

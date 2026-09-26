@@ -1082,7 +1082,10 @@ async function main() {
   await apiReady('the A4.7 regression')
   const a47 = run('npm run test:a4:observations')
   const a47Failing = failedIds(a47.output, 'A4.7')
-  const a47Expected = ['T01', 'T03', 'T82', 'T98', 'T99']
+  // T82 used to be listed here: A4.7 asserted the identity table had not been extended, which this
+  // PR is the approved change to. It is corrected inside this PR instead, so only A4.7's own
+  // branch-identity and diff checks may still differ.
+  const a47Expected = ['T01', 'T03', 'T98', 'T99']
   const a47Unexpected = a47Failing.filter((id) => !a47Expected.includes(id))
   const a47Summary = (a47.output.match(/\[A4\.7\] automated summary: [^\n]*/) ?? ['no summary'])[0]
   check(
@@ -1090,7 +1093,7 @@ async function main() {
     'A4.7 regression',
     a47Unexpected.length === 0 && /T09 typed DB CHECK \.* PASS/.test(a47.output),
     a47Unexpected.length === 0
-      ? `${a47Summary}; only A4.7's own branch/diff checks and its "A2.9 constraint unchanged" guard differ (${a47Failing.join(', ') || 'none'})`
+      ? `${a47Summary}; only A4.7's own branch/diff checks differ (${a47Failing.join(', ') || 'none'})`
       : `unexpected A4.7 failures: ${a47Unexpected.join(', ')}`,
   )
   const nested = (id: string, title: string, a47Id: string, a47Title: string) => {
@@ -1170,6 +1173,15 @@ async function main() {
     // The PATCH-validation correction moved the update service onto a whole-body signature, which
     // this A3 concurrency script also calls. Mechanical call-site update, no behaviour change.
     'backend/src/scripts/test-a3-write-atomicity.ts',
+    // Auditor decision on PR #46: five earlier suites asserted that the identity table had not been
+    // extended, which this PR is the approved change to. They are corrected inside this PR rather
+    // than carried as expected failures, each keeping its own module's non-duplication boundary.
+    'backend/src/integration/a4-patient/a4-patient.integration.ts',
+    'backend/src/integration/a4-insurance-membership/a4-insurance-membership.integration.ts',
+    'backend/src/integration/a4-encounter/a4-encounter.integration.ts',
+    'backend/src/integration/a4-encounter-diagnosis/a4-encounter-diagnosis.integration.ts',
+    'backend/src/integration/a4-encounter-activity/a4-encounter-activity.integration.ts',
+    'backend/src/integration/a4-encounter-observation/a4-encounter-observation.integration.ts',
     'frontend/src/modules/external-identifier/external-identifier.api.ts',
     'frontend/src/modules/external-identifier/ExternalIdentifierCheck.tsx',
   ]

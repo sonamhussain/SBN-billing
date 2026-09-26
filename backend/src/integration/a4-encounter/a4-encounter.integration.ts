@@ -671,7 +671,24 @@ async function main() {
     laterScope.length === 0 ? 'no A5/A6 schema or column' : `unexpected: ${laterScope.join(', ')}`,
   )
   const externalIdentifierColumns = await columnsOf('external_identifiers')
-  check('T68', 'no external Encounter ID', !externalIdentifierColumns.some((name) => /encounter/i.test(name)) && !columns.some((name) => /(external|visit|mrn|emr)/i.test(name)), 'ExternalIdentifier unchanged')
+  // A4.8 (PR #46) added `external_identifiers.encounter_id` as an approved typed target, so the
+  // original "no encounter column anywhere" assertion is obsolete. A4.4's own boundary still holds:
+  // the Encounter itself carries no outside-system visit identifier, and the identity table maps to
+  // an Encounter without copying any Encounter context (service date, or the stored assignment /
+  // regulatory / membership bindings).
+  const encounterContextLeak = externalIdentifierColumns.filter((name) =>
+    /(service_date|visit|admission|assignment|regulatory_profile|insurance_membership)/i.test(name),
+  )
+  check(
+    'T68',
+    'no external Encounter ID',
+    externalIdentifierColumns.includes('encounter_id') &&
+      encounterContextLeak.length === 0 &&
+      !columns.some((name) => /(external|visit|mrn|emr)/i.test(name)),
+    encounterContextLeak.length === 0
+      ? 'no external/visit identifier column on Encounter; ExternalIdentifier maps to an Encounter without copying its context'
+      : `ExternalIdentifier duplicates Encounter context: ${encounterContextLeak.join(', ')}`,
+  )
   check('T69', 'no specialty invention', !columns.some((name) => /specialt/i.test(name)), 'no specialtyId / primarySpecialty on Encounter')
   const constraints = await prisma.$queryRaw<{ conname: string; contype: string; deltype: string }[]>`
     SELECT conname, contype::text AS contype, confdeltype::text AS deltype FROM pg_constraint

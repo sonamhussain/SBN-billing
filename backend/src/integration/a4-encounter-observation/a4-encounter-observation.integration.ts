@@ -726,7 +726,21 @@ async function main() {
     SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'external_identifiers'`).map((row) => row.column_name)
   const targetCheck = (await prisma.$queryRaw<{ def: string }[]>`
     SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'external_identifiers_exactly_one_target_chk'`)[0]?.def ?? ''
-  check('T82', 'No external-ID extension', !!targetCheck && !/observation/i.test(targetCheck) && !externalIdentifierColumns.some((name) => /(observation|encounter|activit)/i.test(name)), 'A2.9 target constraint unchanged')
+  // A4.8 (PR #46) added the approved `encounter_id` target, so the exact-one-target CHECK now names
+  // it and the original "no encounter column" assertion is obsolete. A4.7's own boundary is
+  // unchanged: an Observation is not an identity target, and none of a fact's content — its key,
+  // typed value or unit — may be duplicated onto the identity table.
+  const observationLeak = externalIdentifierColumns.filter((name) =>
+    /(observation|fact_key|value_text|value_decimal|value_boolean|value_date|unit_code)/i.test(name),
+  )
+  check(
+    'T82',
+    'No external-ID extension',
+    !!targetCheck && !/observation/i.test(targetCheck) && observationLeak.length === 0,
+    observationLeak.length === 0
+      ? 'EncounterObservation is not an external-ID target and no typed fact is duplicated; the approved encounter_id target is named by the CHECK'
+      : `Observation leaked into the identity table: ${observationLeak.join(', ')}`,
+  )
 
   // ---------------------------------------------------------------- build (T83–T85)
   section('Unit, typecheck and build')

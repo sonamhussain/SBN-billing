@@ -700,7 +700,21 @@ async function main() {
   const externalIdentifierColumns = await columnsOf('external_identifiers')
   const targetCheck = (await prisma.$queryRaw<{ def: string }[]>`
     SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'external_identifiers_exactly_one_target_chk'`)[0]?.def ?? ''
-  check('T72', 'no external ID extension', !!targetCheck && !/activit/i.test(targetCheck) && !externalIdentifierColumns.some((name) => /(activit|encounter)/i.test(name)), 'A2.9 target CHECK unchanged')
+  // A4.8 (PR #46) added the approved `encounter_id` target, so the exact-one-target CHECK now names
+  // it. A4.6's own boundary is unchanged: an Activity is not an identity target, and none of the
+  // activity's billing facts — quantity, unit or modifiers — may be duplicated onto the identity
+  // table.
+  const activityLeak = externalIdentifierColumns.filter((name) =>
+    /(activit|quantity|unit_code|modifier)/i.test(name),
+  )
+  check(
+    'T72',
+    'no external ID extension',
+    !!targetCheck && !/activit/i.test(targetCheck) && activityLeak.length === 0,
+    activityLeak.length === 0
+      ? 'EncounterActivity is not an external-ID target and no activity fact is duplicated; the approved encounter_id target is named by the CHECK'
+      : `Activity leaked into the identity table: ${activityLeak.join(', ')}`,
+  )
 
   // git is called WITHOUT a shell, with repository-root `:/` pathspecs. Exit 1 = no match (wanted),
   // anything but 0/1 = the search itself failed, which is a FAIL. Sanity searches prove reach.
