@@ -59,6 +59,7 @@ model Patient {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   insuranceMemberships InsuranceMembership[]
   encounters     Encounter[]
+  externalIdentifiers ExternalIdentifier[]
 
   @@index([organizationId])
   @@map("patients")
@@ -138,6 +139,7 @@ model Encounter {
   diagnoses                   EncounterDiagnosis[]
   activities                  EncounterActivity[]
   observations                EncounterObservation[]
+  externalIdentifiers         ExternalIdentifier[]
 
   @@index([patientId])
   @@index([facilityId])
@@ -483,6 +485,8 @@ model ExternalIdentifier {
   serviceId            String? @map("service_id") @db.Uuid
   procedureCodeId      String? @map("procedure_code_id") @db.Uuid
   diagnosisCodeId      String? @map("diagnosis_code_id") @db.Uuid
+  patientId            String? @map("patient_id") @db.Uuid
+  encounterId          String? @map("encounter_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -498,9 +502,13 @@ model ExternalIdentifier {
   service            Service?       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   procedureCode      ProcedureCode? @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
   diagnosisCode      DiagnosisCode? @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
+  patient            Patient?       @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  encounter          Encounter?     @relation(fields: [encounterId], references: [id], onDelete: Restrict)
 
   @@unique([organizationId, sourceSystem, externalValue])
   @@index([organizationId])
+  @@index([patientId])
+  @@index([encounterId])
   @@map("external_identifiers")
 }
 
