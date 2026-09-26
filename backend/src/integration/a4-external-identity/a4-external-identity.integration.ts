@@ -180,29 +180,41 @@ async function main() {
   const dirty = git('status --porcelain').split(/\r?\n/).filter(Boolean)
   check('T02', 'git clean', dirty.length === 0, dirty.length === 0 ? 'working tree clean' : `uncommitted: ${dirty.length} path(s)`)
 
-  const migrationDirs = git('diff --name-only origin/main...HEAD -- backend/prisma/migrations')
+  // git resolves a pathspec from the current directory, and this suite runs from backend/;
+  // ':/' anchors the pathspec at the repository root instead.
+  const migrationDirs = git('diff --name-only origin/main...HEAD -- :/backend/prisma/migrations')
     .split(/\r?\n/)
     .filter((line) => line.endsWith('migration.sql'))
   const migrationSql = migrationDirs.length === 1 ? git(`show HEAD:${migrationDirs[0]}`) : ''
-  const touchesOnlyIdentity =
-    /ALTER TABLE "external_identifiers" ADD COLUMN/.test(migrationSql) &&
-    !/ALTER TABLE "patients"/.test(migrationSql) &&
-    !/ALTER TABLE "encounters"/.test(migrationSql) &&
-    !/CREATE TABLE/.test(migrationSql) &&
-    !/DROP INDEX/.test(migrationSql) &&
-    !/SET DEFAULT pg_catalog/.test(migrationSql) &&
-    !/@@unique|UNIQUE INDEX "external_identifiers_organization_id_source_system/.test(migrationSql)
+  // Only executable SQL is judged. The Drift Guard note in the file header names the statements
+  // that were REMOVED, so testing the raw text would match the very words it promises are absent.
+  const migrationStatements = migrationSql
+    .split(/\r?\n/)
+    .filter((line) => !line.trimStart().startsWith('--'))
+    .join('\n')
+  const scopeProblems = [
+    [/ALTER TABLE "external_identifiers" ADD COLUMN/.test(migrationStatements), 'the identity columns are not added'],
+    [!/ALTER TABLE "patients"/.test(migrationStatements), 'patients is altered'],
+    [!/ALTER TABLE "encounters"/.test(migrationStatements), 'encounters is altered'],
+    [!/CREATE TABLE/.test(migrationStatements), 'a table is created'],
+    [!/DROP INDEX/.test(migrationStatements), 'an index is dropped (drift)'],
+    [!/SET DEFAULT pg_catalog/.test(migrationStatements), 'Better Auth defaults leaked in (drift)'],
+    [!/UNIQUE/.test(migrationStatements), 'uniqueness is touched'],
+    [(migrationStatements.match(/ADD CONSTRAINT "external_identifiers_(patient|encounter)_id_fkey"/g) ?? []).length === 2, 'the two RESTRICT FKs are not both added'],
+    [(migrationStatements.match(/CREATE INDEX "external_identifiers_(patient|encounter)_id_idx"/g) ?? []).length === 2, 'the two indexes are not both created'],
+    [approvedTargetColumns.every((column) => migrationStatements.includes(`"${column}"`)), 'the CHECK does not name all 12 approved targets'],
+  ]
+    .filter(([ok]) => !ok)
+    .map(([, reason]) => reason as string)
   check(
     'T03',
     'migration scope',
-    migrationDirs.length === 1 &&
-      touchesOnlyIdentity &&
-      (migrationSql.match(/ADD CONSTRAINT "external_identifiers_(patient|encounter)_id_fkey"/g) ?? []).length === 2 &&
-      (migrationSql.match(/CREATE INDEX "external_identifiers_(patient|encounter)_id_idx"/g) ?? []).length === 2 &&
-      approvedTargetColumns.every((column) => migrationSql.includes(`"${column}"`)),
-    migrationDirs.length === 1
-      ? 'one migration; 2 columns, 2 RESTRICT FKs, 2 indexes and the 12-target CHECK only; no new table, no patients/encounters change, no uniqueness change, no drift'
-      : `expected exactly one migration, found ${migrationDirs.length}`,
+    migrationDirs.length === 1 && scopeProblems.length === 0,
+    migrationDirs.length !== 1
+      ? `expected exactly one migration, found ${migrationDirs.length}`
+      : scopeProblems.length === 0
+        ? 'one migration; 2 columns, 2 RESTRICT FKs, 2 indexes and the 12-target CHECK only; no new table, no patients/encounters change, no uniqueness change, no drift'
+        : `out of scope: ${scopeProblems.join('; ')}`,
   )
 
   const validate = run('npm run db:validate')
@@ -315,7 +327,7 @@ async function main() {
   if ((await post(`/api/facility-regulatory-profiles/${profile.id}/activate`, {})).status !== 200) throw new Error('fixture profile activation failed')
   must('assignment', (await post(`/api/clinicians/${clinician.id}/facility-assignments`, { facilityId: facility.id, effectiveFrom: '2025-01-01', effectiveTo: null })).body)
   const encounter = must('encounter', (await post(`/api/patients/${patient.id}/encounters`, { facilityId: facility.id, clinicianId: clinician.id, serviceDate: '2026-07-01' })).body)
-  const payer = must('payer', (await post(`/api/organizations/${org}/payers`, { name: `${runId} payer` })).body)
+  const payer = must('payer', (await post(`/api/organizations/${org}/payers`, { displayName: `${runId} payer` })).body)
 
   // Run-specific synthetic namespaces and values, so an audit leak search cannot match anything else.
   const tail = runId.slice(-6)
@@ -990,7 +1002,7 @@ async function main() {
   section('Developer check — one identity UI, twelve options')
   const feApi = git('show HEAD:frontend/src/modules/external-identifier/external-identifier.api.ts')
   const feOptions = (feApi.match(/'(?:[A-Z][A-Z_]*)'/g) ?? []).map((token) => token.replace(/'/g, ''))
-  const feCheckFiles = git('ls-tree --name-only HEAD frontend/src/modules/external-identifier/').split(/\r?\n/).filter(Boolean)
+  const feCheckFiles = git('ls-tree --name-only --full-tree HEAD frontend/src/modules/external-identifier/').split(/\r?\n/).filter(Boolean)
   check(
     'T70',
     'Developer check target options',
