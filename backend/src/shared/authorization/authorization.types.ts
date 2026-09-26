@@ -117,6 +117,14 @@ export const permissionCodes = [
   'encounterObservation.create',
   'encounterObservation.read',
   'encounterObservation.update',
+
+  // A4.9 - the canonical billing context is an AGGREGATE: one response carries patient
+  // identity, the selected insurance membership and every active clinical/billing fact of an
+  // encounter together. Reading any one of those through its own endpoint is a smaller
+  // disclosure than reading all of them at once, so the aggregate gets its own code and
+  // `encounter.read` alone must never open it. It is read-only: there is deliberately no
+  // create, update or delete counterpart.
+  'encounterBillingContext.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
