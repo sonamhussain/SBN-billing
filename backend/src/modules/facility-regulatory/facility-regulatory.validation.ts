@@ -1,4 +1,5 @@
-import { isValidInstant, parseStrictDateOnly } from '../../shared/rules/date-only.ts'
+import { formatDateOnly, isValidInstant, parseStrictDateOnly } from '../../shared/rules/date-only.ts'
+import type { FacilityRegulatoryProfileDto } from './facility-regulatory.types.ts'
 
 const uuidShape =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -74,4 +75,33 @@ export function decideActiveProfileClosure(
   if (requestedEffectiveTo.value.getTime() < existing.effectiveFrom.getTime())
     return { ok: false, message: 'effectiveFrom must not be after effectiveTo' }
   return { ok: true, effectiveTo: requestedEffectiveTo.value }
+}
+
+// The canonical wire shape of a regulatory profile. It lives here, beside the other pure helpers,
+// because A4.9 returns the EXACT profile an Encounter bound itself to at write time and must not
+// reproduce this shape. Note that `status` is carried through as stored: a consumer reading a
+// historical binding needs to see what the profile's lifecycle state is NOW without that state
+// being allowed to change which row was returned.
+export function toFacilityRegulatoryProfileDto(record: {
+  id: string
+  facilityId: string
+  jurisdictionCode: string
+  regulatoryAuthorityCode: string
+  effectiveFrom: Date
+  effectiveTo: Date | null
+  status: string
+  createdAt: Date
+  updatedAt: Date
+}): FacilityRegulatoryProfileDto {
+  return {
+    id: record.id,
+    facilityId: record.facilityId,
+    jurisdictionCode: record.jurisdictionCode,
+    regulatoryAuthorityCode: record.regulatoryAuthorityCode,
+    effectiveFrom: formatDateOnly(record.effectiveFrom) as string,
+    effectiveTo: formatDateOnly(record.effectiveTo),
+    status: record.status,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  }
 }

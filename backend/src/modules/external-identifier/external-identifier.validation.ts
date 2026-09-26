@@ -1,5 +1,33 @@
+import type { ExternalIdentifierDto } from './external-identifier.types.ts'
+import { deriveTargetFromRecord, type PersistedTargetColumns } from './external-identifier.target.ts'
+
 const uuidShape =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export type ExternalIdentifierRecord = PersistedTargetColumns & {
+  id: string
+  organizationId: string
+  sourceSystem: string
+  externalValue: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+// The canonical wire shape of an external identifier: an opaque source/value pair and ONE typed
+// target derived from whichever FK column is set. It lives here, beside the other pure helpers and
+// matching every other module's layout, because more than one reader now needs it — A4.9 composes
+// these mappings into the billing context and must not reproduce the derivation.
+export function toExternalIdentifierDto(record: ExternalIdentifierRecord): ExternalIdentifierDto {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    sourceSystem: record.sourceSystem,
+    externalValue: record.externalValue,
+    target: deriveTargetFromRecord(record),
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  }
+}
 
 export function normalizeSourceSystem(value: unknown): string | null {
   if (typeof value !== 'string') return null
