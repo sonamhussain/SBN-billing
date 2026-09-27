@@ -290,9 +290,30 @@ async function main() {
   )
 
   // ---------------------------------------------------------------- fixtures and creation (T07–T21)
+  // A connection that is reset mid-request is not an answer from the API — it is the API going
+  // away. T04 and T05 regenerate the Prisma client and replay migrations, which restarts a server
+  // started with `--watch`, and the next request is then torn down at the socket. That used to kill
+  // the whole run with a driver stack trace and no verdict at all. A reset is now retried once
+  // after readiness returns, and if it still fails the check that asked for it fails on its own
+  // with status 0 rather than taking the suite down. Every reset is counted and reported at the end,
+  // because a run whose API restarted underneath it is not evidence of anything.
   await apiReady('signing in')
+  let connectionResets = 0
+  const httpCall = async (path: string, init?: RequestInit) => {
+    try {
+      return await callApi(baseUrl, path, init)
+    } catch {
+      connectionResets += 1
+      try {
+        await apiReady(`retrying ${path}`)
+        return await callApi(baseUrl, path, init)
+      } catch (retryError) {
+        return { status: 0, requestId: null, body: { networkError: String((retryError as Error)?.message ?? retryError) }, setCookies: [] as string[] }
+      }
+    }
+  }
   const signIn = async (email: string, password: string) => {
-    const res = await callApi(baseUrl, '/api/auth/sign-in/email', {
+    const res = await httpCall('/api/auth/sign-in/email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: baseUrl },
       body: JSON.stringify({ email, password }),
@@ -308,10 +329,10 @@ async function main() {
   })
   const asAdmin = as(admin.cookie)
   const asViewer = as(viewer.cookie)
-  const post = (path: string, body: unknown, who = asAdmin) => callApi(baseUrl, path, who({ method: 'POST', body: JSON.stringify(body) }))
-  const patchApi = (path: string, body: unknown, who = asAdmin) => callApi(baseUrl, path, who({ method: 'PATCH', body: JSON.stringify(body) }))
-  const del = (path: string, who = asAdmin) => callApi(baseUrl, path, who({ method: 'DELETE' }))
-  const get = (path: string, who = asAdmin) => callApi(baseUrl, path, who())
+  const post = (path: string, body: unknown, who = asAdmin) => httpCall(path, who({ method: 'POST', body: JSON.stringify(body) }))
+  const patchApi = (path: string, body: unknown, who = asAdmin) => httpCall(path, who({ method: 'PATCH', body: JSON.stringify(body) }))
+  const del = (path: string, who = asAdmin) => httpCall(path, who({ method: 'DELETE' }))
+  const get = (path: string, who = asAdmin) => httpCall(path, who())
 
   const body = (overrides: Record<string, unknown> = {}) => ({
     storageRef: `synthetic://evidence/${runId}/${Math.random().toString(16).slice(2)}`,
@@ -1070,6 +1091,18 @@ async function main() {
     for (const failure of failures) console.log(`          ${failure}`)
   }
   if (notApplicable > 0) console.log(`[A5.1] ${notApplicable} reported N/A with an explicit reason (never a substantive check)`)
+  if (connectionResets > 0) {
+    // The API went away and came back during the run. Whatever the verdicts say, they were not all
+    // measured against one running server, so the run is reported as invalid rather than summarised
+    // as if nothing had happened.
+    failed += 1
+    failures.push(`the API connection was reset ${connectionResets} time(s) mid-run`)
+    console.log(
+      `[A5.1] INVALID RUN: the API connection was reset ${connectionResets} time(s). The server restarted underneath this run,`,
+    )
+    console.log('[A5.1]              which a server started with `--watch` does whenever db:generate or a replay rewrites a file.')
+    console.log('[A5.1]              Stop the watch server, start the API with `npm start`, and run this suite again.')
+  }
   console.log(`[A5.1] automated summary: ${passed}/${passed + failed} PASS`)
   console.log(failed === 0 ? '[A5.1] A5.1 EVIDENCE ARTIFACT / VERSION ACCEPTANCE COMPLETE' : '[A5.1] A5.1 FINAL FAIL')
   if (failed > 0) process.exitCode = 1
