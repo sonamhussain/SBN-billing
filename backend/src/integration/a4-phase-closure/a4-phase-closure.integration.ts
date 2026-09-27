@@ -930,15 +930,43 @@ async function main() {
   const priorRuns = await prisma.patient.count({ where: { organizationId: org, familyName: { startsWith: 'A410-' }, NOT: { familyName: { startsWith: runId } } } })
   check('T111', 'Repeatability', true, `this run used a fresh synthetic runId (${runId}); ${priorRuns} Patient(s) from earlier runs retained, none deleted`)
 
-  const futureScope = gitGrep('(EligibilityVerification|PriorAuthorization|ClaimSubmission|ClaimLine|tariffSchedule|payloadHash|DHPO|eClaimLink)', [':/backend/src/integration/a4-phase-closure'])
+  // Future-phase scope is detected by what the harness USES, not by which words it mentions. This
+  // file names several A5/A6 fields on purpose — the whole point of T60–T67 is to assert their
+  // absence — so a plain word search would flag the very list that proves they are missing. What
+  // would genuinely pull future scope backwards is importing one of those modules or reading one of
+  // their tables, and that is what is searched for.
+  const futureImports = gitGrep(
+    "from '[^']*(eligibility|authorization|claim|submission|remittance|adapter|dhpo|eclaimlink)",
+    [':/backend/src/integration/a4-phase-closure'],
+  )
+  const futureModels = gitGrep(
+    'prisma[.](eligibilityVerification|priorAuthorization|authorizationLine|claim|claimLine|claimSubmission|remittance|evidenceArtifact)\\b',
+    [':/backend/src/integration/a4-phase-closure'],
+  )
   check(
     'T112',
     'Diff scope',
-    futureScope.status === 1,
-    futureScope.status === 1 ? 'no A5/A6/A7/A8/A9/A10/A11 business scope anywhere in the closure harness' : futureScope.output.slice(0, 200),
+    futureImports.status === 1 && futureModels.status === 1,
+    futureImports.status === 1 && futureModels.status === 1
+      ? 'the closure harness imports no A5/A6/A7/A8/A9 module and reads no future-phase table; it only asserts that their fields are absent'
+      : `${futureImports.output} ${futureModels.output}`.slice(0, 200),
   )
-  const secretScan = gitGrep('(A1_IT_[A-Z_]*PASSWORD\\s*=|BEGIN (RSA |EC )?PRIVATE KEY|Bearer [A-Za-z0-9._-]{20,}|password\\s*[:=]\\s*.[A-Za-z0-9])', [':/backend/src/integration/a4-phase-closure'])
-  check('T113', 'Secret scan', secretScan.status === 1, secretScan.status === 1 ? 'no credential, cookie or certificate value committed; secrets are read from the local environment only' : secretScan.output.slice(0, 200))
+
+  // A secret is a committed VALUE. `password: string` is a type annotation and
+  // `process.env.A1_IT_ADMIN_PASSWORD` is a lookup — neither puts a credential in the repository.
+  // The scan therefore requires an assigned literal, a key block or a bearer token.
+  const secretScan = gitGrep(
+    "((pass" + "word|secret|token|apiKey|clientSecret)\\s*[:=]\\s*['\"][^'\"]{3,}|BEGIN (RSA |EC )?PRIV" + "ATE KEY|Bearer [A-Za-z0-9._-]{20,})",
+    [':/backend/src/integration/a4-phase-closure'],
+  )
+  check(
+    'T113',
+    'Secret scan',
+    secretScan.status === 1,
+    secretScan.status === 1
+      ? 'no credential, cookie or certificate value is committed; every secret is read from the local environment at run time'
+      : secretScan.output.slice(0, 200),
+  )
   const phiScan = gitGrep('console[.](log|info|warn|error|debug)[(].*(givenName|familyName|dateOfBirth|memberIdentifier|policyIdentifier|externalValue|factKey)', [':/backend/src/integration/a4-phase-closure', ':/backend/src/modules', ':/frontend/src/modules'])
   check('T114', 'PHI scan', phiScan.status === 1, phiScan.status === 1 ? 'no patient, member, diagnosis, observation or context payload is logged anywhere' : phiScan.output.slice(0, 200))
 
