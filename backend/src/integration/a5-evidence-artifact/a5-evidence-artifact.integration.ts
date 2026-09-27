@@ -174,6 +174,27 @@ async function main() {
   console.log(`[A5.1] Evidence artifact & version foundation — run ${runId}`)
   console.log(`[A5.1] HEAD ${git('rev-parse HEAD')} on branch ${git('rev-parse --abbrev-ref HEAD')} against ${baseUrl}`)
 
+  // T74 stops and restarts the database on purpose, so a run that is interrupted part-way through
+  // it can leave the container down. The next run would then die on its first query with a driver
+  // stack trace, which says nothing about what to do. A missing database is an environment problem,
+  // not a verdict on the package, so it is reported as one before any check runs.
+  const databaseReachable = await (async () => {
+    const started = Date.now()
+    while (Date.now() - started < 60_000) {
+      try {
+        await prisma.$queryRaw`SELECT 1`
+        return true
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+    }
+    return false
+  })()
+  if (!databaseReachable)
+    throw new Error(
+      `the database is not reachable, so no check can be judged. Start it with \`docker start ${dbContainer}\`, wait for it to report healthy, then run this suite again.`,
+    )
+
   const ready = async () => (await fetch(`${baseUrl}/api/ready`).catch(() => null))?.status ?? 0
   const health = async () => (await fetch(`${baseUrl}/api/health`).catch(() => null))?.status ?? 0
   const waitFor = async (predicate: () => Promise<boolean>, timeoutMs: number) => {
@@ -1061,5 +1082,13 @@ main()
   })
   .finally(async () => {
     clearConcurrencyProbes()
+    // T74 takes the database down deliberately. However this run ends — passing, failing or
+    // interrupted — it must not leave the environment worse than it found it, so the container is
+    // put back up here rather than only on the happy path.
+    const running = (spawnSync('docker', ['inspect', '-f', '{{.State.Running}}', dbContainer], { encoding: 'utf8' }).stdout ?? '').trim()
+    if (running === 'false') {
+      const restored = spawnSync('docker', ['start', dbContainer], { encoding: 'utf8' }).status === 0
+      console.log(`[A5.1] the database was left stopped by this run; restarting it: ${restored ? 'done' : 'FAILED — start it manually'}`)
+    }
     await prisma.$disconnect()
   })
