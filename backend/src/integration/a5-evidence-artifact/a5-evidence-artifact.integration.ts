@@ -949,18 +949,59 @@ async function main() {
   // On the A5.1 branch, A4.10's own branch-identity and "A4.10 adds no schema" checks cannot hold:
   // A5.1 is a different branch and it legitimately adds a migration and two models.
   const chainNonApplicable = ['T02', 'T04', 'T05', 'T06', 'T117', 'T118']
-  const chainUnexpected = chainFailing.filter((id) => !chainNonApplicable.includes(id))
+
+  // A4.10's T97 reads A4.9's verdict, and A4.9 in turn fails on this branch. What matters is not
+  // that it failed but WHICH checks failed: every one named below asserts a world in which A5 has
+  // not started, and A5.1 is the package that ends it. Each is listed with its own reason and
+  // counted as N/A; an id that is NOT listed here is a genuine regression and fails T73.
+  const a49NonApplicable: Record<string, string> = {
+    T03: "A4.9 'No migration' asserts that the A4.9 package adds no migration at all; A5.1 adds exactly one, whose contents T03 proves and T05 replays from empty",
+    T04: "A4.9 'No schema drift' asserts schema.prisma is byte-identical to main; A5.1 adds exactly the two evidence models, and nothing else (T76)",
+    T85: "A4.9 'A4.8 regression' cascades from A4.4 T67 (below); A4.8's own substantive checks are unaffected, and A3/A2/A1 still read back PASS through it",
+    T86: "A4.9 'A4.7 regression' cascades from A4.4 T67 (below)",
+    T87: "A4.9 'A4.6 regression' cascades from A4.4 T67 (below)",
+    T88: "A4.9 'A4.5 regression' cascades from A4.4 T67 (below)",
+    T89: "A4.9 'A4.4 regression' cascades from A4.4 T67 (below)",
+    T90: "A4.9 'A4.3 regression' cascades from A4.4 T67 (below)",
+  }
+  const t97 = nestedLine(chain.output, 'A4.10', 'T97', 'A4 owner suites')
+  const a49Reported = (t97.detail.match(/unexpected A4\.9 failures: (.*)$/) ?? ['', ''])[1]
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+  const a49Undocumented = a49Reported.filter((id) => !(id in a49NonApplicable))
+
+  // The single root of the A4.8-A4.3 cascade is A4.4's T67, which lists every public table matching
+  // /(eligib|authoriz|claim|remittance|payment|evidence)/ and requires none to exist. That claim is
+  // only allowed to be false because of A5.1 itself, so it is proven rather than asserted: the two
+  // evidence tables must be the ONLY matches. If an eligibility, authorization, claim, remittance or
+  // payment table had appeared, this would fail and the cascade would not be excused.
+  const boundaryTables = (await prisma.$queryRaw<{ table_name: string }[]>`
+    SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name ~* '(eligib|authoriz|claim|remittance|payment|evidence)'
+     ORDER BY table_name`).map((row) => row.table_name)
+  // Sorted here rather than relying on the database collation, so the comparison means the same
+  // thing on every machine.
+  const boundaryIsOnlyA51 = [...boundaryTables].sort().join(',') === 'evidence_artifact_versions,evidence_artifacts'
+
+  const t97Tolerated = t97.verdict === 'FAIL' && a49Reported.length > 0 && a49Undocumented.length === 0 && boundaryIsOnlyA51
+  const tolerated = [...chainNonApplicable, ...(t97Tolerated ? ['T97'] : [])]
+  const chainUnexpected = chainFailing.filter((id) => !tolerated.includes(id))
   const chainSummary = (chain.output.match(/\[A4\.10\] automated summary: [^\n]*/) ?? ['no summary'])[0]
   check(
     'T73',
     'Backward regressions',
-    chainUnexpected.length === 0,
-    chainUnexpected.length === 0
-      ? `${chainSummary.replace('[A4.10] automated summary: ', 'A4.10 ')}; every substantive check green`
-      : `unexpected A4.10 failures: ${chainUnexpected.join(', ')}`,
+    chainUnexpected.length === 0 && a49Undocumented.length === 0 && boundaryIsOnlyA51,
+    !boundaryIsOnlyA51
+      ? `a future-phase table exists beyond A5.1's own two: ${boundaryTables.join(', ')}`
+      : a49Undocumented.length > 0
+        ? `undocumented A4.9 failures: ${a49Undocumented.join(', ')}`
+        : chainUnexpected.length > 0
+          ? `unexpected A4.10 failures: ${chainUnexpected.join(', ')}`
+          : `${chainSummary.replace('[A4.10] automated summary: ', 'A4.10 ')}; every substantive check green, and the only tables crossing the A4 boundary are A5.1's own two`,
   )
   for (const id of chainNonApplicable) {
-    const line = chain.output.match(new RegExp(`\\[A4\\.10\\] ${id} ([^.]*?) \\.* FAIL`))
+    const line = chain.output.match(new RegExp(`\[A4\.10\] ${id} ([^.]*?) \.* FAIL`))
     if (line)
       notApplicableCheck(
         `T73/${id}`,
@@ -968,8 +1009,20 @@ async function main() {
         'asserts a fact about the A4.10 feature branch, which legitimately adds no schema; A5.1 is a different branch and does',
       )
   }
+  if (t97Tolerated) {
+    notApplicableCheck(
+      'T73/T97',
+      'A4.10 A4 owner suites',
+      `A4.9 reports ${a49Reported.length} failures and every one is listed below with its own reason`,
+    )
+    for (const id of a49Reported) notApplicableCheck(`T73/A4.9/${id}`, `A4.9 ${id}`, a49NonApplicable[id])
+    notApplicableCheck(
+      'T73/A4.4/T67',
+      'A4.4 no eligibility/auth/claim fields',
+      `the root of the A4.8-A4.3 cascade: it requires no table matching eligibility, authorization, claim, remittance, payment or evidence to exist, and the only ones that do are A5.1's own (${boundaryTables.join(', ')}) — the A4-to-A5 boundary this package exists to cross`,
+    )
+  }
   for (const [label, id, title] of [
-    ['A4.9', 'T97', 'A4 owner suites'],
     ['A3', 'T98', 'A3 regression'],
     ['A2', 'T99', 'A2 regression'],
     ['A1', 'T100', 'A1 regression'],
