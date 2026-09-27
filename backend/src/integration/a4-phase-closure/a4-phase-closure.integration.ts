@@ -208,12 +208,24 @@ async function main() {
   )
 
   const harnessSource = git(`show HEAD:backend/src/integration/a4-phase-closure/a4-phase-closure.integration.ts`)
-  const realDataMarkers = /\b(emirates\s*id|passport|\+971|@gmail|@yahoo|@hotmail|BEGIN (RSA |EC )?PRIVATE KEY)\b/i
+  // A scanner must not match its own definition. Spelling these markers out as plain literals would
+  // put every one of them into this very file, and the search would then always find itself — the
+  // same trap a migration's Drift Guard note sprang in A4.8 by naming the statements it removed.
+  // They are assembled from fragments so no searched word appears here verbatim.
+  const realDataMarkers = new RegExp(
+    ['emir' + 'ates\\s*id', 'pass' + 'port', '\\+9' + '71\\d', '@gm' + 'ail', '@ya' + 'hoo', '@hot' + 'mail', 'BEGIN (?:RSA |EC )?PRIV' + 'ATE KEY']
+      .map((fragment) => `(?:${fragment})`)
+      .join('|'),
+    'i',
+  )
+  const marker = harnessSource.match(realDataMarkers)
   check(
     'T07',
     'Synthetic data',
-    !realDataMarkers.test(harnessSource) && /SYNTH|Synthetic/.test(harnessSource),
-    'no real patient, member, claim or credential values in the fixture source',
+    marker === null && /SYNTH|Synthetic/.test(harnessSource),
+    marker === null
+      ? 'no real patient, member, claim or credential value appears in the fixture source; every identifier is generated from the run id'
+      : `real-data marker found: ${JSON.stringify(marker[0])}`,
   )
 
   // ---------------------------------------------------------------- auth (T08–T09)
