@@ -54,6 +54,7 @@ import { encounterRouter, patientEncounterRouter } from './modules/encounter/enc
 import { encounterDiagnosesRouter, encounterDiagnosisRouter } from './modules/encounter-diagnosis/encounter-diagnosis.route.ts'
 import { encounterActivitiesRouter, encounterActivityRouter } from './modules/encounter-activity/encounter-activity.route.ts'
 import { encounterObservationsRouter, encounterObservationRouter } from './modules/encounter-observation/encounter-observation.route.ts'
+import { encounterBillingContextRouter } from './modules/encounter-billing-context/encounter-billing-context.route.ts'
 
 export const app = express()
 
@@ -207,6 +208,8 @@ app.use('/api/encounter-activities', encounterActivityRouter)
 // A4.7 — typed, non-executable encounter observations (add / list / get / remove; no patch, no delete).
 app.use('/api/encounters', encounterObservationsRouter)
 app.use('/api/encounter-observations', encounterObservationRouter)
+// A4.9 - one read-only aggregate: GET /api/encounters/:encounterId/billing-context
+app.use('/api/encounters', encounterBillingContextRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

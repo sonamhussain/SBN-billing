@@ -6,7 +6,9 @@ import {
   isExternalIdentifierUuid,
   normalizeExternalValue,
   normalizeSourceSystem,
+  toExternalIdentifierDto as toDto,
   validateUpdateBody,
+  type ExternalIdentifierRecord,
 } from './external-identifier.validation.ts'
 import { deriveTargetFromRecord, resolveTarget, targetForeignKeyColumn, type PersistedTargetColumns } from './external-identifier.target.ts'
 import {
@@ -19,27 +21,6 @@ import { prisma } from '../../shared/database/prisma.ts'
 import { Prisma } from '../../../generated/prisma/client.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
 import { externalIdentifierAuditSnapshot } from '../audit/audit.snapshot.ts'
-
-type ExternalIdentifierRecord = PersistedTargetColumns & {
-  id: string
-  organizationId: string
-  sourceSystem: string
-  externalValue: string
-  createdAt: Date
-  updatedAt: Date
-}
-
-function toDto(record: ExternalIdentifierRecord): ExternalIdentifierDto {
-  return {
-    id: record.id,
-    organizationId: record.organizationId,
-    sourceSystem: record.sourceSystem,
-    externalValue: record.externalValue,
-    target: deriveTargetFromRecord(record),
-    createdAt: record.createdAt.toISOString(),
-    updatedAt: record.updatedAt.toISOString(),
-  }
-}
 
 function isUniqueConstraintViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
