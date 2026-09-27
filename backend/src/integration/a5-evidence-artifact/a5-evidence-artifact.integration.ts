@@ -53,6 +53,26 @@ const gitGrep = (pattern: string, paths: string[]) => {
   return { status: out.status, output: `${out.stdout ?? ''}${out.stderr ?? ''}`.trim() }
 }
 
+// A scope guard must judge what the code DOES, not which words it mentions. This module's comments
+// deliberately name the things it refuses to do — "no upload, download or content endpoint", "no
+// bucket or provider parsing" — so a plain text search finds the very promise it is checking, and
+// reports a violation that is really a correct explanation. Comments are therefore stripped and only
+// executable code is searched. (Same trap as A4.8's Drift Guard note and A4.10's own detectors.)
+const committedFiles = (dir: string) => git(`ls-tree -r --name-only --full-tree HEAD ${dir}`).split(/\r?\n/).filter(Boolean)
+
+const committedCode = (path: string) =>
+  git(`show HEAD:${path}`)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split(/\r?\n/)
+    // `://` inside a string literal is not a comment, so a `//` must start a line or follow a space.
+    .map((line) => line.replace(/(^|\s)\/\/.*$/, '$1'))
+    .join('\n')
+
+const committedCodeOf = (dir: string) => {
+  const files = committedFiles(dir)
+  return { files, code: files.map((file) => committedCode(file)).join('\n') }
+}
+
 const runId = `A51-${Date.now()}`
 const baseUrl = process.env.A1_IT_BASE_URL as string
 const adminEmail = process.env.A1_IT_ADMIN_EMAIL as string
@@ -263,7 +283,7 @@ async function main() {
   if (admin.status !== 200 || viewer.status !== 200) throw new Error(`sign-in failed (admin ${admin.status}, viewer ${viewer.status})`)
   const as = (cookie: string) => (init: RequestInit = {}) => ({
     ...init,
-    headers: { ...(init.headers ?? {}), 'Content-Type': 'application/json', Cookie: cookie },
+    headers: { ...init.headers, 'Content-Type': 'application/json', Cookie: cookie },
   })
   const asAdmin = as(admin.cookie)
   const asViewer = as(viewer.cookie)
@@ -748,8 +768,10 @@ async function main() {
 
   const routeSource = git('show HEAD:backend/src/modules/evidence-artifact/evidence-artifact.route.ts')
   const verbs = (routeSource.match(/Router\.(get|post|patch|put|delete)\(/g) ?? []).map((line) => line.replace(/Router\.|\(/g, ''))
-  const repositorySource = git('show HEAD:backend/src/modules/evidence-artifact/evidence-artifact.repository.ts')
-  const serviceSource = git('show HEAD:backend/src/modules/evidence-artifact/evidence-artifact.service.ts')
+  // Executable code only, for the reason given at `committedCode`: a comment saying "there is no
+  // update here" must not be read as an update.
+  const repositorySource = committedCode('backend/src/modules/evidence-artifact/evidence-artifact.repository.ts')
+  const serviceSource = committedCode('backend/src/modules/evidence-artifact/evidence-artifact.service.ts')
   const repositoryWriters = (repositorySource.match(/^export async function \w+/gm) ?? []).map((line) => line.replace('export async function ', ''))
   // An artifact with no version would be evidence that records nothing. Two things make that
   // impossible: no route can reach the bare artifact insert, and the only caller of that insert
@@ -798,27 +820,33 @@ async function main() {
   // A search that reaches nothing proves nothing. Every absence check below is paired with a
   // positive anchor that must be FOUND, so an empty read or a mis-scoped pathspec fails loudly
   // instead of passing silently.
+  // Content transport is a behaviour: a handler that reads, streams or returns bytes, or accepts a
+  // file upload. Only executable code is searched, for the reason given at `committedCode`.
+  const routeCode = committedCode('backend/src/modules/evidence-artifact/evidence-artifact.route.ts')
+  const transport = routeCode.match(/\b(multer|busboy|multipart|createReadStream|createWriteStream|sendFile|res\.download|res\.pipe|getSignedUrl|createPresigned)\b/i)
   check(
     'T64',
     'No upload/download route',
-    routeSource.length > 0 &&
-      verbs.length === 6 &&
-      verbs.every((verb) => verb === 'get' || verb === 'post') &&
-      !/upload|download|multipart|signed.?url|stream/i.test(routeSource),
+    routeSource.length > 0 && verbs.length === 6 && verbs.every((verb) => verb === 'get' || verb === 'post') && transport === null,
     routeSource.length === 0
       ? 'the committed route source could not be read, so this absence is unproven'
-      : `${verbs.length} routes, all GET or POST (${verbs.join(', ')}); no content transport exists`,
+      : transport
+        ? `content transport found in route code: ${JSON.stringify(transport[0])}`
+        : `${verbs.length} routes, all GET or POST (${verbs.join(', ')}); no handler reads, streams, uploads or returns bytes`,
   )
+
   const moduleSources = [':/backend/src/modules/evidence-artifact']
-  const moduleReach = gitGrep('normalizeStorageRef', moduleSources)
-  const providerScan = gitGrep('(aws-sdk|@aws-sdk|s3|azure|blobService|gcs|googleapis|createPresigned|getSignedUrl|bucket)', moduleSources)
+  const moduleCode = committedCodeOf('backend/src/modules/evidence-artifact')
+  const provider = moduleCode.code.match(/\b(aws-sdk|@aws-sdk|blobService|BlobServiceClient|googleapis|Storage\.bucket|createPresigned|getSignedUrl|bucket)\b/i)
   check(
     'T65',
     'No storage provider code',
-    moduleReach.status === 0 && providerScan.status === 1,
-    moduleReach.status !== 0
+    moduleCode.files.length > 0 && moduleCode.code.includes('normalizeStorageRef') && provider === null,
+    moduleCode.files.length === 0 || !moduleCode.code.includes('normalizeStorageRef')
       ? 'the scan did not reach the committed module source, so this absence is unproven'
-      : 'no bucket, S3, Azure, GCS or signed-URL assumption anywhere in the module (search verified to reach the source)',
+      : provider
+        ? `storage-provider code found: ${JSON.stringify(provider[0])}`
+        : `no bucket, S3, Azure, GCS or signed-URL code in any of the ${moduleCode.files.length} committed module files; the reference stays opaque (search verified to reach the source)`,
   )
 
   const responseKeys = deepKeys(artifact)
@@ -962,25 +990,24 @@ async function main() {
   // module legitimately imports `shared/authorization`, and the harness names A5.2-A6 fields on
   // purpose so T66-T69 can assert their absence. Only a real future-phase MODULE import or a read of
   // a future-phase table would pull scope backwards, so that is what is searched for.
-  const futureScope = gitGrep(
-    "from '[^']*modules/(eligibility|prior-auth|authorization-|claim|submission|remittance)",
-    [':/backend/src/modules/evidence-artifact', ':/backend/src/integration/a5-evidence-artifact', ':/frontend/src/modules/evidence-artifact'],
-  )
-  const futureScopePaths = [':/backend/src/modules/evidence-artifact', ':/backend/src/integration/a5-evidence-artifact', ':/frontend/src/modules/evidence-artifact']
-  const futureModels = gitGrep(
-    'prisma[.](eligibilityVerification|priorAuthorization|authorizationLine|claim|claimLine|claimSubmission|remittance|claimEvidencePackage)\\b',
-    futureScopePaths,
-  )
-  const futureReach = gitGrep("from '", futureScopePaths)
+  // Executable code only, for the reason given at `committedCode`: this file names A5.2-A6 fields on
+  // purpose so T66-T69 can assert their absence, and the module's comments explain what it refuses
+  // to depend on. A word search would find those explanations and call them violations.
+  const scopeCode = ['backend/src/modules/evidence-artifact', 'backend/src/integration/a5-evidence-artifact', 'frontend/src/modules/evidence-artifact']
+    .map((dir) => committedCodeOf(dir))
+    .reduce((all, one) => ({ files: [...all.files, ...one.files], code: `${all.code}\n${one.code}` }), { files: [] as string[], code: '' })
+  const futureImport = scopeCode.code.match(/from '[^']*modules\/(eligibility|prior-auth|authorization-|claim|submission|remittance)/)
+  const futureModel = scopeCode.code.match(/prisma\.(eligibilityVerification|priorAuthorization|authorizationLine|claim|claimLine|claimSubmission|remittance|claimEvidencePackage)\b/)
+  const scopeReached = scopeCode.files.length > 0 && scopeCode.code.includes("from '")
   check(
     'T76',
     'Diff scope',
-    outOfScope.length === 0 && futureReach.status === 0 && futureScope.status === 1 && futureModels.status === 1,
-    futureReach.status !== 0
+    outOfScope.length === 0 && scopeReached && futureImport === null && futureModel === null,
+    !scopeReached
       ? 'the import scan did not reach the committed sources, so this absence is unproven'
-      : outOfScope.length === 0 && futureScope.status === 1 && futureModels.status === 1
-        ? `${changedPaths.length} path(s): the evidence module, its migration, permission and audit wiring, and the dev check; no future-phase module import and no future-phase table read`
-        : `unexpected: ${[...outOfScope, futureScope.output, futureModels.output].filter(Boolean).join(', ').slice(0, 220)}`,
+      : outOfScope.length === 0 && futureImport === null && futureModel === null
+        ? `${changedPaths.length} path(s): the evidence module, its migration, permission and audit wiring, and the dev check; across ${scopeCode.files.length} committed files no future-phase module is imported and no future-phase table is read`
+        : `unexpected: ${[...outOfScope, futureImport?.[0], futureModel?.[0]].filter(Boolean).join(', ').slice(0, 220)}`,
   )
 
   const secretScan = gitGrep(
