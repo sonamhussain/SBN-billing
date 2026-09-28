@@ -73,6 +73,11 @@ const committedCodeOf = (dir: string) => {
   return { files, code: files.map((file) => committedCode(file)).join('\n') }
 }
 
+// Raised when the run can no longer produce evidence — not a failed check, but a broken
+// environment. It is reported without a stack trace, because the reader needs the fix, not the
+// call site.
+class RunAborted extends Error {}
+
 const runId = `A51-${Date.now()}`
 const baseUrl = process.env.A1_IT_BASE_URL as string
 const adminEmail = process.env.A1_IT_ADMIN_EMAIL as string
@@ -303,13 +308,15 @@ async function main() {
     try {
       return await callApi(baseUrl, path, init)
     } catch {
+      // A reset on localhost is not a network blip; it is the server being replaced. Once that has
+      // happened the remaining checks would be measured against a different process, so the run
+      // stops here rather than spending another twenty minutes producing evidence it cannot use.
       connectionResets += 1
-      try {
-        await apiReady(`retrying ${path}`)
-        return await callApi(baseUrl, path, init)
-      } catch (retryError) {
-        return { status: 0, requestId: null, body: { networkError: String((retryError as Error)?.message ?? retryError) }, setCookies: [] as string[] }
-      }
+      throw new RunAborted(
+        `the API connection was reset while calling ${path}. The server was replaced underneath this run, ` +
+          'which is what a server started with `--watch` does whenever db:generate or a migration replay rewrites a file. ' +
+          'Close the terminal tab running `npm run dev`, start the API with `npm start` in a tab of its own, and run this suite again.',
+      )
     }
   }
   const signIn = async (email: string, password: string) => {
@@ -1213,7 +1220,13 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error('[A5.1] uncaught error (this itself is a FAIL):', error)
+    if (error instanceof RunAborted) {
+      console.log(`
+[A5.1] RUN ABORTED: ${error.message}`)
+      console.log('[A5.1] No verdict was recorded for the remaining checks, so this run is not evidence of anything.')
+    } else {
+      console.error('[A5.1] uncaught error (this itself is a FAIL):', error)
+    }
     process.exitCode = 1
   })
   .finally(async () => {
