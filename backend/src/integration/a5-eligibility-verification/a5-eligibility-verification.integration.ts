@@ -402,9 +402,12 @@ async function main() {
     '201; the verification and exactly one safe audit event were written in one transaction',
   )
 
+  // Any Encounter owned by the other organization serves the tenancy checks. It deliberately does
+  // NOT have to carry a selected membership: what is being proven is that this tenant cannot read or
+  // write against it at all.
   const foreignEncounter = await prisma.encounter.findFirst({
-    where: { patient: { organizationId: otherOrg }, insuranceMembershipId: { not: null } },
-    select: { id: true },
+    where: { patient: { organizationId: otherOrg } },
+    select: { id: true, serviceDate: true },
   })
   check(
     'T08',
@@ -464,7 +467,7 @@ async function main() {
   )
 
   // A later correction to the membership must not reach back into a verification already recorded.
-  const membershipPatch = await patchApi(`/api/patients/${patient.id}/insurance-memberships/${membership.id}`, { payerId: payer2.id, tpaId: null, networkId: null, insuranceProductId: null })
+  const membershipPatch = await patchApi(`/api/insurance-memberships/${membership.id}`, { payerId: payer2.id, tpaId: null, networkId: null, insuranceProductId: null })
   const afterMembershipPatch = await prisma.eligibilityVerification.findUniqueOrThrow({ where: { id: verification.id } })
   check(
     'T15',
@@ -623,7 +626,7 @@ async function main() {
     'FRESH describes the validity boundary, never the result: a FRESH UNKNOWN is still UNKNOWN eligibility',
   )
 
-  const staleCreated = (await createFor(encounter.id, { status: 'ELIGIBLE', respondedAt: '2026-06-15T09:00:00.000Z', validThrough: '2026-06-16T00:00:00.000Z' })).body as Record<string, any>
+  const staleCreated = (await createFor(encounter.id, { status: 'ELIGIBLE', requestedAt: null, respondedAt: '2026-06-15T09:00:00.000Z', validThrough: '2026-06-16T00:00:00.000Z' })).body as Record<string, any>
   const staleRead = (await get(`/api/eligibility-verifications/${staleCreated.id}`)).body as Record<string, any>
   const staleStored = await prisma.eligibilityVerification.findUniqueOrThrow({ where: { id: staleCreated.id }, select: { status: true } })
   check(
@@ -886,22 +889,23 @@ async function main() {
     `read ${foreignList?.status} and create ${foreignCreate?.status}; no verification was written and no context was disclosed`,
   )
 
-  // A foreign verification, created directly because this tenant's routes correctly refuse to
-  // author one. It is read-only evidence for the by-id privacy check.
-  const foreignMembership = foreignEncounter
-    ? await prisma.encounter.findUnique({ where: { id: foreignEncounter.id }, select: { insuranceMembershipId: true, serviceDate: true } })
-    : null
+  // A verification owned by the other organization, written directly because this tenant's routes
+  // correctly refuse to author one. It exists only to be refused, and nothing reads it back except
+  // the privacy assertion below.
+  const foreignMembership = await prisma.insuranceMembership.findFirst({
+    where: { patient: { organizationId: otherOrg } },
+    select: { id: true, payerId: true },
+  })
   const foreignEvidence = await prisma.evidenceArtifactVersion.findFirst({ where: { evidenceArtifact: { organizationId: otherOrg } }, select: { id: true } })
   let foreignVerificationId = ''
-  if (foreignEncounter && foreignMembership?.insuranceMembershipId && foreignEvidence) {
-    const foreignPayer = await prisma.insuranceMembership.findUniqueOrThrow({ where: { id: foreignMembership.insuranceMembershipId }, select: { payerId: true } })
+  if (foreignEncounter && foreignMembership && foreignEvidence) {
     foreignVerificationId = (
       await prisma.eligibilityVerification.create({
         data: {
           encounterId: foreignEncounter.id,
-          insuranceMembershipId: foreignMembership.insuranceMembershipId,
-          serviceDate: foreignMembership.serviceDate,
-          payerId: foreignPayer.payerId,
+          insuranceMembershipId: foreignMembership.id,
+          serviceDate: foreignEncounter.serviceDate,
+          payerId: foreignMembership.payerId,
           verificationMethod: 'MANUAL',
           status: 'INELIGIBLE',
           respondedAt: new Date('2026-06-15T09:00:00.000Z'),
