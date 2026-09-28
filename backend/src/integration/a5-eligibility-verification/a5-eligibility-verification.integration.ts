@@ -886,9 +886,19 @@ async function main() {
     '403 with no verification and no audit event',
   )
 
+  // The count is taken before and after, not compared against zero. T71 writes a foreign
+  // verification directly and, like all history here, it is never deleted — so a second run of this
+  // suite would find one already present. What this check proves is that THIS attempt wrote
+  // nothing, which stays true however many earlier runs are on record.
+  const foreignVerificationsBefore = foreignEncounter
+    ? await prisma.eligibilityVerification.count({ where: { encounterId: foreignEncounter.id } })
+    : 0
   const foreignList = foreignEncounter ? await get(`/api/encounters/${foreignEncounter.id}/eligibility-verifications`) : null
   const foreignCreate = foreignEncounter ? await createFor(foreignEncounter.id) : null
   const foreignListBody = JSON.stringify(foreignList?.body ?? {})
+  const foreignVerificationsAfter = foreignEncounter
+    ? await prisma.eligibilityVerification.count({ where: { encounterId: foreignEncounter.id } })
+    : 0
   check(
     'T70',
     'Cross-tenant Encounter',
@@ -900,8 +910,8 @@ async function main() {
       foreignCreate.status >= 400 &&
       foreignCreate.status < 500 &&
       !foreignListBody.includes(otherOrg) &&
-      (await prisma.eligibilityVerification.count({ where: { encounterId: foreignEncounter.id } })) === 0,
-    `read ${foreignList?.status} and create ${foreignCreate?.status}; no verification was written and no context was disclosed`,
+      foreignVerificationsAfter === foreignVerificationsBefore,
+    `read ${foreignList?.status} and create ${foreignCreate?.status}; the foreign encounter still holds ${foreignVerificationsAfter} verification(s), unchanged by this attempt, and no context was disclosed`,
   )
 
   // A verification owned by the other organization, written directly because this tenant's routes
@@ -912,8 +922,12 @@ async function main() {
     select: { id: true, payerId: true },
   })
   const foreignEvidence = await prisma.evidenceArtifactVersion.findFirst({ where: { evidenceArtifact: { organizationId: otherOrg } }, select: { id: true } })
-  let foreignVerificationId = ''
-  if (foreignEncounter && foreignMembership && foreignEvidence) {
+  // An earlier run's fixture is reused when one is already on record, so repeated runs do not
+  // accumulate foreign rows. Nothing is ever deleted either way.
+  let foreignVerificationId = foreignEncounter
+    ? (await prisma.eligibilityVerification.findFirst({ where: { encounterId: foreignEncounter.id }, select: { id: true } }))?.id ?? ''
+    : ''
+  if (foreignVerificationId === '' && foreignEncounter && foreignMembership && foreignEvidence) {
     foreignVerificationId = (
       await prisma.eligibilityVerification.create({
         data: {
