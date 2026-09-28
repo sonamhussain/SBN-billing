@@ -99,6 +99,7 @@ model InsuranceMembership {
   network            Network?          @relation(fields: [networkId], references: [id], onDelete: Restrict)
   insuranceProduct   InsuranceProduct? @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
   encounters         Encounter[]
+  eligibilityVerifications EligibilityVerification[]
 
   @@index([patientId])
   @@index([payerId])
@@ -141,6 +142,7 @@ model Encounter {
   activities                  EncounterActivity[]
   observations                EncounterObservation[]
   externalIdentifiers         ExternalIdentifier[]
+  eligibilityVerifications    EligibilityVerification[]
 
   @@index([patientId])
   @@index([facilityId])
@@ -372,6 +374,7 @@ model Payer {
   ruleSourceScopes RuleSourceScope[]
   providerContracts ProviderContract[]
   insuranceMemberships InsuranceMembership[]
+  eligibilityVerifications EligibilityVerification[]
 
   @@index([organizationId])
   @@map("payers")
@@ -390,6 +393,7 @@ model Tpa {
   ruleSourceScopes RuleSourceScope[]
   providerContracts ProviderContract[]
   insuranceMemberships InsuranceMembership[]
+  eligibilityVerifications EligibilityVerification[]
 
   @@index([organizationId])
   @@map("tpas")
@@ -409,6 +413,7 @@ model Network {
   ruleSourceScopes RuleSourceScope[]
   providerContracts ProviderContract[]
   insuranceMemberships InsuranceMembership[]
+  eligibilityVerifications EligibilityVerification[]
 
   @@index([organizationId])
   @@map("networks")
@@ -758,6 +763,7 @@ model InsuranceProduct {
   ruleSourceScopes   RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
   insuranceMemberships InsuranceMembership[]
+  eligibilityVerifications EligibilityVerification[]
 
   @@unique([organizationId, productCode])
   @@index([organizationId])
@@ -1237,6 +1243,11 @@ model EvidenceArtifactVersion {
 
   evidenceArtifact EvidenceArtifact @relation(fields: [evidenceArtifactId], references: [id], onDelete: Restrict)
   createdBy        User             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  // A5.2 references a version as request or response proof. Two named relations are required
+  // because both point at this same model. A5.2 stores only these foreign keys: no evidence
+  // metadata is copied, and nothing here becomes mutable.
+  eligibilityRequestUses  EligibilityVerification[] @relation("EligibilityRequestEvidence")
+  eligibilityResponseUses EligibilityVerification[] @relation("EligibilityResponseEvidence")
 
   // There is deliberately no unique index on contentHash or storageRef: the same bytes may
   // legitimately back more than one evidence identity, and storage-provider identity semantics are
@@ -1247,4 +1258,80 @@ model EvidenceArtifactVersion {
   @@index([documentType])
   @@index([contentHash])
   @@map("evidence_artifact_versions")
+}
+
+// A5.2 — an immutable, evidence-bearing eligibility verification.
+//
+// It records what a verification actually REPORTED, not what registration implies. A4.3 answers
+// registration truth; this answers verification truth, and the two are never equated: a recorded
+// coverage period that contains the service date is not eligibility, and a missing or failed
+// response is UNKNOWN, never INELIGIBLE.
+//
+// A verification is a historical event. Re-verifying creates a NEW row; the earlier one is never
+// rewritten, which a database trigger enforces alongside the absent PATCH and DELETE routes.
+//
+// Freshness is DERIVED at read time from validThrough and is deliberately not a column here. A
+// stored freshness flag would go stale the moment the clock moved past it, and FRESH would begin to
+// read as ELIGIBLE, which it never means.
+model EligibilityVerification {
+  id                    String @id @default(uuid()) @db.Uuid
+  encounterId           String @map("encounter_id") @db.Uuid
+  insuranceMembershipId String @map("insurance_membership_id") @db.Uuid
+
+  // The commercial context exactly as it stood on the selected membership at verification time, and
+  // the Encounter's service date as it stood then. These are historical decision context, not a
+  // second membership record: a later correction to the membership or the Encounter must not be
+  // able to rewrite what this verification was evaluated against.
+  payerId            String   @map("payer_id") @db.Uuid
+  tpaId              String?  @map("tpa_id") @db.Uuid
+  networkId          String?  @map("network_id") @db.Uuid
+  insuranceProductId String?  @map("insurance_product_id") @db.Uuid
+  serviceDate        DateTime @map("service_date") @db.Date
+
+  // ELECTRONIC | PORTAL | MANUAL | OTHER. ELECTRONIC records how the result was obtained; it does
+  // not imply that a production payer adapter exists. That transport belongs to A9.
+  verificationMethod String    @map("verification_method") @db.Text
+  // ELIGIBLE | INELIGIBLE | UNKNOWN, as reported by the source. UNKNOWN is a first-class answer and
+  // is never optimistically resolved.
+  status             String    @db.Text
+  // Null when genuinely unknown; never inferred from createdAt.
+  requestedAt        DateTime? @map("requested_at") @db.Timestamptz(6)
+  respondedAt        DateTime  @map("responded_at") @db.Timestamptz(6)
+  // The recorded validity boundary. Null means no normalized boundary is known, which makes
+  // freshness UNKNOWN rather than fresh or stale. It is never inferred from coverageTo or from a
+  // hard-coded payer duration.
+  validThrough       DateTime? @map("valid_through") @db.Timestamptz(6)
+
+  // Normalized requirement indicators, recorded only when the response explicitly supplied them.
+  // Null means not supplied, which is not the same as false.
+  authorizationRequired Boolean? @map("authorization_required")
+  referralRequired      Boolean? @map("referral_required")
+
+  // Exact A5.1 proof. The response is mandatory — a verification without evidence is not an A5.2
+  // verification. The request is optional because a portal or manual workflow may preserve only the
+  // response. No storage reference, hash or document type is copied here; A5.1 owns all of that.
+  requestEvidenceVersionId  String?  @map("request_evidence_version_id") @db.Uuid
+  responseEvidenceVersionId String   @map("response_evidence_version_id") @db.Uuid
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  encounter               Encounter                @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  insuranceMembership     InsuranceMembership      @relation(fields: [insuranceMembershipId], references: [id], onDelete: Restrict)
+  payer                   Payer                    @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                     Tpa?                     @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network                 Network?                 @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  insuranceProduct        InsuranceProduct?        @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  requestEvidenceVersion  EvidenceArtifactVersion? @relation("EligibilityRequestEvidence", fields: [requestEvidenceVersionId], references: [id], onDelete: Restrict)
+  responseEvidenceVersion EvidenceArtifactVersion  @relation("EligibilityResponseEvidence", fields: [responseEvidenceVersionId], references: [id], onDelete: Restrict)
+
+  // There is deliberately no unique index on encounterId or responseEvidenceVersionId: repeated
+  // verification of one encounter is legitimate, and one external response may support more than one
+  // encounter or context. There is no isCurrent or isPrimary flag either — choosing which
+  // verification is usable belongs to a later governed consumer, not to this table.
+  @@index([encounterId])
+  @@index([insuranceMembershipId])
+  @@index([payerId])
+  @@index([responseEvidenceVersionId])
+  @@index([respondedAt])
+  @@index([validThrough])
+  @@map("eligibility_verifications")
 }

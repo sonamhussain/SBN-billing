@@ -131,6 +131,13 @@ async function main() {
       // A5.1: version numbering is unique per artifact, which is half of what makes the
       // sequence gap-free; the row lock in the service is the other half.
       'evidence_artifact_versions_evidence_artifact_id_version_key',
+      // A5.2: the lookup indexes a verification history is read through. There is deliberately no
+      // unique index among them — repeated verification of one encounter is legitimate, and one
+      // external response may support more than one encounter.
+      'eligibility_verifications_encounter_id_idx',
+      'eligibility_verifications_response_evidence_version_id_idx',
+      'eligibility_verifications_responded_at_idx',
+      'eligibility_verifications_valid_through_idx',
     ]
     for (const name of required) {
       check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))
@@ -173,6 +180,23 @@ async function main() {
       'evidence_artifacts_organization_id_fkey',
       'evidence_artifact_versions_evidence_artifact_id_fkey',
       'evidence_artifact_versions_created_by_user_id_fkey',
+      // A5.2: the closed status and method vocabularies, the two timestamp-ordering CHECKs, and
+      // the RESTRICT foreign keys that stop a verification losing the encounter, membership,
+      // commercial identity or evidence it was recorded against. A replay that lost the status
+      // CHECK would leave a table where a verification could claim a result this domain has never
+      // defined.
+      'eligibility_verifications_status_chk',
+      'eligibility_verifications_method_chk',
+      'eligibility_verifications_request_response_order_chk',
+      'eligibility_verifications_validity_order_chk',
+      'eligibility_verifications_encounter_id_fkey',
+      'eligibility_verifications_insurance_membership_id_fkey',
+      'eligibility_verifications_payer_id_fkey',
+      'eligibility_verifications_tpa_id_fkey',
+      'eligibility_verifications_network_id_fkey',
+      'eligibility_verifications_insurance_product_id_fkey',
+      'eligibility_verifications_request_evidence_version_id_fkey',
+      'eligibility_verifications_response_evidence_version_id_fkey',
     ]) {
       check(`${name} is present after a clean replay`, replay.constraints.some((line) => line.includes(name)))
     }
@@ -188,6 +212,25 @@ async function main() {
     check(
       'the append-only trigger on evidence versions is present after a clean replay',
       replay.triggers.some((line) => line.includes('evidence_artifact_versions_append_only_trg')),
+    )
+
+    // A5.2 — an eligibility verification is a historical event, so correcting one means recording a
+    // new row. A replay that lost this trigger would leave a database where a past verification's
+    // status, timing or evidence could be rewritten after a decision had been made against it.
+    check(
+      'the append-only trigger on eligibility verifications is present after a clean replay',
+      replay.triggers.some((line) => line.includes('eligibility_verifications_append_only_trg')),
+    )
+
+    // A5.2 — freshness is derived from valid_through at read time and must never become a column.
+    // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
+    // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration
+    // cannot add one quietly.
+    const verificationColumns = replay.columns.filter((line) => line.startsWith('eligibility_verifications.'))
+    check(
+      'eligibility verifications store no freshness column after a clean replay',
+      verificationColumns.length > 0 && !verificationColumns.some((line) => /fresh|stale|is_current|is_primary/i.test(line)),
+      verificationColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : '',
     )
 
     // A4.8 — the exact-one-target CHECK surviving is not enough: after a clean replay it must
