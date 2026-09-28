@@ -55,6 +55,11 @@ import { encounterDiagnosesRouter, encounterDiagnosisRouter } from './modules/en
 import { encounterActivitiesRouter, encounterActivityRouter } from './modules/encounter-activity/encounter-activity.route.ts'
 import { encounterObservationsRouter, encounterObservationRouter } from './modules/encounter-observation/encounter-observation.route.ts'
 import { encounterBillingContextRouter } from './modules/encounter-billing-context/encounter-billing-context.route.ts'
+import {
+  organizationEvidenceArtifactRouter,
+  evidenceArtifactRouter,
+  evidenceArtifactVersionRouter,
+} from './modules/evidence-artifact/evidence-artifact.route.ts'
 
 export const app = express()
 
@@ -210,6 +215,10 @@ app.use('/api/encounters', encounterObservationsRouter)
 app.use('/api/encounter-observations', encounterObservationRouter)
 // A4.9 - one read-only aggregate: GET /api/encounters/:encounterId/billing-context
 app.use('/api/encounters', encounterBillingContextRouter)
+// A5.1 - evidence identity and its append-only versions. No PATCH, DELETE or content route.
+app.use('/api/organizations', organizationEvidenceArtifactRouter)
+app.use('/api/evidence-artifacts', evidenceArtifactRouter)
+app.use('/api/evidence-artifact-versions', evidenceArtifactVersionRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

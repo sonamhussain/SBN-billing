@@ -128,6 +128,9 @@ async function main() {
       // A4.8: the two lookup indexes for the additive Patient/Encounter identity targets.
       'external_identifiers_patient_id_idx',
       'external_identifiers_encounter_id_idx',
+      // A5.1: version numbering is unique per artifact, which is half of what makes the
+      // sequence gap-free; the row lock in the service is the other half.
+      'evidence_artifact_versions_evidence_artifact_id_version_key',
     ]
     for (const name of required) {
       check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))
@@ -161,6 +164,15 @@ async function main() {
       'external_identifiers_exactly_one_target_chk',
       'external_identifiers_patient_id_fkey',
       'external_identifiers_encounter_id_fkey',
+      // A5.1: the four evidence-version CHECKs and the three RESTRICT foreign keys that
+      // keep evidence, its organization and its author from being deleted out from under it.
+      'evidence_artifact_versions_version_positive_chk',
+      'evidence_artifact_versions_storage_ref_nonblank_chk',
+      'evidence_artifact_versions_content_hash_nonblank_chk',
+      'evidence_artifact_versions_document_type_nonblank_chk',
+      'evidence_artifacts_organization_id_fkey',
+      'evidence_artifact_versions_evidence_artifact_id_fkey',
+      'evidence_artifact_versions_created_by_user_id_fkey',
     ]) {
       check(`${name} is present after a clean replay`, replay.constraints.some((line) => line.includes(name)))
     }
@@ -168,6 +180,14 @@ async function main() {
     check(
       'the append-only trigger on the dataset history is present after a clean replay',
       replay.triggers.some((line) => line.includes('reference_dataset_lifecycle_events_append_only_trg')),
+    )
+
+    // A5.1 — the immutability of evidence versions is the package's central promise, and it is
+    // kept by a trigger rather than by convention. A replay that lost it would leave a database
+    // where a past representation could be edited after a decision had been made against it.
+    check(
+      'the append-only trigger on evidence versions is present after a clean replay',
+      replay.triggers.some((line) => line.includes('evidence_artifact_versions_append_only_trg')),
     )
 
     // A4.8 — the exact-one-target CHECK surviving is not enough: after a clean replay it must

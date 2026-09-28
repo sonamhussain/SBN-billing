@@ -31,6 +31,7 @@ model Organization {
   insuranceProducts InsuranceProduct[]
   providerContracts ProviderContract[]
   patients          Patient[]
+  evidenceArtifacts EvidenceArtifact[]
 
   @@map("organizations")
 }
@@ -991,6 +992,7 @@ model User {
   accounts      Account[]
   memberships   OrganizationMembership[]
   auditEvents   AuditEvent[]
+  evidenceArtifactVersionsCreated EvidenceArtifactVersion[]
 
   @@unique([email])
   @@map("user")
@@ -1186,4 +1188,63 @@ model RulePackMember {
   @@index([rulePackVersionId])
   @@index([ruleVersionId])
   @@map("rule_pack_members")
+}
+
+
+// A5.1 - EvidenceArtifact answers "what stable evidence identity is this?" and
+// EvidenceArtifactVersion answers "which exact representation was received and stored?".
+//
+// The artifact carries no document content and no workflow status: it is only a durable handle that
+// later A5 records and, eventually, an A6 ClaimSubmission can point at. Everything that describes a
+// particular received representation lives on a version, and a version is append-only - a
+// correction or replacement is a NEW version, never an edit of an earlier one, so evidence a
+// decision was made against can still be read exactly as it was.
+//
+// A5.1 deliberately carries no patient, encounter, membership, eligibility, authorization or claim
+// reference. Those relationships belong to the records that own them, and putting them here would
+// make this table the second home for workflow truth it does not own.
+
+model EvidenceArtifact {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  versions     EvidenceArtifactVersion[]
+
+  @@index([organizationId])
+  @@map("evidence_artifacts")
+}
+
+model EvidenceArtifactVersion {
+  id                 String    @id @default(uuid()) @db.Uuid
+  evidenceArtifactId String    @map("evidence_artifact_id") @db.Uuid
+  // Server-owned and gap-free per artifact; a client never supplies it.
+  version            Int
+  // An opaque locator for evidence stored elsewhere. It is never parsed as a path, URL, bucket key
+  // or vendor object id, and it never appears in an audit record or a log.
+  storageRef         String    @map("storage_ref") @db.Text
+  // A canonical lowercase SHA-256 digest. It proves byte identity of the stored representation; it
+  // is not a signature, an authenticity proof or an authorization decision.
+  contentHash        String    @map("content_hash") @db.Text
+  // Opaque. No payer or UAE vocabulary is assumed or enforced here.
+  documentType       String    @map("document_type") @db.Text
+  // Null means the source date is unknown. It is never inferred from receivedAt.
+  sourceDate         DateTime? @map("source_date") @db.Date
+  receivedAt         DateTime  @map("received_at") @db.Timestamptz(6)
+  createdByUserId    String    @map("created_by_user_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  evidenceArtifact EvidenceArtifact @relation(fields: [evidenceArtifactId], references: [id], onDelete: Restrict)
+  createdBy        User             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  // There is deliberately no unique index on contentHash or storageRef: the same bytes may
+  // legitimately back more than one evidence identity, and storage-provider identity semantics are
+  // not frozen by this package.
+  @@unique([evidenceArtifactId, version])
+  @@index([evidenceArtifactId])
+  @@index([createdByUserId])
+  @@index([documentType])
+  @@index([contentHash])
+  @@map("evidence_artifact_versions")
 }

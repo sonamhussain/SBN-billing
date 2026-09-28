@@ -35,6 +35,10 @@ const lockableTables = [
   // A4.4: an encounter PATCH locks its own row first, then the resulting clinician, facility and
   // membership, so concurrent partial corrections serialize and context is read stable.
   'encounters',
+  // A5.1: every version append for one evidence artifact serializes on that artifact's row,
+  // so the next version number is read and claimed under the same lock and the sequence stays
+  // gap-free. Locking only the new version row could not protect a number nobody holds yet.
+  'evidence_artifacts',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

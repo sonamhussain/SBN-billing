@@ -125,6 +125,13 @@ export const permissionCodes = [
   // `encounter.read` alone must never open it. It is read-only: there is deliberately no
   // create, update or delete counterpart.
   'encounterBillingContext.read',
+
+  // A5.1 - evidence identity and its immutable versions. There is deliberately no update,
+  // delete or download permission: a version is append-only, a correction is a new version,
+  // and A5.1 never transports evidence content.
+  'evidenceArtifact.create',
+  'evidenceArtifact.read',
+  'evidenceArtifactVersion.create',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
