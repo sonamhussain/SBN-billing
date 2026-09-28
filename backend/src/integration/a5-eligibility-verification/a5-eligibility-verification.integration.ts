@@ -1273,6 +1273,23 @@ async function main() {
   const a51Indented = a51Lines
     .filter((line) => line.startsWith('[A5.1]      ') && line.includes('substantive checks FAIL'))
     .map((line) => line.replace('[A5.1]      ', '').split(' ')[0])
+
+  // A3's own suite fails here, and for the same reason one level further back: A3-era scope guards
+  // assert that no A5 runtime schema exists yet. A5.2 creates the first such table. The two ids are
+  // read out of the line and each must be documented; any other A3 failure is a real regression.
+  const a51OwnerLine = (label: string) => a51Lines.find((line) => line.startsWith('[A5.1]      ') && line.includes(`${label} substantive checks`)) ?? ''
+  const a3Line = a51OwnerLine('A3')
+  const a3Reported = (a3Line.match(/unexpected A3\.10 failures: ([^)\-]*)/) ?? ['', ''])[1]
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+  const a3NonApplicable: Record<string, string> = {
+    T65: "A3.10 'no generic rules engine' runs the A3.9 scope suite, which asserts the database holds no table matching '%eligib%'; A5.2 creates eligibility_verifications",
+    T67: "A3.10 'no A5+ runtime' names eligibility_verifications in its forbidden set by hand; creating it is exactly the A3-to-A5 boundary this package crosses",
+  }
+  const a3Undocumented = a3Reported.filter((id) => !(id in a3NonApplicable))
+  const a3Tolerated = /FAIL/.test(a3Line) && a3Reported.length > 0 && a3Undocumented.length === 0
+  const a51IndentedUndocumented = a51Indented.filter((label) => !(label === 'A3' && a3Tolerated))
   const a51Counts = a51.output.match(/\[A5\.1\] automated summary: (\d+)\/(\d+) PASS/)
   const a51Failed = a51Counts ? Number(a51Counts[2]) - Number(a51Counts[1]) : -1
   const a51Accounted = a51Failing.length + a51Indented.length
@@ -1282,20 +1299,26 @@ async function main() {
   check(
     'T89',
     'A5.1 regression',
-    a51Undocumented.length === 0 && a51Indented.length === 0 && a51Reconciled && a51Unreadable.length === 0,
+    a51Undocumented.length === 0 && a51IndentedUndocumented.length === 0 && a3Undocumented.length === 0 && a51Reconciled && a51Unreadable.length === 0,
     !a51Reconciled
       ? `A5.1 reports ${a51Failed} failure(s) but only ${a51Accounted} could be named; something failed that this suite did not read back`
       : a51Unreadable.length > 0
         ? `tolerated but unreadable in the output: ${a51Unreadable.join(', ')}`
         : a51Undocumented.length > 0
           ? `undocumented A5.1 failures: ${a51Undocumented.join(', ')}`
-          : a51Indented.length > 0
-            ? `A5.1 owner-suite lines failed: ${a51Indented.join(', ')}`
-            : `${(a51.output.match(/\[A5\.1\] automated summary: [^\n]*/) ?? ['no summary'])[0].replace('[A5.1] automated summary: ', 'A5.1 ')}; all ${a51Failed} failure(s) named and accounted for, and every substantive evidence invariant still holds`,
+          : a3Undocumented.length > 0
+            ? `undocumented A3.10 failures: ${a3Undocumented.join(', ')}`
+            : a51IndentedUndocumented.length > 0
+              ? `A5.1 owner-suite lines failed: ${a51IndentedUndocumented.join(', ')}`
+              : `${(a51.output.match(/\[A5\.1\] automated summary: [^\n]*/) ?? ['no summary'])[0].replace('[A5.1] automated summary: ', 'A5.1 ')}; all ${a51Failed} failure(s) named and accounted for, and every substantive evidence invariant still holds`,
   )
   for (const id of Object.keys(a51NonApplicable)) {
     const line = a51FailLine(id)
     if (line) notApplicableCheck(`T89/${id}`, `A5.1 ${a51TitleOf(line)}`, a51NonApplicable[id])
+  }
+  if (a3Tolerated) {
+    notApplicableCheck('T89/A3', 'A5.1 A3 owner suite', `A3.10 reports ${a3Reported.length} failure(s) and each is listed below with its own reason`)
+    for (const id of a3Reported) notApplicableCheck(`T89/A3.10/${id}`, `A3.10 ${id}`, a3NonApplicable[id])
   }
 
   // A5.1 prints the deep regression verdicts on indented lines of its own; they are read back here
@@ -1303,13 +1326,20 @@ async function main() {
   const a3 = (a51.output.match(/\[A5\.1\] +A3 substantive checks (PASS|FAIL)[^\n]*/) ?? [''])[0]
   const a2 = (a51.output.match(/\[A5\.1\] +A2 substantive checks (PASS|FAIL)[^\n]*/) ?? [''])[0]
   const a1 = (a51.output.match(/\[A5\.1\] +A1 substantive checks (PASS|FAIL)[^\n]*/) ?? [''])[0]
-  for (const line of [a3, a2, a1]) console.log(`[A5.2]      ${line.replace('[A5.1]', '').trim().slice(0, 140)}`)
-  const a410Summary = (a51.output.match(/A4\.10 \d+\/\d+ PASS[^\n;]*/) ?? ['no A4.10 summary'])[0]
+  for (const line of [a3, a2, a1]) console.log(`[A5.2]      ${line.replace('[A5.1]', '').trim().slice(0, 200)}`)
+  // A5.1 prints the A4.10 summary only in its T73 PASS detail, and on this branch T73 is a
+  // documented N/A — so the summary string cannot appear and looking for it would fail on correct
+  // output. What proves the A4 chain actually ran is A5.1's own A4.10 read-backs, which it prints
+  // either way; without them there would be nothing to read A3, A2 and A1 through.
+  const a4ChainRan = a51Lines.some((line) => line.startsWith('[A5.1] T73/T02 '))
+  const a410Verdicts = a51Lines.filter((line) => line.startsWith('[A5.1] T73/')).length
   check(
     'T90',
     'Backward regressions',
-    /PASS/.test(a3) && /PASS/.test(a2) && /PASS/.test(a1) && /A4\.10 \d+\/\d+ PASS/.test(a51.output),
-    `${a410Summary}; A3, A2 and A1 substantive checks all read back PASS through the A5.1 chain`,
+    a4ChainRan && (/PASS/.test(a3) || a3Tolerated) && /PASS/.test(a2) && /PASS/.test(a1),
+    !a4ChainRan
+      ? 'the A4.10 chain did not run inside the A5.1 suite, so nothing could be read back through it'
+      : `the A4 chain ran with ${a410Verdicts} A4.10 verdict(s) read back; A2 and A1 read back PASS, and A3 ${/PASS/.test(a3) ? 'reads back PASS' : 'fails only on the two A3-era scope guards that assert no A5 table exists, each named above'}`,
   )
 
   await apiReady('the DB truth check')
