@@ -945,10 +945,27 @@ async function main() {
   // verdict is read back below.
   await apiReady('the backward regression chain')
   const chain = run('npm run test:a4:integration')
+  const chainLines = chain.output.split(/\r?\n/)
   const chainFailing = failedIds(chain.output, 'A4.10')
+  // Line lookups are done with startsWith rather than a built regular expression. A dynamic pattern
+  // here was written with single backslashes inside a template literal, which turned `\[A4\.10\]`
+  // into the character class `[A4.10]`; it silently matched nothing and six N/A lines disappeared
+  // without failing anything. A search that cannot fail loudly has no business in an acceptance run.
+  const a410FailLine = (id: string) => chainLines.find((line) => line.startsWith(`[A4.10] ${id} `) && line.includes(' FAIL'))
+  const a410TitleOf = (line: string) => line.slice(`[A4.10] `.length).replace(/^\S+\s+/, '').split(' ..')[0].trim()
+
   // On the A5.1 branch, A4.10's own branch-identity and "A4.10 adds no schema" checks cannot hold:
   // A5.1 is a different branch and it legitimately adds a migration and two models.
   const chainNonApplicable = ['T02', 'T04', 'T05', 'T06', 'T117', 'T118']
+
+  // A4.10 also reports each owner suite on an indented line of its own, which increments its failure
+  // count without printing a check id. Those lines are invisible to failedIds, so they are read
+  // separately here; every one of them cascades from the single root named below.
+  const ownerFailing = chainLines
+    .filter((line) => line.startsWith('[A4.10]      ') && line.includes('substantive checks FAIL'))
+    .map((line) => line.replace('[A4.10]      ', '').split(' ')[0])
+  const ownerNonApplicable = ['A4.8', 'A4.7', 'A4.6', 'A4.5', 'A4.4', 'A4.3']
+  const ownerUndocumented = ownerFailing.filter((label) => !ownerNonApplicable.includes(label))
 
   // A4.10's T97 reads A4.9's verdict, and A4.9 in turn fails on this branch. What matters is not
   // that it failed but WHICH checks failed: every one named below asserts a world in which A5 has
@@ -971,7 +988,7 @@ async function main() {
     .filter(Boolean)
   const a49Undocumented = a49Reported.filter((id) => !(id in a49NonApplicable))
 
-  // The single root of the A4.8-A4.3 cascade is A4.4's T67, which lists every public table matching
+  // The single root of the whole cascade is A4.4's T67, which lists every public table matching
   // /(eligib|authoriz|claim|remittance|payment|evidence)/ and requires none to exist. That claim is
   // only allowed to be false because of A5.1 itself, so it is proven rather than asserted: the two
   // evidence tables must be the ONLY matches. If an eligibility, authorization, claim, remittance or
@@ -987,25 +1004,51 @@ async function main() {
   const t97Tolerated = t97.verdict === 'FAIL' && a49Reported.length > 0 && a49Undocumented.length === 0 && boundaryIsOnlyA51
   const tolerated = [...chainNonApplicable, ...(t97Tolerated ? ['T97'] : [])]
   const chainUnexpected = chainFailing.filter((id) => !tolerated.includes(id))
+
+  // Arithmetic, so that a failure category this parser cannot see can never pass unnoticed. A4.10's
+  // own summary says how many of its checks failed; every one of them must be a check id this suite
+  // read back, or an owner line it read back. If the two numbers disagree, something failed that was
+  // never named, and that is a FAIL whatever the named ones say.
+  const a410Counts = chain.output.match(/\[A4\.10\] automated summary: (\d+)\/(\d+) PASS/)
+  const a410Failed = a410Counts ? Number(a410Counts[2]) - Number(a410Counts[1]) : -1
+  const accounted = chainFailing.length + ownerFailing.length
+  const everyFailureAccountedFor = a410Failed >= 0 && accounted === a410Failed
+
+  // Each tolerated id must actually be found in the output. A tolerated id with no line behind it
+  // means the search missed it, which is exactly the silent hole this check exists to prevent.
+  const unreadableTolerated = chainNonApplicable.filter((id) => chainFailing.includes(id) && !a410FailLine(id))
+
   const chainSummary = (chain.output.match(/\[A4\.10\] automated summary: [^\n]*/) ?? ['no summary'])[0]
   check(
     'T73',
     'Backward regressions',
-    chainUnexpected.length === 0 && a49Undocumented.length === 0 && boundaryIsOnlyA51,
+    chainUnexpected.length === 0 &&
+      a49Undocumented.length === 0 &&
+      ownerUndocumented.length === 0 &&
+      boundaryIsOnlyA51 &&
+      everyFailureAccountedFor &&
+      unreadableTolerated.length === 0,
     !boundaryIsOnlyA51
       ? `a future-phase table exists beyond A5.1's own two: ${boundaryTables.join(', ')}`
-      : a49Undocumented.length > 0
-        ? `undocumented A4.9 failures: ${a49Undocumented.join(', ')}`
-        : chainUnexpected.length > 0
-          ? `unexpected A4.10 failures: ${chainUnexpected.join(', ')}`
-          : `${chainSummary.replace('[A4.10] automated summary: ', 'A4.10 ')}; every substantive check green, and the only tables crossing the A4 boundary are A5.1's own two`,
+      : !everyFailureAccountedFor
+        ? `A4.10 reports ${a410Failed} failure(s) but only ${accounted} could be named; something failed that this suite did not read back`
+        : unreadableTolerated.length > 0
+          ? `tolerated but unreadable in the output: ${unreadableTolerated.join(', ')}`
+          : a49Undocumented.length > 0
+            ? `undocumented A4.9 failures: ${a49Undocumented.join(', ')}`
+            : ownerUndocumented.length > 0
+              ? `undocumented A4.10 owner-suite failures: ${ownerUndocumented.join(', ')}`
+              : chainUnexpected.length > 0
+                ? `unexpected A4.10 failures: ${chainUnexpected.join(', ')}`
+                : `${chainSummary.replace('[A4.10] automated summary: ', 'A4.10 ')}; all ${a410Failed} failure(s) named and accounted for, every substantive check green, and the only tables crossing the A4 boundary are A5.1's own two`,
   )
+
   for (const id of chainNonApplicable) {
-    const line = chain.output.match(new RegExp(`\[A4\.10\] ${id} ([^.]*?) \.* FAIL`))
+    const line = a410FailLine(id)
     if (line)
       notApplicableCheck(
         `T73/${id}`,
-        `A4.10 ${line[1].trim()}`,
+        `A4.10 ${a410TitleOf(line)}`,
         'asserts a fact about the A4.10 feature branch, which legitimately adds no schema; A5.1 is a different branch and does',
       )
   }
@@ -1016,12 +1059,19 @@ async function main() {
       `A4.9 reports ${a49Reported.length} failures and every one is listed below with its own reason`,
     )
     for (const id of a49Reported) notApplicableCheck(`T73/A4.9/${id}`, `A4.9 ${id}`, a49NonApplicable[id])
+  }
+  for (const label of ownerFailing)
+    notApplicableCheck(
+      `T73/owner/${label}`,
+      `A4.10 ${label} owner suite`,
+      `an indented owner-suite line, not a check id; it cascades from A4.4 T67 (below) and its own A3/A2/A1 readbacks still pass`,
+    )
+  if (t97Tolerated)
     notApplicableCheck(
       'T73/A4.4/T67',
       'A4.4 no eligibility/auth/claim fields',
-      `the root of the A4.8-A4.3 cascade: it requires no table matching eligibility, authorization, claim, remittance, payment or evidence to exist, and the only ones that do are A5.1's own (${boundaryTables.join(', ')}) — the A4-to-A5 boundary this package exists to cross`,
+      `the root of the entire cascade: it requires no table matching eligibility, authorization, claim, remittance, payment or evidence to exist, and the only ones that do are A5.1's own (${boundaryTables.join(', ')}) — the A4-to-A5 boundary this package exists to cross`,
     )
-  }
   for (const [label, id, title] of [
     ['A3', 'T98', 'A3 regression'],
     ['A2', 'T99', 'A2 regression'],
