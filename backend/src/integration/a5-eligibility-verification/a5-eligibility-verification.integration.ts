@@ -80,6 +80,15 @@ const committedCodeOf = (dir: string) => {
   return { files, code: files.map((file) => committedCode(file)).join('\n') }
 }
 
+// A unit test that asserts a field is REFUSED has to name that field, and a test that asserts a key
+// is absent from a DTO has to list the key. Searching those files for the vocabulary they exist to
+// reject reports the proof of absence as the presence itself. Checks that ask "does this module
+// store or handle X?" therefore read the production files only.
+const committedProductionCodeOf = (dir: string) => {
+  const files = committedFiles(dir).filter((file) => !file.endsWith('.test.ts'))
+  return { files, code: files.map((file) => committedCode(file)).join('\n') }
+}
+
 // Raised when the run can no longer produce evidence — not a failed check, but a broken
 // environment. Reported without a stack trace, because the reader needs the fix.
 class RunAborted extends Error {}
@@ -537,14 +546,15 @@ async function main() {
   // the module must never read coverageFrom or coverageTo at all.
   const coveringMembership = await prisma.insuranceMembership.findUnique({ where: { id: membership.id }, select: { coverageFrom: true, coverageTo: true } })
   const moduleCode = committedCodeOf('backend/src/modules/eligibility-verification')
-  const readsCoverage = /coverageFrom|coverageTo|coverage_from|coverage_to/.test(moduleCode.code)
+  const productionCode = committedProductionCodeOf('backend/src/modules/eligibility-verification')
+  const readsCoverage = /coverageFrom|coverageTo|coverage_from|coverage_to/.test(productionCode.code)
   check(
     'T27',
     'Membership coverage dates',
     unknownStored.status === 'UNKNOWN' && !readsCoverage && moduleCode.files.length > 0,
     moduleCode.files.length === 0
       ? 'the module source could not be read, so this absence is unproven'
-      : `the recorded coverage period (from ${coveringMembership?.coverageFrom?.toISOString().slice(0, 10) ?? 'null'}, to ${coveringMembership?.coverageTo?.toISOString().slice(0, 10) ?? 'null'}) contains the service date and the result is still UNKNOWN; across ${moduleCode.files.length} committed files the module never reads a coverage boundary`,
+      : `the recorded coverage period (from ${coveringMembership?.coverageFrom?.toISOString().slice(0, 10) ?? 'null'}, to ${coveringMembership?.coverageTo?.toISOString().slice(0, 10) ?? 'null'}) contains the service date and the result is still UNKNOWN; across ${productionCode.files.length} production files the module never reads a coverage boundary`,
   )
 
   // ---------------------------------------------------------------- timestamps (T28–T34)
@@ -784,12 +794,17 @@ async function main() {
       (await prisma.evidenceArtifactVersion.count({ where: { id: storedRow.responseEvidenceVersionId } })) === 1,
     'the complete response remains reconstructable through the exact immutable A5.1 version this verification is bound to',
   )
+  const benefitColumns = columnNames.filter((name) => /(copay|coinsurance|deductible|benefit|exclusion|out_of_pocket|coverage_limit)/i.test(name))
+  const benefitInCode = productionCode.code.match(/\b(copay|coinsurance|deductible|benefitCategory|outOfPocket)\w*/i)
   check(
     'T60',
     'No payer vocabulary',
-    !columnNames.some((name) => /(copay|coinsurance|deductible|benefit|exclusion|limit|category|tier)/i.test(name)) &&
-      !/copay|coinsurance|deductible|benefitCategory/i.test(moduleCode.code),
-    'no copay, coinsurance, deductible, exclusion, limit or benefit-category vocabulary in the table or the code',
+    productionCode.files.length > 0 && benefitColumns.length === 0 && benefitInCode === null,
+    productionCode.files.length === 0
+      ? 'the production module source could not be read, so this absence is unproven'
+      : benefitColumns.length > 0 || benefitInCode
+        ? `payer benefit vocabulary found: ${[...benefitColumns, benefitInCode?.[0]].filter(Boolean).join(', ')}`
+        : `no copay, coinsurance, deductible, exclusion or benefit-category vocabulary in the table or in any of the ${productionCode.files.length} production files`,
   )
 
   // ---------------------------------------------------------------- reads (T61–T63)
@@ -1122,12 +1137,22 @@ async function main() {
 
   // ---------------------------------------------------------------- scope guards (T80–T87)
   section('Scope guards — an evidence-bearing verification and nothing more')
+  // `insurance_membership_id` is a required foreign key to the selected membership, not a copy of
+  // member truth, so the word "member" is not what is forbidden. What is forbidden is a column that
+  // would DUPLICATE identity: a patient link, an identifier of any kind, or a demographic.
+  const identityColumns = columnNames.filter(
+    (name) => name === 'patient_id' || /_identifier$/.test(name) || /(given_name|middle_name|family_name|date_of_birth|national|emirate|gender|phone|email)/i.test(name),
+  )
+  const identityInCode = productionCode.code.match(/\b(memberIdentifier|policyIdentifier|givenName|familyName|dateOfBirth)\b/)
   check(
     'T80',
     'No Patient/member copy',
-    !columnNames.some((name) => /(patient|member|policy|given_name|family_name|date_of_birth|national|emirate)/i.test(name)) &&
-      !/memberIdentifier|policyIdentifier/.test(moduleCode.code),
-    `no patient demographic, member or policy column among ${columnNames.length}, and the module never reads one`,
+    productionCode.files.length > 0 && identityColumns.length === 0 && identityInCode === null,
+    productionCode.files.length === 0
+      ? 'the production module source could not be read, so this absence is unproven'
+      : identityColumns.length > 0 || identityInCode
+        ? `identity is duplicated: ${[...identityColumns, identityInCode?.[0]].filter(Boolean).join(', ')}`
+        : `among ${columnNames.length} columns none is a patient link, an identifier or a demographic, and no production file reads a member or policy identifier — only insurance_membership_id, the required foreign key to the selected membership`,
   )
   check(
     'T81',
