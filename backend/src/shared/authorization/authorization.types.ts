@@ -132,6 +132,11 @@ export const permissionCodes = [
   'evidenceArtifact.create',
   'evidenceArtifact.read',
   'evidenceArtifactVersion.create',
+  // A5.2 — recording a verification and reading verification history. There is deliberately
+  // no update, delete or execute-network permission: a correction is a new verification, and
+  // real payer transport belongs to A9.
+  'eligibilityVerification.create',
+  'eligibilityVerification.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

@@ -60,6 +60,10 @@ import {
   evidenceArtifactRouter,
   evidenceArtifactVersionRouter,
 } from './modules/evidence-artifact/evidence-artifact.route.ts'
+import {
+  encounterEligibilityVerificationRouter,
+  eligibilityVerificationRouter,
+} from './modules/eligibility-verification/eligibility-verification.route.ts'
 
 export const app = express()
 
@@ -219,6 +223,12 @@ app.use('/api/encounters', encounterBillingContextRouter)
 app.use('/api/organizations', organizationEvidenceArtifactRouter)
 app.use('/api/evidence-artifacts', evidenceArtifactRouter)
 app.use('/api/evidence-artifact-versions', evidenceArtifactVersionRouter)
+
+// A5.2 - immutable, evidence-bearing eligibility verifications. Three routes, all GET or POST:
+// no PATCH, no DELETE, and deliberately no /verify endpoint, because A5.2 records what a
+// verification reported rather than performing one. Real payer transport belongs to A9.
+app.use('/api/encounters', encounterEligibilityVerificationRouter)
+app.use('/api/eligibility-verifications', eligibilityVerificationRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
