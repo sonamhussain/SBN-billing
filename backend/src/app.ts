@@ -64,6 +64,11 @@ import {
   encounterEligibilityVerificationRouter,
   eligibilityVerificationRouter,
 } from './modules/eligibility-verification/eligibility-verification.route.ts'
+import {
+  encounterPriorAuthorizationRouter,
+  priorAuthorizationRouter,
+  priorAuthorizationVersionRouter,
+} from './modules/prior-authorization/prior-authorization.route.ts'
 
 export const app = express()
 
@@ -229,6 +234,13 @@ app.use('/api/evidence-artifact-versions', evidenceArtifactVersionRouter)
 // verification reported rather than performing one. Real payer transport belongs to A9.
 app.use('/api/encounters', encounterEligibilityVerificationRouter)
 app.use('/api/eligibility-verifications', eligibilityVerificationRouter)
+
+// A5.3 - the authorization case and its immutable lifecycle versions. Six routes, all GET or
+// POST: no PATCH, no DELETE, and deliberately no request or submit endpoint, because A5.3
+// records what an authorization source reported rather than performing one. A9 owns transport.
+app.use('/api/encounters', encounterPriorAuthorizationRouter)
+app.use('/api/prior-authorizations', priorAuthorizationRouter)
+app.use('/api/prior-authorization-versions', priorAuthorizationVersionRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

@@ -138,6 +138,14 @@ async function main() {
       'eligibility_verifications_response_evidence_version_id_idx',
       'eligibility_verifications_responded_at_idx',
       'eligibility_verifications_valid_through_idx',
+      // A5.3: version numbering is unique per authorization, which is half of what makes the
+      // sequence gap-free; the parent row lock in the service is the other half. The evidence
+      // triple stops the same version being linked to the same evidence twice in one role.
+      'prior_authorization_versions_prior_authorization_id_version_key',
+      'prior_authorization_version_evidence_prior_authorization_ve_key',
+      'prior_authorizations_encounter_id_idx',
+      'prior_authorization_versions_status_idx',
+      'prior_authorization_versions_valid_through_idx',
     ]
     for (const name of required) {
       check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))
@@ -197,6 +205,28 @@ async function main() {
       'eligibility_verifications_insurance_product_id_fkey',
       'eligibility_verifications_request_evidence_version_id_fkey',
       'eligibility_verifications_response_evidence_version_id_fkey',
+      // A5.3: the three closed vocabularies, the numbering and ordering CHECKs, the rule that a
+      // decision must say when it was made, and the RESTRICT foreign keys that stop an authorization
+      // losing the encounter, membership, commercial identity, provider, eligibility or evidence it
+      // was recorded against. A replay that lost the status CHECK would leave a table where an
+      // authorization could claim a result this domain has never defined.
+      'prior_authorization_versions_version_positive_chk',
+      'prior_authorization_versions_kind_chk',
+      'prior_authorization_versions_status_chk',
+      'prior_authorization_versions_reference_nonblank_chk',
+      'prior_authorization_versions_timing_order_chk',
+      'prior_authorization_versions_validity_order_chk',
+      'prior_authorization_versions_decision_response_chk',
+      'prior_authorization_version_evidence_role_chk',
+      'prior_authorizations_encounter_id_fkey',
+      'prior_authorizations_insurance_membership_id_fkey',
+      'prior_authorizations_facility_id_fkey',
+      'prior_authorizations_clinician_id_fkey',
+      'prior_authorization_versions_prior_authorization_id_fkey',
+      'prior_authorization_versions_eligibility_verification_id_fkey',
+      'prior_authorization_versions_created_by_user_id_fkey',
+      'prior_authorization_version_evidence_prior_authorization_v_fkey',
+      'prior_authorization_version_evidence_evidence_artifact_ver_fkey',
     ]) {
       check(`${name} is present after a clean replay`, replay.constraints.some((line) => line.includes(name)))
     }
@@ -220,6 +250,31 @@ async function main() {
     check(
       'the append-only trigger on eligibility verifications is present after a clean replay',
       replay.triggers.some((line) => line.includes('eligibility_verifications_append_only_trg')),
+    )
+
+    // A5.3 — an authorization case, its lifecycle versions and the evidence backing them are all
+    // historical fact. A replay that lost any of these three triggers would leave a database where a
+    // past authorization's status, validity or evidence could be rewritten after a decision had been
+    // made against it.
+    for (const [table, trigger] of [
+      ['prior authorizations', 'prior_authorizations_append_only_trg'],
+      ['prior authorization versions', 'prior_authorization_versions_append_only_trg'],
+      ['prior authorization evidence links', 'prior_authorization_version_evidence_append_only_trg'],
+    ] as const) {
+      check(`the append-only trigger on ${table} is present after a clean replay`, replay.triggers.some((line) => line.includes(trigger)))
+    }
+
+    // A5.3 — line scope belongs to A5.4. A5.3 records the authorization header; it must never grow a
+    // service, procedure, diagnosis, quantity or approved-date column, and there must be no current
+    // or satisfied flag. This is asserted structurally so a future migration cannot add one quietly.
+    const authorizationColumns = replay.columns.filter((line) => line.startsWith('prior_authorization'))
+    const lineScope = authorizationColumns.filter((line) =>
+      /(service_id|procedure|diagnosis|quantity|approved_from|approved_through|line_status|is_current|is_active|is_satisfied|current_version)/i.test(line),
+    )
+    check(
+      'prior authorization tables carry no A5.4 line scope or current-state flag after a clean replay',
+      authorizationColumns.length > 0 && lineScope.length === 0,
+      authorizationColumns.length === 0 ? 'the column catalog did not reach the tables, so this absence is unproven' : lineScope.join(', '),
     )
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.

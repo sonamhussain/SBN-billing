@@ -100,6 +100,8 @@ model InsuranceMembership {
   insuranceProduct   InsuranceProduct? @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
   encounters         Encounter[]
   eligibilityVerifications EligibilityVerification[]
+  priorAuthorizations PriorAuthorization[]
+
 
   @@index([patientId])
   @@index([payerId])
@@ -143,6 +145,8 @@ model Encounter {
   observations                EncounterObservation[]
   externalIdentifiers         ExternalIdentifier[]
   eligibilityVerifications    EligibilityVerification[]
+  priorAuthorizations PriorAuthorization[]
+
 
   @@index([patientId])
   @@index([facilityId])
@@ -277,6 +281,8 @@ model Facility {
   ruleApplicabilities RuleApplicability[]
   clinicianAssignments ClinicianFacilityAssignment[]
   encounters Encounter[]
+  priorAuthorizations PriorAuthorization[]
+
 
   @@index([organizationId])
   @@map("facilities")
@@ -294,6 +300,8 @@ model Clinician {
   facilityAssignments ClinicianFacilityAssignment[]
   specialtyAssignments ClinicianSpecialtyAssignment[]
   encounters Encounter[]
+  priorAuthorizations PriorAuthorization[]
+
 
   @@index([organizationId])
   @@map("clinicians")
@@ -375,6 +383,8 @@ model Payer {
   providerContracts ProviderContract[]
   insuranceMemberships InsuranceMembership[]
   eligibilityVerifications EligibilityVerification[]
+  priorAuthorizations PriorAuthorization[]
+
 
   @@index([organizationId])
   @@map("payers")
@@ -394,6 +404,8 @@ model Tpa {
   providerContracts ProviderContract[]
   insuranceMemberships InsuranceMembership[]
   eligibilityVerifications EligibilityVerification[]
+  priorAuthorizations PriorAuthorization[]
+
 
   @@index([organizationId])
   @@map("tpas")
@@ -414,6 +426,8 @@ model Network {
   providerContracts ProviderContract[]
   insuranceMemberships InsuranceMembership[]
   eligibilityVerifications EligibilityVerification[]
+  priorAuthorizations PriorAuthorization[]
+
 
   @@index([organizationId])
   @@map("networks")
@@ -764,6 +778,8 @@ model InsuranceProduct {
   ruleApplicabilities RuleApplicability[]
   insuranceMemberships InsuranceMembership[]
   eligibilityVerifications EligibilityVerification[]
+  priorAuthorizations PriorAuthorization[]
+
 
   @@unique([organizationId, productCode])
   @@index([organizationId])
@@ -999,6 +1015,8 @@ model User {
   memberships   OrganizationMembership[]
   auditEvents   AuditEvent[]
   evidenceArtifactVersionsCreated EvidenceArtifactVersion[]
+  priorAuthorizationVersionsCreated PriorAuthorizationVersion[]
+
 
   @@unique([email])
   @@map("user")
@@ -1252,6 +1270,8 @@ model EvidenceArtifactVersion {
   // There is deliberately no unique index on contentHash or storageRef: the same bytes may
   // legitimately back more than one evidence identity, and storage-provider identity semantics are
   // not frozen by this package.
+  priorAuthorizationEvidenceLinks PriorAuthorizationVersionEvidence[]
+
   @@unique([evidenceArtifactId, version])
   @@index([evidenceArtifactId])
   @@index([createdByUserId])
@@ -1327,6 +1347,8 @@ model EligibilityVerification {
   // verification of one encounter is legitimate, and one external response may support more than one
   // encounter or context. There is no isCurrent or isPrimary flag either — choosing which
   // verification is usable belongs to a later governed consumer, not to this table.
+  priorAuthorizationVersions PriorAuthorizationVersion[]
+
   @@index([encounterId])
   @@index([insuranceMembershipId])
   @@index([payerId])
@@ -1334,4 +1356,100 @@ model EligibilityVerification {
   @@index([respondedAt])
   @@index([validThrough])
   @@map("eligibility_verifications")
+}
+
+// A5.3 — the authorization case: which authorization this is, for this exact Encounter context.
+// The context is frozen at creation. If the Encounter later moves to a different membership,
+// facility or clinician, that is a NEW authorization case, never a rewrite of this one.
+model PriorAuthorization {
+  id                    String   @id @default(uuid()) @db.Uuid
+  encounterId           String   @map("encounter_id") @db.Uuid
+  insuranceMembershipId String   @map("insurance_membership_id") @db.Uuid
+  payerId               String   @map("payer_id") @db.Uuid
+  tpaId                 String?  @map("tpa_id") @db.Uuid
+  networkId             String?  @map("network_id") @db.Uuid
+  insuranceProductId    String?  @map("insurance_product_id") @db.Uuid
+  facilityId            String   @map("facility_id") @db.Uuid
+  clinicianId           String   @map("clinician_id") @db.Uuid
+  serviceDate           DateTime @map("service_date") @db.Date
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  encounter           Encounter           @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  insuranceMembership InsuranceMembership @relation(fields: [insuranceMembershipId], references: [id], onDelete: Restrict)
+  payer               Payer               @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                 Tpa?                @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network             Network?            @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  insuranceProduct    InsuranceProduct?   @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  facility            Facility            @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  clinician           Clinician           @relation(fields: [clinicianId], references: [id], onDelete: Restrict)
+  versions            PriorAuthorizationVersion[]
+
+  // No unique index on encounterId: more than one authorization case per Encounter is legitimate.
+  // No current-version pointer either — choosing a usable version belongs to A5.4 and A5.8.
+  @@index([encounterId])
+  @@index([insuranceMembershipId])
+  @@index([payerId])
+  @@index([facilityId])
+  @@index([clinicianId])
+  @@map("prior_authorizations")
+}
+
+// A5.3 — one immutable lifecycle snapshot. A later payer response, amendment or extension is a NEW
+// version; nothing here is ever patched. Every version is complete: it inherits nothing from the
+// version before it.
+model PriorAuthorizationVersion {
+  id                   String @id @default(uuid()) @db.Uuid
+  priorAuthorizationId String @map("prior_authorization_id") @db.Uuid
+  // Server-owned and gap-free per authorization; a client never supplies it.
+  version              Int
+  // INITIAL | RESPONSE | AMENDMENT | EXTENSION | CORRECTION — why this snapshot exists.
+  versionKind          String @map("version_kind") @db.Text
+  // REQUESTED | PENDING | APPROVED | PARTIALLY_APPROVED | DENIED | UNKNOWN — what the source
+  // reported. UNKNOWN is first-class and is never resolved into approval.
+  status               String @db.Text
+  // An opaque payer or portal reference. Deliberately not unique: payer semantics are external and
+  // a reference may be absent or reused.
+  authorizationReference    String?   @map("authorization_reference") @db.Text
+  // Optional provenance only. Linking an eligibility verification never makes eligibility an input
+  // to the authorization result.
+  eligibilityVerificationId String?   @map("eligibility_verification_id") @db.Uuid
+  requestedAt               DateTime? @map("requested_at") @db.Timestamptz(6)
+  respondedAt               DateTime? @map("responded_at") @db.Timestamptz(6)
+  // Validity is these two dates and nothing else. There is no EXPIRED or ACTIVE status: whether an
+  // authorization applies to a claim context is decided by A5.4 and A5.8.
+  validFrom                 DateTime? @map("valid_from") @db.Date
+  validThrough              DateTime? @map("valid_through") @db.Date
+  createdByUserId           String    @map("created_by_user_id") @db.Uuid
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  priorAuthorization      PriorAuthorization       @relation(fields: [priorAuthorizationId], references: [id], onDelete: Restrict)
+  eligibilityVerification EligibilityVerification? @relation(fields: [eligibilityVerificationId], references: [id], onDelete: Restrict)
+  createdBy               User                     @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  evidenceLinks           PriorAuthorizationVersionEvidence[]
+
+  @@unique([priorAuthorizationId, version])
+  @@index([priorAuthorizationId])
+  @@index([eligibilityVerificationId])
+  @@index([status])
+  @@index([validThrough])
+  @@map("prior_authorization_versions")
+}
+
+// A5.3 — which exact A5.1 evidence backs this version, and in what role. The role is REQUEST,
+// RESPONSE or SUPPORTING; it is not a document type, and no payer document vocabulary is assumed.
+// No storage reference, hash or document metadata is copied here: A5.1 owns all of it.
+model PriorAuthorizationVersionEvidence {
+  id                          String   @id @default(uuid()) @db.Uuid
+  priorAuthorizationVersionId String   @map("prior_authorization_version_id") @db.Uuid
+  evidenceArtifactVersionId   String   @map("evidence_artifact_version_id") @db.Uuid
+  role                        String   @db.Text
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  priorAuthorizationVersion PriorAuthorizationVersion @relation(fields: [priorAuthorizationVersionId], references: [id], onDelete: Restrict)
+  evidenceArtifactVersion   EvidenceArtifactVersion   @relation(fields: [evidenceArtifactVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([priorAuthorizationVersionId, evidenceArtifactVersionId, role])
+  @@index([priorAuthorizationVersionId])
+  @@index([evidenceArtifactVersionId])
+  @@map("prior_authorization_version_evidence")
 }
