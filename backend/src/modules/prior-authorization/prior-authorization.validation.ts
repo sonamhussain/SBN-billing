@@ -123,9 +123,12 @@ function suppliedKeys(body: unknown): string[] {
 // caller describes a complete lifecycle snapshot; the server decides which version number it becomes
 // and what context it is frozen against.
 //
-// `expect` is the kind the server requires: version 1 must be INITIAL, and a later version must not
-// be. The client's attempt is validated rather than silently overwritten, so a caller who sent the
-// wrong kind is told so.
+// `expect` says which end of the lifecycle this is. §14: creating a case FORCES INITIAL regardless
+// of what the client attempted, because the server owns the shape of the sequence exactly as it owns
+// the version number — version 1 is where a case begins, and that is not a caller's choice. The
+// value must still be a valid enum, and the response returns the kind that was actually recorded, so
+// a caller who sent something else sees immediately what happened. Appending forbids INITIAL: only
+// the first version begins a case.
 export function validateVersionBody(body: unknown, expect: 'first' | 'append'): Outcome<VersionInput> {
   if (body === null || typeof body !== 'object' || Array.isArray(body))
     return { ok: false, message: 'a prior authorization version body is required' }
@@ -143,10 +146,11 @@ export function validateVersionBody(body: unknown, expect: 'first' | 'append'): 
 
   const versionKind = normalizeVersionKind(record.versionKind)
   if (!versionKind.ok) return versionKind
-  if (expect === 'first' && versionKind.value !== 'INITIAL')
-    return { ok: false, message: 'the first version of a prior authorization must be INITIAL' }
   if (expect === 'append' && versionKind.value === 'INITIAL')
     return { ok: false, message: 'only the first version may be INITIAL; a later version records what changed' }
+  // Forced, not refused. Every rule below is then applied to the kind that will actually be stored,
+  // so a create that named RESPONSE does not inherit RESPONSE's evidence obligation.
+  const effectiveKind: VersionKind = expect === 'first' ? 'INITIAL' : versionKind.value
 
   const status = normalizeAuthorizationStatus(record.status)
   if (!status.ok) return status
@@ -184,13 +188,13 @@ export function validateVersionBody(body: unknown, expect: 'first' | 'append'): 
   const hasResponseEvidence = evidenceLinks.value.some((link) => link.role === 'RESPONSE')
   if (isDecision && !hasResponseEvidence)
     return { ok: false, message: `status ${status.value} requires at least one RESPONSE evidence link` }
-  if ((responseBearingKinds as readonly string[]).includes(versionKind.value) && !hasResponseEvidence)
-    return { ok: false, message: `versionKind ${versionKind.value} requires at least one RESPONSE evidence link` }
+  if ((responseBearingKinds as readonly string[]).includes(effectiveKind) && !hasResponseEvidence)
+    return { ok: false, message: `versionKind ${effectiveKind} requires at least one RESPONSE evidence link` }
 
   return {
     ok: true,
     value: {
-      versionKind: versionKind.value,
+      versionKind: effectiveKind,
       status: status.value,
       authorizationReference: authorizationReference.value,
       eligibilityVerificationId,

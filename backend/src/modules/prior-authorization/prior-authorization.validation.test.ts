@@ -65,11 +65,29 @@ test('every approved evidence role is accepted and anything else is refused', ()
 
 // ---------------------------------------------------------------- first version vs append
 
-test('the first version must be INITIAL', () => {
-  assert.equal(validateVersionBody(body(), 'first').ok, true)
-  const outcome = validateVersionBody(body({ versionKind: 'RESPONSE', status: 'APPROVED', respondedAt: '2026-09-29T09:00:00.000Z', evidenceLinks: [{ role: 'RESPONSE', evidenceArtifactVersionId: EV1 }] }), 'first')
-  assert.equal(outcome.ok, false)
-  assert.match(outcome.ok === false ? outcome.message : '', /must be INITIAL/)
+test('creating a case forces INITIAL regardless of what the client attempted', () => {
+  // The server owns the shape of the sequence exactly as it owns the version number. The response
+  // returns the kind that was actually recorded, so nothing is hidden from the caller.
+  const plain = validateVersionBody(body(), 'first')
+  assert.equal(plain.ok, true)
+  if (plain.ok) assert.equal(plain.value.versionKind, 'INITIAL')
+
+  const attempted = validateVersionBody(body({ versionKind: 'RESPONSE' }), 'first')
+  assert.equal(attempted.ok, true)
+  if (attempted.ok) assert.equal(attempted.value.versionKind, 'INITIAL')
+})
+
+test('a forced INITIAL does not inherit the evidence obligation of the kind the client named', () => {
+  // RESPONSE requires a RESPONSE evidence link; INITIAL does not. The rule follows the kind that
+  // will actually be stored, not the one that was asked for.
+  const outcome = validateVersionBody(body({ versionKind: 'RESPONSE' }), 'first')
+  assert.equal(outcome.ok, true)
+  if (outcome.ok) assert.equal(outcome.value.evidenceLinks[0].role, 'REQUEST')
+})
+
+test('the version kind must still be a valid enum on create', () => {
+  assert.equal(validateVersionBody(body({ versionKind: 'RENEWAL' }), 'first').ok, false)
+  assert.equal(validateVersionBody(body({ versionKind: null }), 'first').ok, false)
 })
 
 test('a later version must not be INITIAL', () => {

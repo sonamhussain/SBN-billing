@@ -520,7 +520,20 @@ async function main() {
 
   // ---------------------------------------------------------------- lifecycle vocabulary (T19–T32)
   section('Lifecycle vocabulary — recorded, never inferred')
-  check('T19', 'Version 1 kind', storedVersions[0].version === 1 && storedVersions[0].versionKind === 'INITIAL', 'the first version is number 1 and kind INITIAL')
+  // §14 — creating a case FORCES INITIAL regardless of what the client attempted, and the response
+  // returns the kind that was actually recorded, so nothing is hidden from the caller.
+  const attemptedKind = (await createFor(encounter.id, { versionKind: 'RESPONSE' })).body as Record<string, any>
+  const attemptedStored = attemptedKind?.id
+    ? await prisma.priorAuthorizationVersion.findFirstOrThrow({ where: { priorAuthorizationId: attemptedKind.id }, select: { version: true, versionKind: true } })
+    : null
+  check(
+    'T19',
+    'Version 1 kind',
+    storedVersions[0].version === 1 && storedVersions[0].versionKind === 'INITIAL' &&
+      attemptedStored?.version === 1 && attemptedStored?.versionKind === 'INITIAL' &&
+      attemptedKind.latestRecordedVersion?.versionKind === 'INITIAL',
+    'the first version is number 1 and kind INITIAL; a client that named RESPONSE is stored as INITIAL and told so in the response',
+  )
   const appendInitial = await appendTo(authorization.id, { versionKind: 'INITIAL', status: 'REQUESTED', respondedAt: null, evidenceLinks: [{ role: 'REQUEST', evidenceArtifactVersionId: requestEvidenceId }] })
   check('T20', 'Append forbids INITIAL', appendInitial.status === 400, `a later INITIAL is ${appendInitial.status}: only the first version begins the case`)
 
