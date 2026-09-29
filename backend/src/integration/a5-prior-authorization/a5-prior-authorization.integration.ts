@@ -366,7 +366,20 @@ async function main() {
       requestEvidenceVersionId: null, responseEvidenceVersionId: responseEvidenceId,
     })).body,
   )
-  console.log(`[A5.3]      fixtures ready: patient, facility, clinician, profile, assignment, 2 payers, tpa, network, product, membership, 2 encounters, 3 evidence versions, 1 eligibility verification`)
+  // A second verification whose validity boundary has already passed, so it reads STALE. It is
+  // created here, while the membership still holds its original commercial context, because T16
+  // corrects that membership later and a verification frozen afterwards would no longer describe
+  // the same situation this case is frozen against.
+  const staleEligibility = must(
+    'stale eligibility verification',
+    (await post(`/api/encounters/${encounter.id}/eligibility-verifications`, {
+      verificationMethod: 'MANUAL', status: 'INELIGIBLE', requestedAt: null,
+      respondedAt: '2026-06-15T09:00:00.000Z', validThrough: '2026-06-16T00:00:00.000Z',
+      authorizationRequired: null, referralRequired: null,
+      requestEvidenceVersionId: null, responseEvidenceVersionId: responseEvidenceId,
+    })).body,
+  )
+  console.log(`[A5.3]      fixtures ready: patient, facility, clinician, profile, assignment, 2 payers, tpa, network, product, membership, 2 encounters, 3 evidence versions, 2 eligibility verifications`)
 
   const initialBody = (overrides: Record<string, unknown> = {}) => ({
     versionKind: 'INITIAL', status: 'REQUESTED', authorizationReference: null, eligibilityVerificationId: null,
@@ -762,11 +775,6 @@ async function main() {
     'a verification whose payer no longer matches the frozen case context is refused, and the adversarial corruption was restored',
   )
 
-  const staleEligibility = must('stale eligibility', (await post(`/api/encounters/${encounter.id}/eligibility-verifications`, {
-    verificationMethod: 'MANUAL', status: 'INELIGIBLE', requestedAt: null, respondedAt: '2026-06-15T09:00:00.000Z',
-    validThrough: '2026-06-16T00:00:00.000Z', authorizationRequired: null, referralRequired: null,
-    requestEvidenceVersionId: null, responseEvidenceVersionId: responseEvidenceId,
-  })).body)
   const staleLink = await appendTo(authorization.id, { versionKind: 'CORRECTION', status: 'APPROVED', eligibilityVerificationId: staleEligibility.id })
   check(
     'T62',
@@ -1185,12 +1193,16 @@ async function main() {
     T95: "A5.2 'Exact head evidence' requires the upstream to be the A5.2 feature branch, which was deleted when PR #50 merged",
   }
   const a52Undocumented = a52Failing.filter((id) => !(id in a52NonApplicable))
+  // A5.2 prints its owner-suite verdicts on indented lines but does NOT add them to its own failure
+  // count — it judges them inside its own checks instead. So only its check ids are reconciled
+  // against its summary here; the indented verdicts are judged separately by T109 below, where A2
+  // and A1 have no exemption at all.
   const a52Indented = chainLines
     .filter((line) => line.startsWith('[A5.2]      ') && line.includes('substantive checks FAIL'))
     .map((line) => line.replace('[A5.2]      ', '').split(' ')[0])
   const a52Counts = chain.output.match(/\[A5\.2\] automated summary: (\d+)\/(\d+) PASS/)
   const a52Failed = a52Counts ? Number(a52Counts[2]) - Number(a52Counts[1]) : -1
-  const a52Accounted = a52Failing.length + a52Indented.length
+  const a52Accounted = a52Failing.length
   const a52Reconciled = a52Failed >= 0 && a52Accounted === a52Failed
   const a52Unreadable = Object.keys(a52NonApplicable).filter((id) => a52Failing.includes(id) && !a52FailLine(id))
 
@@ -1199,12 +1211,12 @@ async function main() {
     'A5.2 regression',
     a52Undocumented.length === 0 && a52Reconciled && a52Unreadable.length === 0,
     !a52Reconciled
-      ? `A5.2 reports ${a52Failed} failure(s) but only ${a52Accounted} could be named; something failed that this suite did not read back`
+      ? `A5.2 reports ${a52Failed} check failure(s) but only ${a52Accounted} could be named; something failed that this suite did not read back`
       : a52Unreadable.length > 0
         ? `tolerated but unreadable in the output: ${a52Unreadable.join(', ')}`
         : a52Undocumented.length > 0
           ? `undocumented A5.2 failures: ${a52Undocumented.join(', ')}`
-          : `${(chain.output.match(/\[A5\.2\] automated summary: [^\n]*/) ?? ['no summary'])[0].replace('[A5.2] automated summary: ', 'A5.2 ')}; all ${a52Failed} failure(s) named and accounted for, and every substantive eligibility, freshness and coherence invariant still holds`,
+          : `${(chain.output.match(/\[A5\.2\] automated summary: [^\n]*/) ?? ['no summary'])[0].replace('[A5.2] automated summary: ', 'A5.2 ')}; all ${a52Failed} check failure(s) named and accounted for${a52Indented.length > 0 ? `, and its ${a52Indented.join(', ')} owner line is judged by T109` : ''}, and every substantive eligibility, freshness and coherence invariant still holds`,
   )
   for (const id of Object.keys(a52NonApplicable)) {
     const line = a52FailLine(id)
