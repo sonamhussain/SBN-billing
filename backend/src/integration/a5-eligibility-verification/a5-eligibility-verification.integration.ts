@@ -1440,6 +1440,102 @@ async function main() {
     `all evidence corresponds to ${headSha}; ${tracking}; working tree clean`,
   )
 
+  // ---------------------------------------------------------------- stored-context coherence (T96-T98)
+  //
+  // Added at the auditor's request on PR #50. A4.3 checks commercial coherence when a membership is
+  // WRITTEN; nothing re-checks it afterwards. A master can be moved to another organization, or a
+  // ProductNetwork relationship removed, long after the membership was created — and A5.2 freezes
+  // that context into a row that can never be corrected. These three cases corrupt the stored
+  // membership directly, because no route would ever produce them, and each restores it afterwards.
+  section('Stored commercial context is re-verified before it is frozen')
+
+  const membershipBefore = await prisma.insuranceMembership.findUniqueOrThrow({
+    where: { id: membership.id },
+    select: { payerId: true, tpaId: true, networkId: true, insuranceProductId: true },
+  })
+  const restoreMembership = () =>
+    prisma.insuranceMembership.update({ where: { id: membership.id }, data: membershipBefore })
+
+  // A payer that belongs to the other organization, and a product that belongs to a different payer
+  // than the membership names. Both are built through their owner routes; only the membership row
+  // is corrupted.
+  const foreignPayer = await prisma.payer.findFirst({ where: { organizationId: otherOrg }, select: { id: true } })
+  const mismatchedProduct = must(
+    'product under a different payer',
+    (await post(`/api/organizations/${org}/insurance-products`, { payerId: payer2.id, productCode: `${runId}-PROD2`, displayName: `${runId} product 2` })).body,
+  )
+  const unlinkedNetwork = must('network with no product link', (await post(`/api/organizations/${org}/networks`, { displayName: `${runId} network 2` })).body)
+
+  const adversarial = async (
+    id: string,
+    title: string,
+    corruption: Record<string, unknown>,
+    expect: RegExp,
+    reason: string,
+  ) => {
+    const rowsBefore = await prisma.eligibilityVerification.count({ where: { encounterId: encounter.id } })
+    const auditBefore = await verificationAuditCount()
+    await prisma.insuranceMembership.update({ where: { id: membership.id }, data: corruption })
+    const attempt = await createFor(encounter.id)
+    const message = String((attempt.body as any)?.error?.message ?? '')
+    const rowsAfter = await prisma.eligibilityVerification.count({ where: { encounterId: encounter.id } })
+    const auditAfter = await verificationAuditCount()
+    await restoreMembership()
+    const restored = await prisma.insuranceMembership.findUniqueOrThrow({
+      where: { id: membership.id },
+      select: { payerId: true, tpaId: true, networkId: true, insuranceProductId: true },
+    })
+    check(
+      id,
+      title,
+      attempt.status >= 400 &&
+        attempt.status < 500 &&
+        expect.test(message) &&
+        rowsAfter === rowsBefore &&
+        auditAfter === auditBefore &&
+        JSON.stringify(restored) === JSON.stringify(membershipBefore),
+      attempt.status >= 500
+        ? `the contradiction produced a ${attempt.status} instead of a closed refusal`
+        : rowsAfter !== rowsBefore || auditAfter !== auditBefore
+          ? `refused with ${attempt.status} but wrote ${rowsAfter - rowsBefore} row(s) and ${auditAfter - auditBefore} audit event(s)`
+          : !expect.test(message)
+            ? `refused with ${attempt.status} but for the wrong reason: ${message.slice(0, 110)}`
+            : `${reason}; refused with ${attempt.status}, no verification row, no audit event, nothing substituted, and the membership was restored`,
+    )
+  }
+
+  await adversarial(
+    'T96',
+    'Foreign-organization payer',
+    { payerId: foreignPayer?.id ?? payer.id },
+    /payer not found/i,
+    "the stored payer belongs to another organization, and A4.3's rule refuses it as simply not found rather than revealing whose it is",
+  )
+  await adversarial(
+    'T97',
+    'Product under a different payer',
+    { insuranceProductId: mismatchedProduct.id },
+    /different payer/i,
+    'the stored product belongs to a payer the membership does not name — a contradiction between two masters of this organization',
+  )
+  await adversarial(
+    'T98',
+    'Product and network with no relation',
+    { networkId: unlinkedNetwork.id },
+    /ProductNetwork relationship/i,
+    'the stored product and network have no ProductNetwork relationship, so the pair was never a coherent commercial context',
+  )
+
+  // A coherent membership still records normally, so the guard refuses contradictions rather than
+  // refusing everything.
+  const afterRestore = await createFor(encounter.id)
+  check(
+    'T96b',
+    'Coherent context still records',
+    afterRestore.status === 201,
+    `with the membership restored, a verification is recorded again (${afterRestore.status}) — the guard closes on contradictions, not on everything`,
+  )
+
   console.log(`\n[A5.2] run ${runId} — HEAD ${headSha}`)
   if (failures.length > 0) {
     console.log(`[A5.2] ${failures.length} FAILED:`)
