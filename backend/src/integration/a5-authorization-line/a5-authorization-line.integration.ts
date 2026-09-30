@@ -10,7 +10,8 @@ import { createEncounter } from '../../modules/encounter/encounter.service.ts'
 import { createMembership } from '../../modules/insurance-membership/insurance-membership.service.ts'
 import { createEvidenceArtifact } from '../../modules/evidence-artifact/evidence-artifact.service.ts'
 
-// A5.4 — focused acceptance for Authorization Line Matching & Scope Validation (T01–T123).
+// A5.4 — focused acceptance for Authorization Line Matching & Scope Validation (T01–T123, plus
+// T124–T126 added by the first audit: A4.9 integrity verification before any line is matched).
 //
 // A5.4 captures the line-level scope of one exact A5.3 version once, as an immutable ordered batch,
 // and compares that scope with the Encounter as it stands now — read-only, in one snapshot, every
@@ -424,6 +425,7 @@ async function main() {
   // header, a captured line set, and the scope evaluation of it.
   type ActivitySpec = { serviceId?: string | null; procedureCodeId?: string | null; quantity?: string; unitCode?: string | null }
   type Scenario = {
+    encounter?: Record<string, unknown>
     header?: Header
     lines: Array<Record<string, unknown>>
     activities: ActivitySpec[]
@@ -431,7 +433,7 @@ async function main() {
     removeDiagnoses?: string[]
   }
   const scenario = async (label: string, spec: Scenario) => {
-    const enc = await newEncounter(`${label} encounter`)
+    const enc = await newEncounter(`${label} encounter`, spec.encounter ?? {})
     const diagnosisRows: Record<string, string> = {}
     for (const dx of [...(spec.diagnoses ?? []), ...(spec.removeDiagnoses ?? [])]) diagnosisRows[dx] = must(`${label} diagnosis`, (await post(`/api/encounters/${enc.id}/diagnoses`, { diagnosisCodeId: dx })).body).id
     for (const dx of spec.removeDiagnoses ?? []) {
@@ -944,6 +946,118 @@ async function main() {
     'Removed activity excluded',
     removed.status === 200 && remainingIds.length === 1 && remainingIds[0] === removal.activityIds[0] && afterRemoval.body?.lineUtilization?.[0]?.matchedQty === '2',
     'the removed activity is neither evaluated nor counted; the line utilization dropped from 5 to 2',
+  )
+
+  // ---------------------------------------------------------------- integrity (T124–T126)
+  // Audit correction: matching IDs is not enough. The Encounter's EXACT stored membership, assignment
+  // and regulatory profile must still pass A4.9's own verification, in the evaluation's own snapshot,
+  // before any line is matched. Each case is driven through the real owner route that corrects the
+  // row, on a fixture dedicated to that case, and each creates a covering alternative first so that a
+  // re-resolution would have something to substitute.
+  section('A4.9 integrity before matching — the stored context must still cohere')
+  const bindingOf = (encounterId: string) =>
+    prisma.encounter.findUniqueOrThrow({
+      where: { id: encounterId },
+      select: { insuranceMembershipId: true, clinicianFacilityAssignmentId: true, facilityRegulatoryProfileId: true },
+    })
+  const historyOf = async (s: { versionId: string; authorizationId: string }) =>
+    JSON.stringify({
+      lines: await storedLines(s.versionId),
+      version: await prisma.priorAuthorizationVersion.findUniqueOrThrow({ where: { id: s.versionId } }),
+      authorization: await prisma.priorAuthorization.findUniqueOrThrow({ where: { id: s.authorizationId } }),
+    })
+  const integrityCase = async (
+    id: string,
+    title: string,
+    s: Awaited<ReturnType<typeof scenario>>,
+    correct: () => Promise<number>,
+    alternate: () => Promise<string>,
+    field: 'insuranceMembershipId' | 'clinicianFacilityAssignmentId' | 'facilityRegulatoryProfileId',
+    expect: RegExp,
+    what: string,
+  ) => {
+    const matchedBefore = s.status === 200 && s.outcome(0) === 'MATCHED'
+    const bindingBefore = await bindingOf(s.encounterId)
+    const corrected = await correct()
+    const alternateId = await alternate()
+    const historyBefore = await historyOf(s)
+    const linesBefore = await prisma.authorizationLine.count()
+    const auditBefore = await prisma.auditEvent.count()
+    const refused = await reevaluate(s.versionId)
+    const bindingAfter = await bindingOf(s.encounterId)
+    const unchanged =
+      (await historyOf(s)) === historyBefore && (await prisma.authorizationLine.count()) === linesBefore && (await prisma.auditEvent.count()) === auditBefore
+    const message = String(refused.body?.error?.message ?? '')
+    const noScope = refused.body?.activities === undefined && refused.body?.lineUtilization === undefined
+    check(
+      id,
+      title,
+      matchedBefore && corrected === 200 && refused.status === 409 && refused.body?.error?.code === 'INTEGRITY_CONFLICT' && expect.test(message) && noScope &&
+        JSON.stringify(bindingAfter) === JSON.stringify(bindingBefore) && bindingAfter[field] !== alternateId && unchanged,
+      !matchedBefore
+        ? `the fixture did not match before the correction (status ${s.status}, ${s.outcome(0)})`
+        : corrected !== 200
+          ? `the owner route refused the correction (${corrected})`
+          : refused.status !== 409
+            ? `evaluation returned ${refused.status} instead of failing closed`
+            : `MATCHED before; after ${what} evaluation fails closed 409 INTEGRITY_CONFLICT ("${message}"), the covering alternative is not substituted, and no line, version, case, audit or match state changed`,
+    )
+  }
+
+  // Membership: coverage corrected through A4.3 to end before the service date. Every ID is unchanged.
+  const coverageMembership = await newMembership('membership for coverage correction')
+  const coverageCase = await scenario('membership coverage integrity', { encounter: { insuranceMembershipId: coverageMembership.id }, lines: [line()], activities: [{}] })
+  await integrityCase(
+    'T124',
+    'Integrity membership coverage',
+    coverageCase,
+    async () => (await patchApi(`/api/insurance-memberships/${coverageMembership.id}`, { coverageTo: '2026-05-31' })).status,
+    async () => (await newMembership('covering alternative membership')).id,
+    'insuranceMembershipId',
+    /coverage period of the selected membership/,
+    'the membership coverage was corrected to end on 2026-05-31',
+  )
+
+  // Assignment and profile get a facility and clinician of their own, so closing their rows through
+  // the owner routes cannot disturb any other scenario.
+  const integrityFacility = must('integrity facility', (await post(`/api/organizations/${org}/facilities`, { name: `${runId} integrity facility` })).body)
+  const integrityProfile = must('integrity profile', (await post(`/api/facilities/${integrityFacility.id}/regulatory-profiles`, { jurisdictionCode: 'AE-DU', regulatoryAuthorityCode: 'DHA', effectiveFrom: '2025-01-01', effectiveTo: null })).body)
+  if ((await post(`/api/facility-regulatory-profiles/${integrityProfile.id}/activate`, {})).status !== 200) throw new Error('fixture integrity profile activation failed')
+  const integrityClinician = must('integrity clinician', (await post(`/api/organizations/${org}/clinicians`, { displayName: `${runId} integrity clinician` })).body)
+  const integrityAssignment = must('integrity assignment', (await post(`/api/clinicians/${integrityClinician.id}/facility-assignments`, { facilityId: integrityFacility.id, effectiveFrom: '2025-01-01', effectiveTo: null })).body)
+  const integrityEncounter = { facilityId: integrityFacility.id, clinicianId: integrityClinician.id }
+
+  // Assignment: the recorded assignment closed through A4.2 the day before the service date; a new
+  // assignment for the same clinician and facility then covers the service date.
+  const assignmentCase = await scenario('assignment integrity', { encounter: integrityEncounter, lines: [line()], activities: [{}] })
+  await integrityCase(
+    'T125',
+    'Integrity assignment period',
+    assignmentCase,
+    async () => (await post(`/api/clinician-facility-assignments/${integrityAssignment.id}/close`, { effectiveTo: '2026-06-14' })).status,
+    async () => must('covering alternative assignment', (await post(`/api/clinicians/${integrityClinician.id}/facility-assignments`, { facilityId: integrityFacility.id, effectiveFrom: '2026-06-15', effectiveTo: null })).body).id,
+    'clinicianFacilityAssignmentId',
+    /recorded assignment no longer covers the encounter service date/,
+    'the recorded assignment was closed on 2026-06-14',
+  )
+
+  // Profile: a new Encounter binds the covering assignment above and the still-open profile; that
+  // profile is then closed through its owner route the day before the service date, and a newer
+  // ACTIVE profile covering the service date is created.
+  const profileCase = await scenario('profile integrity', { encounter: integrityEncounter, lines: [line()], activities: [{}] })
+  await integrityCase(
+    'T126',
+    'Integrity regulatory profile',
+    profileCase,
+    async () => (await patchApi(`/api/facility-regulatory-profiles/${integrityProfile.id}`, { effectiveTo: '2026-06-14' })).status,
+    async () => {
+      const alternate = must('covering alternative profile', (await post(`/api/facilities/${integrityFacility.id}/regulatory-profiles`, { jurisdictionCode: 'AE-DU', regulatoryAuthorityCode: 'DHA', effectiveFrom: '2026-06-15', effectiveTo: null })).body)
+      if ((await post(`/api/facility-regulatory-profiles/${alternate.id}/activate`, {})).status !== 200) throw new Error('fixture alternative profile activation failed')
+      return alternate.id
+    },
+    'facilityRegulatoryProfileId',
+    /recorded regulatory profile no longer covers the encounter service date/,
+    'the recorded regulatory profile was closed on 2026-06-14',
   )
 
   // ---------------------------------------------------------------- candidates (T72–T81)

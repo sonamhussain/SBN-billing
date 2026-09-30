@@ -21,6 +21,7 @@ export const authorizationLineRouter = Router()
 function statusForError(code: AuthorizationLineErrorCode) {
   if (code === 'NOT_FOUND') return 404
   if (code === 'FORBIDDEN') return 403
+  if (code === 'INTEGRITY_CONFLICT') return 409
   if (code === 'INTERNAL_ERROR') return 500
   return 400
 }

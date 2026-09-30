@@ -14,8 +14,15 @@ import {
   findActiveActivities,
   findActiveDiagnoses,
   findEncounterForBillingContext,
+  findStoredAssignment,
+  findStoredRegulatoryProfile,
   readTransactionTimestamp,
 } from '../encounter-billing-context/encounter-billing-context.repository.ts'
+// A4.9 also owns the integrity verdict on that context: the Encounter's EXACT stored membership,
+// clinician-facility assignment and regulatory profile must still cohere with it. Matching IDs alone
+// is not enough — a membership whose coverage was later corrected to end before the service date
+// keeps every ID unchanged. The verdict is A4.9's own, reused unchanged; A5.4 adds no rule.
+import { verifySelectedMembership, verifyStoredAssignment, verifyStoredProfile } from '../encounter-billing-context/encounter-billing-context.validation.ts'
 import { evaluateScope } from './authorization-line.matcher.ts'
 import type {
   AuthorizationLineDto,
@@ -171,13 +178,37 @@ export async function evaluateAuthorizationScope(
 
     // Steps 1-2: the exact version, its immutable lines and the frozen context of its parent case.
     const version = await findVersionForEvaluation(versionId, tx)
-    if (!version) return null
+    if (!version) return { kind: 'missing' as const }
     const frozen = version.priorAuthorization
     const lines = await findLinesByVersion(versionId, tx)
 
     // Steps 3-5: the Encounter as it stands now, from A4.9's own loader in the same snapshot, compared
     // field by field with the frozen context. Drift fails closed; nothing is re-resolved.
     const encounter = await findEncounterForBillingContext(frozen.encounterId, tx)
+
+    // Before anything is compared or matched, the Encounter's stored context must pass A4.9's own
+    // integrity verification — the exact stored rows, read in this same snapshot, never re-resolved.
+    // A failure refuses the whole evaluation: no line is matched, no other membership, assignment,
+    // profile or authorization is substituted, and nothing is written.
+    if (encounter !== null) {
+      const binding = {
+        id: encounter.id,
+        clinicianId: encounter.clinicianId,
+        facilityId: encounter.facilityId,
+        patientId: encounter.patientId,
+        serviceDate: encounter.serviceDate,
+        clinicianFacilityAssignmentId: encounter.clinicianFacilityAssignmentId,
+        facilityRegulatoryProfileId: encounter.facilityRegulatoryProfileId,
+        insuranceMembershipId: encounter.insuranceMembershipId,
+      }
+      const membership = verifySelectedMembership(binding, encounter.insuranceMembership)
+      if (!membership.ok) return { kind: 'integrity' as const, message: membership.message }
+      const assignment = verifyStoredAssignment(binding, await findStoredAssignment(encounter.clinicianFacilityAssignmentId, tx))
+      if (!assignment.ok) return { kind: 'integrity' as const, message: assignment.message }
+      const profile = verifyStoredProfile(binding, await findStoredRegulatoryProfile(encounter.facilityRegulatoryProfileId, tx))
+      if (!profile.ok) return { kind: 'integrity' as const, message: profile.message }
+    }
+
     const contextMatch = frozenContextMatches(
       frozen,
       encounter === null
@@ -222,8 +253,8 @@ export async function evaluateAuthorizationScope(
       activeDiagnosisCodeIds: diagnoses.map((diagnosis) => diagnosis.diagnosisCodeId),
     })
 
-    return {
-      schemaVersion: 'AuthorizationScopeEvaluationV1' as const,
+    const value: AuthorizationScopeEvaluationV1 = {
+      schemaVersion: 'AuthorizationScopeEvaluationV1',
       evaluatedAt: evaluatedAt.toISOString(),
       priorAuthorizationId: frozen.id,
       priorAuthorizationVersionId: version.id,
@@ -232,8 +263,11 @@ export async function evaluateAuthorizationScope(
       activities: result.activities,
       lineUtilization: result.lineUtilization,
     }
+    return { kind: 'evaluated' as const, value }
   })
 
-  if (!evaluation) return { ok: false, code: 'NOT_FOUND', message: 'prior authorization version not found' }
-  return { ok: true, value: evaluation }
+  if (evaluation.kind === 'missing') return { ok: false, code: 'NOT_FOUND', message: 'prior authorization version not found' }
+  // A4.9's own wording is passed through unchanged: it names which stored binding no longer coheres.
+  if (evaluation.kind === 'integrity') return { ok: false, code: 'INTEGRITY_CONFLICT', message: evaluation.message }
+  return { ok: true, value: evaluation.value }
 }

@@ -55,7 +55,9 @@ export type AuthorizationLineDto = {
 
 export type AuthorizationLineListDto = { items: AuthorizationLineDto[] }
 
-export type AuthorizationLineErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND' | 'FORBIDDEN' | 'INTERNAL_ERROR'
+// INTEGRITY_CONFLICT is A4.9's verdict that the Encounter's stored context no longer coheres; scope
+// evaluation relays it and refuses rather than matching against a broken context.
+export type AuthorizationLineErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND' | 'FORBIDDEN' | 'INTEGRITY_CONFLICT' | 'INTERNAL_ERROR'
 
 export type AuthorizationLineResult<T> =
   | { ok: true; value: T }
