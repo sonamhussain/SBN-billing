@@ -39,6 +39,10 @@ const lockableTables = [
   // so the next version number is read and claimed under the same lock and the sequence stays
   // gap-free. Locking only the new version row could not protect a number nobody holds yet.
   'evidence_artifacts',
+  // A5.3: every lifecycle version append for one authorization case serializes on that case's
+  // row, so the next version number is read and claimed under the same lock and the sequence
+  // stays gap-free. Locking only the new version row could not protect a number nobody holds yet.
+  'prior_authorizations',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

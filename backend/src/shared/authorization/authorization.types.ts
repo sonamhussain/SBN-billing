@@ -137,6 +137,12 @@ export const permissionCodes = [
   // real payer transport belongs to A9.
   'eligibilityVerification.create',
   'eligibilityVerification.read',
+  // A5.3 — recording an authorization case, appending a lifecycle version, and reading
+  // authorization history. There is deliberately no update, delete or execute-network
+  // permission: a correction is a new version, and real payer transport belongs to A9.
+  'priorAuthorization.create',
+  'priorAuthorization.read',
+  'priorAuthorizationVersion.create',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
