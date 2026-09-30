@@ -143,6 +143,12 @@ export const permissionCodes = [
   'priorAuthorization.create',
   'priorAuthorization.read',
   'priorAuthorizationVersion.create',
+  // A5.4 — capturing a line set, reading lines, and evaluating scope. There is deliberately no
+  // update, delete, claim or network permission: a correction is a new A5.3 version with a new
+  // line set, and scope evaluation is read-only.
+  'authorizationLine.create',
+  'authorizationLine.read',
+  'authorizationLine.evaluate',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

@@ -445,6 +445,8 @@ model Service {
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
   encounterActivities EncounterActivity[]
+  authorizationLines AuthorizationLine[]
+
 
   @@unique([organizationId, internalCode])
   @@index([organizationId])
@@ -465,6 +467,8 @@ model ProcedureCode {
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
   encounterActivities EncounterActivity[]
+  authorizationLines AuthorizationLine[]
+
 
   @@unique([organizationId, internalCode])
   @@index([organizationId])
@@ -483,6 +487,8 @@ model DiagnosisCode {
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
   encounterDiagnoses EncounterDiagnosis[]
+  authorizationLines AuthorizationLine[]
+
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -1016,6 +1022,8 @@ model User {
   auditEvents   AuditEvent[]
   evidenceArtifactVersionsCreated EvidenceArtifactVersion[]
   priorAuthorizationVersionsCreated PriorAuthorizationVersion[]
+  authorizationLinesCreated AuthorizationLine[]
+
 
 
   @@unique([email])
@@ -1426,6 +1434,8 @@ model PriorAuthorizationVersion {
   eligibilityVerification EligibilityVerification? @relation(fields: [eligibilityVerificationId], references: [id], onDelete: Restrict)
   createdBy               User                     @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
   evidenceLinks           PriorAuthorizationVersionEvidence[]
+  authorizationLines AuthorizationLine[]
+
 
   @@unique([priorAuthorizationId, version])
   @@index([priorAuthorizationId])
@@ -1452,4 +1462,65 @@ model PriorAuthorizationVersionEvidence {
   @@index([priorAuthorizationVersionId])
   @@index([evidenceArtifactVersionId])
   @@map("prior_authorization_version_evidence")
+}
+
+// A5.4 — one line of line-level authorization scope, as reported for one exact A5.3 version.
+//
+// A line belongs to an immutable PriorAuthorizationVersion, never to the stable PriorAuthorization:
+// a payer amendment or correction is a new A5.3 version with a new line set, so earlier scope is
+// never rewritten and the history of what was authorized when stays reconstructable.
+//
+// Nothing here is derived. The status is what the source reported, not something inferred from the
+// quantities or from the header; a header and its lines that disagree are preserved as reported, and
+// that disagreement is for A5.8 to judge. There is deliberately no activity, claim-line, match,
+// consumed-quantity or readiness column: matching is computed, read-only, every time it is asked for,
+// so it can never go stale against the Encounter it describes.
+model AuthorizationLine {
+  id                          String @id @default(uuid()) @db.Uuid
+  priorAuthorizationVersionId String @map("prior_authorization_version_id") @db.Uuid
+  // Server-owned, 1..N in the order the batch was submitted. It is display and source order only —
+  // never precedence. Two lines that both fit an activity are AMBIGUOUS, whatever their sequence.
+  sequence                    Int
+
+  // The authorized identity. At least one of service and procedure is required; when both are present
+  // an activity must match both. No Service-to-Procedure mapping is assumed between them.
+  serviceId       String? @map("service_id") @db.Uuid
+  procedureCodeId String? @map("procedure_code_id") @db.Uuid
+  // Optional scope by code identity. It is not an activity-to-diagnosis relationship and never becomes
+  // a claim-line diagnosis pointer.
+  diagnosisCodeId String? @map("diagnosis_code_id") @db.Uuid
+
+  // Exact NUMERIC, never binary floating point. requestedQty is recorded source truth; approvedQty is
+  // the approval capacity when the source supplied one, and null means it did not. approvedQty is not
+  // required to be at most requestedQty: payer semantics are external and are preserved as reported.
+  requestedQty Decimal  @map("requested_qty") @db.Decimal(18, 4)
+  approvedQty  Decimal? @map("approved_qty") @db.Decimal(18, 4)
+  // Optional and opaque, case preserved. It exists only so quantities in explicitly different units
+  // are never added together or compared.
+  unitCode     String?  @map("unit_code") @db.Text
+
+  // Optional line-level date bounds. A missing side contributes no restriction; nothing is invented.
+  approvedFrom    DateTime? @map("approved_from") @db.Date
+  approvedThrough DateTime? @map("approved_through") @db.Date
+  // REQUESTED | PENDING | APPROVED | PARTIALLY_APPROVED | DENIED | UNKNOWN, exactly as reported.
+  status          String    @db.Text
+
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  priorAuthorizationVersion PriorAuthorizationVersion @relation(fields: [priorAuthorizationVersionId], references: [id], onDelete: Restrict)
+  service                   Service?                  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  procedureCode             ProcedureCode?            @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
+  diagnosisCode             DiagnosisCode?            @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
+  createdBy                 User                      @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  // No uniqueness on the service, procedure or diagnosis combination: a payer may legitimately report
+  // the same scope on more than one line. No current, primary or winner column either.
+  @@unique([priorAuthorizationVersionId, sequence])
+  @@index([priorAuthorizationVersionId])
+  @@index([serviceId])
+  @@index([procedureCodeId])
+  @@index([diagnosisCodeId])
+  @@index([status])
+  @@map("authorization_lines")
 }

@@ -43,6 +43,10 @@ const lockableTables = [
   // row, so the next version number is read and claimed under the same lock and the sequence
   // stays gap-free. Locking only the new version row could not protect a number nobody holds yet.
   'prior_authorizations',
+  // A5.4: the one line batch for an authorization version is captured under that version's row
+  // lock, so two concurrent first batches serialize and the second sees the first's lines and is
+  // refused, instead of both reading "no lines yet" and racing on the sequence unique key.
+  'prior_authorization_versions',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]
