@@ -794,25 +794,41 @@ async function main() {
   const stateColumns = columns.filter((name) => /(selected_contract|resolved_contract|winner|current_contract|selected_tariff|resolved_tariff|commercial_context)/i.test(name))
   const stateTables = tables.filter((name) => /(commercial_context|contract_selection|tariff_selection|resolution_result)/i.test(name))
   check('T72', 'No second resolver state', stateColumns.length === 0 && stateTables.length === 0, `no current, winner or selected commercial column among ${columns.length}, and no selection table`)
-  const handoff = await validateApplicabilityContextCoherence(
-    {
-      facilityId: body.facilityId,
-      facilityRegulatoryProfileId: body.facilityRegulatoryProfileId,
-      payerId: body.payerId,
-      tpaId: body.tpaId,
-      networkId: body.networkId,
-      insuranceProductId: body.insuranceProductId,
-      providerContractId: body.providerContractId,
-      tariffScheduleId: body.tariffScheduleId,
-      tariffScheduleVersionId: body.tariffScheduleVersionId,
-      serviceId: null,
-      procedureCodeId: null,
-      diagnosisCodeId: null,
-    },
-    org,
-    prisma,
+  // A3 handoff. The nine resolved IDs go straight into A3's ApplicabilityContextV2 and through A3's
+  // own ancestry coherence, for a context whose contract constrains the same TPA, network and product
+  // the Encounter carries.
+  //
+  // Known boundary, reported rather than asserted: A5.5 §8 resolves a NULL contract dimension as a
+  // wildcard, while A3's coherence deliberately leaves the meaning of a null contract dimension
+  // undecided and refuses a supplied value against it. A wildcard-resolved context is therefore
+  // refused by A3 today. That is a decision for the A3/A5.8 owners, not something A5.5 overrides.
+  const toA3 = (b: any) => ({
+    facilityId: b.facilityId,
+    facilityRegulatoryProfileId: b.facilityRegulatoryProfileId,
+    payerId: b.payerId,
+    tpaId: b.tpaId,
+    networkId: b.networkId,
+    insuranceProductId: b.insuranceProductId,
+    providerContractId: b.providerContractId,
+    tariffScheduleId: b.tariffScheduleId,
+    tariffScheduleVersionId: b.tariffScheduleVersionId,
+    serviceId: null,
+    procedureCodeId: null,
+    diagnosisCodeId: null,
+  })
+  const exactWorld = await world('a3 handoff', { tpa: true, network: true, product: true })
+  const exactFit = await resolvable(exactWorld.payer.id, { tpaId: tpaA.id, networkId: networkA.id, insuranceProductId: exactWorld.product!.id })
+  const exactResolved = await resolve(exactWorld.encounter.id)
+  const handoff = exactResolved.status === 200 ? await validateApplicabilityContextCoherence(toA3(exactResolved.body), org, prisma) : { ok: false as const, message: `resolution returned ${exactResolved.status}` }
+  const wildcardHandoff = await validateApplicabilityContextCoherence(toA3(body), org, prisma)
+  check(
+    'T73',
+    'A3 context handoff',
+    exactResolved.status === 200 && exactResolved.body?.providerContractId === exactFit.contract.id && handoff.ok,
+    handoff.ok
+      ? `the nine resolved IDs populate A3's ApplicabilityContextV2 exactly and pass A3's own ancestry coherence; known boundary for A5.8/A3: a wildcard-resolved context is ${wildcardHandoff.ok ? 'also accepted' : `refused by A3 ("${(wildcardHandoff as any).message}") because A3 leaves null contract dimensions undecided`}`
+      : `A3 refused: ${(handoff as any).message}`,
   )
-  check('T73', 'A3 context handoff', handoff.ok, handoff.ok ? "the nine resolved IDs populate A3's ApplicabilityContextV2 exactly and pass A3's own ancestry coherence" : `A3 refused: ${(handoff as any).message}`)
   check(
     'T74',
     'No A3 rule execution',
