@@ -106,12 +106,16 @@ export async function validateApplicabilityContextCoherence(
     const contract = await findProviderContractById(contractId, db)
     if (contract) {
       if (payerId && contract.payerId !== payerId) return fail(`${contractSubject} belongs to a different payer than the supplied payerId`)
-      // A null commercial dimension on the contract keeps the safe rejection: its meaning
-      // (unrestricted / unknown / not applicable) has not been decided, so a supplied value is
-      // never assumed to be covered by it.
-      if (context.tpaId && contract.tpaId !== context.tpaId) return fail(`${contractSubject} does not match the supplied tpaId`)
-      if (context.networkId && contract.networkId !== context.networkId) return fail(`${contractSubject} does not match the supplied networkId`)
-      if (context.insuranceProductId && contract.insuranceProductId !== context.insuranceProductId)
+      // A non-null commercial dimension on the contract is a hard constraint: a supplied value must
+      // equal it. A NULL one means the contract imposes no restriction on that dimension (A5.5 audit
+      // correction), so a supplied TPA, network or product is not rejected against it — exactly how
+      // A5.5 resolves the contract in the first place. Product-to-payer and ProductNetwork coherence
+      // below still apply to the supplied values on their own.
+      if (context.tpaId && contract.tpaId !== null && contract.tpaId !== context.tpaId)
+        return fail(`${contractSubject} does not match the supplied tpaId`)
+      if (context.networkId && contract.networkId !== null && contract.networkId !== context.networkId)
+        return fail(`${contractSubject} does not match the supplied networkId`)
+      if (context.insuranceProductId && contract.insuranceProductId !== null && contract.insuranceProductId !== context.insuranceProductId)
         return fail(`${contractSubject} does not match the supplied insuranceProductId`)
 
       if (facilityId) {

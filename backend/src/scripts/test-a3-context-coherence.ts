@@ -60,6 +60,8 @@ async function main() {
   // ---- commercial hierarchy fixtures -------------------------------------------------------
   //   C1 (payer P1, tpa T1, network N1, product PR1) — facility F1, schedule S1 — version V1
   //   C2 (payer P2, no tpa/network/product)          — facility F2, schedule S2 — version V2
+  //   PR1b: a second product of P1, so a non-null contract product can be contradicted without
+  //   also contradicting the payer. PR2 is linked to N2 so a full wildcard chain is coherent.
   const P1 = await prisma.payer.create({ data: { organizationId: org, displayName: `${tag} P1` } })
   const P2 = await prisma.payer.create({ data: { organizationId: org, displayName: `${tag} P2` } })
   const T1 = await prisma.tpa.create({ data: { organizationId: org, displayName: `${tag} T1` } })
@@ -69,6 +71,8 @@ async function main() {
   const PR1 = await prisma.insuranceProduct.create({ data: { organizationId: org, payerId: P1.id, productCode: `${tag}-PR1`, displayName: 'PR1' } })
   const PR2 = await prisma.insuranceProduct.create({ data: { organizationId: org, payerId: P2.id, productCode: `${tag}-PR2`, displayName: 'PR2' } })
   await prisma.productNetwork.create({ data: { insuranceProductId: PR1.id, networkId: N1.id } })
+  const PR1b = await prisma.insuranceProduct.create({ data: { organizationId: org, payerId: P1.id, productCode: `${tag}-PR1b`, displayName: 'PR1b' } })
+  await prisma.productNetwork.create({ data: { insuranceProductId: PR2.id, networkId: N2.id } })
   const C1 = await prisma.providerContract.create({
     data: { organizationId: org, payerId: P1.id, tpaId: T1.id, networkId: N1.id, insuranceProductId: PR1.id, contractKey: `${tag}-C1`, displayName: 'C1', effectiveFrom: d('2020-01-01') },
   })
@@ -174,9 +178,30 @@ async function main() {
   await expectIncoherent({ label: 'profile of F2 + version V1, no facility or contract', context: { facilityRegulatoryProfileId: PF2.id, tariffScheduleVersionId: V1.id }, scopeable: false, clientProfile: true })
   await expectIncoherent({ label: 'profile of F1 + facility F2', context: { facilityRegulatoryProfileId: PF1.id, facilityId: F2.id }, scopeable: false, clientProfile: true })
 
-  section('Nullable contract dimensions keep the safe rejection (meaning not yet decided)')
-  await expectIncoherent({ label: 'contract C2 (no TPA) + TPA T1', context: { providerContractId: C2.id, tpaId: T1.id }, scopeable: true })
-  await expectIncoherent({ label: 'version V2 (contract has no network) + network N1', context: { tariffScheduleVersionId: V2.id, networkId: N1.id }, scopeable: true })
+  // A5.5 audit correction: a NULL contract dimension imposes no restriction, so a supplied value is
+  // accepted against it; a NON-NULL one still requires the exact value. Every other protection —
+  // payer, organization, product-to-payer, ProductNetwork, facility participation and tariff
+  // ancestry — is unchanged.
+  section('Nullable contract dimensions impose no restriction (must accept)')
+  await expectCoherent({ label: 'contract C2 (no TPA) + TPA T1', context: { providerContractId: C2.id, tpaId: T1.id }, scopeable: false })
+  await expectCoherent({ label: 'version V2 (contract has no network) + network N1', context: { tariffScheduleVersionId: V2.id, networkId: N1.id }, scopeable: false })
+  await expectCoherent({ label: 'contract C2 (no product) + product PR2 of payer P2', context: { providerContractId: C2.id, insuranceProductId: PR2.id }, scopeable: false })
+  await expectCoherent({
+    label: 'A5.5-shaped wildcard chain: V2/S2/C2 + payer P2 + TPA T1 + network N2 + product PR2 + facility F2',
+    context: { tariffScheduleVersionId: V2.id, tariffScheduleId: S2.id, providerContractId: C2.id, payerId: P2.id, tpaId: T1.id, networkId: N2.id, insuranceProductId: PR2.id, facilityId: F2.id },
+    scopeable: false,
+  })
+
+  section('Non-null contract dimensions still require the exact value (must reject)')
+  await expectIncoherent({ label: 'contract C1 (TPA T1) + TPA T2', context: { providerContractId: C1.id, tpaId: T2.id }, scopeable: true })
+  await expectIncoherent({ label: 'contract C1 (network N1) + network N2', context: { providerContractId: C1.id, networkId: N2.id }, scopeable: true })
+  await expectIncoherent({ label: 'contract C1 (product PR1) + product PR1b of the same payer', context: { providerContractId: C1.id, insuranceProductId: PR1b.id }, scopeable: true })
+
+  section('Every other protection still holds beside a wildcard contract (must reject)')
+  await expectIncoherent({ label: 'product/payer: contract C2 (P2, no product) + product PR1 of payer P1', context: { providerContractId: C2.id, insuranceProductId: PR1.id }, scopeable: true })
+  await expectIncoherent({ label: 'product/network: contract C2 + product PR2 + network N1 (no ProductNetwork)', context: { providerContractId: C2.id, insuranceProductId: PR2.id, networkId: N1.id }, scopeable: true })
+  await expectIncoherent({ label: 'facility: contract C2 + TPA T1 + facility F1 (F1 not in C2)', context: { providerContractId: C2.id, tpaId: T1.id, facilityId: F1.id }, scopeable: true })
+  await expectIncoherent({ label: 'payer: contract C2 + TPA T1 + payer P1', context: { providerContractId: C2.id, tpaId: T1.id, payerId: P1.id }, scopeable: true })
 
   // ---- C23 — valid partial input ------------------------------------------------------------
   section('Coherent partial contexts (must accept without filling fields)')
