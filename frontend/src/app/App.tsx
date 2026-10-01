@@ -40,6 +40,7 @@ import EvidenceArtifactCheck from '../modules/evidence-artifact/EvidenceArtifact
 import EligibilityVerificationCheck from '../modules/eligibility-verification/EligibilityVerificationCheck.tsx'
 import PriorAuthorizationCheck from '../modules/prior-authorization/PriorAuthorizationCheck.tsx'
 import AuthorizationLineCheck from '../modules/authorization-line/AuthorizationLineCheck.tsx'
+import PreClaimCommercialContextCheck from '../modules/pre-claim-commercial-context/PreClaimCommercialContextCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -103,6 +104,7 @@ export default function App() {
         {apiStatus === 'online' && <EligibilityVerificationCheck />}
         {apiStatus === 'online' && <PriorAuthorizationCheck />}
         {apiStatus === 'online' && <AuthorizationLineCheck />}
+        {apiStatus === 'online' && <PreClaimCommercialContextCheck />}
       </div>
     </main>
   )
