@@ -69,6 +69,7 @@ import {
   priorAuthorizationRouter,
   priorAuthorizationVersionRouter,
 } from './modules/prior-authorization/prior-authorization.route.ts'
+import { authorizationLineRouter, versionAuthorizationLineRouter } from './modules/authorization-line/authorization-line.route.ts'
 
 export const app = express()
 
@@ -241,6 +242,12 @@ app.use('/api/eligibility-verifications', eligibilityVerificationRouter)
 app.use('/api/encounters', encounterPriorAuthorizationRouter)
 app.use('/api/prior-authorizations', priorAuthorizationRouter)
 app.use('/api/prior-authorization-versions', priorAuthorizationVersionRouter)
+
+// A5.4 - line-level authorization scope for one exact A5.3 version, captured once as an immutable
+// batch, and a read-only scope evaluation against the Encounter as it stands now. No PATCH, no
+// DELETE, no single-line append and no claim-line endpoint.
+app.use('/api/prior-authorization-versions', versionAuthorizationLineRouter)
+app.use('/api/authorization-lines', authorizationLineRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

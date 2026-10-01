@@ -39,6 +39,7 @@ import EncounterBillingContextCheck from '../modules/encounter-billing-context/E
 import EvidenceArtifactCheck from '../modules/evidence-artifact/EvidenceArtifactCheck.tsx'
 import EligibilityVerificationCheck from '../modules/eligibility-verification/EligibilityVerificationCheck.tsx'
 import PriorAuthorizationCheck from '../modules/prior-authorization/PriorAuthorizationCheck.tsx'
+import AuthorizationLineCheck from '../modules/authorization-line/AuthorizationLineCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -101,6 +102,7 @@ export default function App() {
         {apiStatus === 'online' && <EvidenceArtifactCheck />}
         {apiStatus === 'online' && <EligibilityVerificationCheck />}
         {apiStatus === 'online' && <PriorAuthorizationCheck />}
+        {apiStatus === 'online' && <AuthorizationLineCheck />}
       </div>
     </main>
   )
