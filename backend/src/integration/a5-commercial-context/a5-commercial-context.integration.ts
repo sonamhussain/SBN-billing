@@ -795,13 +795,10 @@ async function main() {
   const stateTables = tables.filter((name) => /(commercial_context|contract_selection|tariff_selection|resolution_result)/i.test(name))
   check('T72', 'No second resolver state', stateColumns.length === 0 && stateTables.length === 0, `no current, winner or selected commercial column among ${columns.length}, and no selection table`)
   // A3 handoff. The nine resolved IDs go straight into A3's ApplicabilityContextV2 and through A3's
-  // own ancestry coherence, for a context whose contract constrains the same TPA, network and product
-  // the Encounter carries.
-  //
-  // Known boundary, reported rather than asserted: A5.5 §8 resolves a NULL contract dimension as a
-  // wildcard, while A3's coherence deliberately leaves the meaning of a null contract dimension
-  // undecided and refuses a supplied value against it. A wildcard-resolved context is therefore
-  // refused by A3 today. That is a decision for the A3/A5.8 owners, not something A5.5 overrides.
+  // own ancestry coherence. Both shapes must pass: a context whose contract constrains the same TPA,
+  // network and product the Encounter carries, and one resolved through a contract that leaves all
+  // three null — A3 treats a null contract dimension as imposing no restriction, exactly as A5.5 §8
+  // resolves it (A3 audit correction, merged before this package).
   const toA3 = (b: any) => ({
     facilityId: b.facilityId,
     facilityRegulatoryProfileId: b.facilityRegulatoryProfileId,
@@ -820,14 +817,18 @@ async function main() {
   const exactFit = await resolvable(exactWorld.payer.id, { tpaId: tpaA.id, networkId: networkA.id, insuranceProductId: exactWorld.product!.id })
   const exactResolved = await resolve(exactWorld.encounter.id)
   const handoff = exactResolved.status === 200 ? await validateApplicabilityContextCoherence(toA3(exactResolved.body), org, prisma) : { ok: false as const, message: `resolution returned ${exactResolved.status}` }
+  // `body` is the main world: an Encounter carrying TPA, network and product, resolved through a
+  // contract that constrains none of them.
+  const wildcardIsWildcard = mainFit.contract.tpaId === null && mainFit.contract.networkId === null && mainFit.contract.insuranceProductId === null &&
+    body.tpaId !== null && body.networkId !== null && body.insuranceProductId !== null
   const wildcardHandoff = await validateApplicabilityContextCoherence(toA3(body), org, prisma)
   check(
     'T73',
     'A3 context handoff',
-    exactResolved.status === 200 && exactResolved.body?.providerContractId === exactFit.contract.id && handoff.ok,
-    handoff.ok
-      ? `the nine resolved IDs populate A3's ApplicabilityContextV2 exactly and pass A3's own ancestry coherence; known boundary for A5.8/A3: a wildcard-resolved context is ${wildcardHandoff.ok ? 'also accepted' : `refused by A3 ("${(wildcardHandoff as any).message}") because A3 leaves null contract dimensions undecided`}`
-      : `A3 refused: ${(handoff as any).message}`,
+    exactResolved.status === 200 && exactResolved.body?.providerContractId === exactFit.contract.id && handoff.ok && wildcardIsWildcard && wildcardHandoff.ok,
+    handoff.ok && wildcardHandoff.ok
+      ? "the nine resolved IDs populate A3's ApplicabilityContextV2 exactly and pass A3's own ancestry coherence for both a fully constrained contract and a wildcard contract (TPA, network and product null against an Encounter carrying all three)"
+      : `A3 refused: ${!handoff.ok ? `fully constrained — ${(handoff as any).message}` : `wildcard — ${(wildcardHandoff as any).message}`}`,
   )
   check(
     'T74',
