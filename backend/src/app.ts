@@ -70,6 +70,7 @@ import {
   priorAuthorizationVersionRouter,
 } from './modules/prior-authorization/prior-authorization.route.ts'
 import { authorizationLineRouter, versionAuthorizationLineRouter } from './modules/authorization-line/authorization-line.route.ts'
+import { encounterPreClaimCommercialContextRouter } from './modules/pre-claim-commercial-context/pre-claim-commercial-context.route.ts'
 
 export const app = express()
 
@@ -248,6 +249,11 @@ app.use('/api/prior-authorization-versions', priorAuthorizationVersionRouter)
 // DELETE, no single-line append and no claim-line endpoint.
 app.use('/api/prior-authorization-versions', versionAuthorizationLineRouter)
 app.use('/api/authorization-lines', authorizationLineRouter)
+
+// A5.5 - the pre-claim commercial context: which provider contract and which exact VERIFIED tariff
+// schedule version apply to one Encounter, resolved read-only in one snapshot. One GET; nothing is
+// persisted, priced or audited.
+app.use('/api/encounters', encounterPreClaimCommercialContextRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

@@ -149,6 +149,9 @@ export const permissionCodes = [
   'authorizationLine.create',
   'authorizationLine.read',
   'authorizationLine.evaluate',
+  // A5.5 — resolving the pre-claim commercial context is one read-only aggregate permission. There
+  // is deliberately no create, update, delete or pricing permission: nothing is persisted.
+  'preClaimCommercialContext.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
