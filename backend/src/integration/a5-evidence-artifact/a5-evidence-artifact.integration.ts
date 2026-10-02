@@ -278,9 +278,14 @@ async function main() {
     `${(replay.output.match(/\d+ migrations applied cleanly[^\n]*/) ?? ['replay output unavailable'])[0]}; the four CHECKs, unique numbering and the immutability trigger all survive a clean replay`,
   )
 
-  const evidencePermissions = (await prisma.permission.findMany({ where: { code: { contains: 'vidence' } }, select: { code: true } })).map((row) => row.code).sort()
+  // A5.1 owns the evidenceArtifact namespace only. Later packages legitimately add their own
+  // evidence-related permissions (A5.6's evidenceRequirement, encounterEvidence and
+  // evidenceCompleteness), so the scan is scoped to A5.1's own prefix, exactly as A5.2 scopes to
+  // eligibilityVerification. Inside that namespace the set must still be exact, so an invented
+  // update, delete or download permission on an evidence artifact still fails.
+  const evidencePermissions = (await prisma.permission.findMany({ where: { code: { startsWith: 'evidenceArtifact' } }, select: { code: true } })).map((row) => row.code).sort()
   const grants = await prisma.rolePermission.findMany({
-    where: { permission: { code: { contains: 'vidence' } } },
+    where: { permission: { code: { startsWith: 'evidenceArtifact' } } },
     select: { role: { select: { code: true } }, permission: { select: { code: true } } },
   })
   const grantOf = (code: string) => grants.filter((g) => g.permission.code === code).map((g) => g.role.code).sort().join(',')
