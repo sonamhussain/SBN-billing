@@ -152,6 +152,15 @@ export const permissionCodes = [
   // A5.5 — resolving the pre-claim commercial context is one read-only aggregate permission. There
   // is deliberately no create, update, delete or pricing permission: nothing is persisted.
   'preClaimCommercialContext.read',
+  // A5.6 — attaching a typed requirement payload to an own-organization documentation RuleVersion,
+  // reading it, linking and removing exact evidence versions on an Encounter, and evaluating
+  // completeness. There is deliberately no evidence-byte, claim or delete permission.
+  'evidenceRequirement.create',
+  'evidenceRequirement.read',
+  'encounterEvidence.create',
+  'encounterEvidence.read',
+  'encounterEvidence.update',
+  'evidenceCompleteness.evaluate',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

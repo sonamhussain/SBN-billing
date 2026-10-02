@@ -19,6 +19,10 @@ import { prisma } from '../../shared/database/prisma.ts'
 import { Prisma } from '../../../generated/prisma/client.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
 import { ruleVersionAuditSnapshot } from '../audit/audit.snapshot.ts'
+// A5.6 — the typed payload a DOCUMENTATION_REQUIREMENT_EFFECT RuleVersion must carry. Read inside
+// this module's own transaction; A5.6 adds no second lifecycle or verification status.
+import { findRequirementShapeForGate } from '../evidence-requirement/evidence-requirement.repository.ts'
+import { DOCUMENTATION_EFFECT } from '../evidence-requirement/evidence-requirement.types.ts'
 
 type RuleVersionRecord = {
   id: string
@@ -183,6 +187,14 @@ export async function updateRuleVersionMetadata(
         message: 'rule version is VERIFIED or REJECTED and cannot be changed; create a new rule version instead',
       }
 
+    // A5.6 — a payload is bound to the documentation effect. Changing the effect type of a version
+    // that carries one would leave an evidence requirement on a rule that no longer asks for evidence.
+    if (effectType && effectType !== existing.effectType && (await findRequirementShapeForGate(id, tx)))
+      return {
+        kind: 'terminal' as const,
+        message: 'this rule version carries an evidence requirement, so its effect type cannot change; create a new rule version instead',
+      }
+
     const nextEffectiveFrom = effectiveFromField.present && effectiveFromField.valid ? effectiveFromField.value : existing.effectiveFrom
     const nextEffectiveTo = effectiveToField.present && effectiveToField.valid ? effectiveToField.value : existing.effectiveTo
     if (nextEffectiveFrom && nextEffectiveTo && nextEffectiveFrom.getTime() > nextEffectiveTo.getTime())
@@ -237,6 +249,18 @@ export async function updateRuleVersionVerification(
     await concurrencyProbe('rule_version.verification')
     if (terminalVerificationStatuses.includes(existing.verificationStatus))
       return { kind: 'terminal' as const, message: 'rule version verification is already VERIFIED or REJECTED and cannot be changed' }
+
+    // A5.6 §6 — a documentation RuleVersion cannot become VERIFIED without exactly one typed evidence
+    // requirement carrying at least one accepted document type. Every other effect type, and every
+    // other transition, behaves exactly as before.
+    if (nextStatus === 'VERIFIED' && existing.effectType === DOCUMENTATION_EFFECT) {
+      const requirement = await findRequirementShapeForGate(id, tx)
+      if (!requirement || requirement._count.documentTypes < 1)
+        return {
+          kind: 'terminal' as const,
+          message: 'a DOCUMENTATION_REQUIREMENT_EFFECT rule version needs its evidence requirement, with at least one document type, before it can be VERIFIED',
+        }
+    }
 
     // verifiedAt is server-generated: non-null only the moment status becomes VERIFIED,
     // and never client-suppliable. Verified != executable — no activation side effect here.

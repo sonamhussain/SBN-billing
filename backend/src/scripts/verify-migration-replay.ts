@@ -151,6 +151,12 @@ async function main() {
       'authorization_lines_prior_authorization_version_id_sequence_key',
       'authorization_lines_prior_authorization_version_id_idx',
       'authorization_lines_status_idx',
+      // A5.6: one payload per RuleVersion, one row per accepted document type, and — as a partial
+      // index the Prisma model cannot express — one ACTIVE link per Encounter and evidence version.
+      'evidence_requirements_rule_version_id_key',
+      'evidence_requirement_document_types_evidence_requirement_id_key',
+      'encounter_evidence_links_active_uq',
+      'encounter_evidence_links_encounter_id_removed_at_idx',
     ]
     for (const name of required) {
       check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))
@@ -246,6 +252,17 @@ async function main() {
       'authorization_lines_procedure_code_id_fkey',
       'authorization_lines_diagnosis_code_id_fkey',
       'authorization_lines_created_by_user_id_fkey',
+      // A5.6: requirement CHECKs, the trimmed document-type CHECK, and the RESTRICT foreign keys that
+      // stop a payload losing its RuleVersion or a link losing its Encounter, evidence or author.
+      'evidence_requirements_minimum_count_chk',
+      'evidence_requirements_max_source_age_nonnegative_chk',
+      'evidence_requirements_freshness_requires_date_chk',
+      'evidence_requirement_document_types_document_type_chk',
+      'evidence_requirements_rule_version_id_fkey',
+      'evidence_requirement_document_types_evidence_requirement_i_fkey',
+      'encounter_evidence_links_encounter_id_fkey',
+      'encounter_evidence_links_evidence_artifact_version_id_fkey',
+      'encounter_evidence_links_created_by_user_id_fkey',
     ]) {
       check(`${name} is present after a clean replay`, replay.constraints.some((line) => line.includes(name)))
     }
@@ -316,6 +333,38 @@ async function main() {
       'authorization lines carry no match, claim-line, readiness or pricing column, and no match table exists, after a clean replay',
       lineColumns.length > 0 && forbiddenLineColumns.length === 0 && matchTables.length === 0,
       lineColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : [...forbiddenLineColumns, ...matchTables].join(', '),
+    )
+
+    // A5.6 — requirement payloads and their document types are immutable, and an evidence link is
+    // corrected only by one-way removal. A replay that lost any of these triggers would leave a
+    // database where a governed requirement or the evidence history could be rewritten.
+    for (const [trigger, label] of [
+      ['evidence_requirements_append_only_trg', 'evidence requirements'],
+      ['evidence_requirement_document_types_append_only_trg', 'evidence requirement document types'],
+      ['encounter_evidence_links_guard_trg', 'encounter evidence links'],
+    ] as const) {
+      check(
+        `the immutability trigger on ${label} is present after a clean replay`,
+        replay.triggers.some((line) => line.includes(trigger)),
+      )
+    }
+
+    // A5.6 §19 — completeness is computed, never stored, and a link copies nothing about the evidence.
+    // No completeness-result table, no copied A3 scope on a requirement, and no storage metadata on
+    // a link. Asserted structurally so a future migration cannot add one quietly.
+    const requirementColumns = replay.columns.filter((line) => line.startsWith('evidence_requirements.'))
+    const linkColumns = replay.columns.filter((line) => line.startsWith('encounter_evidence_links.'))
+    const copiedScope = requirementColumns.filter((line) =>
+      /(payer|tpa|network|product|contract|tariff|service|procedure|diagnosis|jurisdiction|facility)/i.test(line),
+    )
+    const copiedEvidence = linkColumns.filter((line) => /(storage|content_hash|document_type|source_date|received_at)/i.test(line))
+    const resultTables = replay.columns.filter((line) => /^(evidence_completeness|completeness_result|validation_run|validation_finding)/i.test(line))
+    check(
+      'evidence requirements copy no A3 scope, links copy no evidence metadata, and no completeness-result table exists, after a clean replay',
+      requirementColumns.length > 0 && linkColumns.length > 0 && copiedScope.length === 0 && copiedEvidence.length === 0 && resultTables.length === 0,
+      requirementColumns.length === 0 || linkColumns.length === 0
+        ? 'the column catalog did not reach the tables, so this absence is unproven'
+        : [...copiedScope, ...copiedEvidence, ...resultTables].join(', '),
     )
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
