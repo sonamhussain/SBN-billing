@@ -715,8 +715,12 @@ async function main() {
     'the exact linked older version counts; the newer version of the same artifact is not substituted',
   )
   const again = await evaluate(t83.body?.encounterId ?? t40.encounterId)
-  const strip = (b: any) => JSON.stringify({ ...b, evaluatedAt: '' })
-  check('T86', 'Evaluation deterministic order', strip(again.body) === strip(t83.body), 'requirement and evidence arrays are identical across reads')
+  // Two instants legitimately differ per read: the evaluation's own transaction timestamp, and the
+  // evaluationTimestamp A3.8 captures inside each requirement's provenance. Everything else —
+  // requirement order, ids, counts and evidence arrays — must be identical.
+  const strip = (b: any) =>
+    JSON.stringify({ ...b, evaluatedAt: '', requirements: (b?.requirements ?? []).map((r: any) => ({ ...r, provenance: { ...r.provenance, evaluationTimestamp: '' } })) })
+  check('T86', 'Evaluation deterministic order', again.status === 200 && strip(again.body) === strip(t83.body), 'requirement and evidence arrays are identical across reads; only the two evaluation instants differ')
 
   // ---------------------------------------------------------------- persistence and audit (T87–T93)
   section('No persistence; safe, atomic audit')
@@ -887,6 +891,12 @@ async function main() {
     ran && reconciled && undocumented.length === 0,
     !ran ? 'the A5.5 suite did not reach its regression checks' : !reconciled ? `A5.5 reports ${failedCount} failure(s) but ${failing.length} could be named` : undocumented.length > 0 ? `undocumented A5.5 failures: ${undocumented.join(', ')}` : `${(chain.output.match(/\[A5\.5\] automated summary: [^\n]*/) ?? ['no summary'])[0].replace('[A5.5] automated summary: ', 'A5.5 ')}; all ${failedCount} failure(s) named and accounted for, and every commercial-resolution invariant still holds`,
   )
+  // A failing child suite is never hidden behind its id: every undocumented A5.5 failure is printed
+  // with the detail A5.5 itself gave, so the nested cause is visible in this run's own output.
+  for (const id of undocumented) {
+    const row = rows.find((candidate) => candidate.id === id && candidate.verdict === 'FAIL')
+    if (row) console.log(`[A5.6]      ${row.line.slice(0, 400)}`)
+  }
   for (const id of Object.keys(a55NonApplicable)) {
     const row = rows.find((candidate) => candidate.id === id && candidate.verdict === 'FAIL')
     if (row) notApplicableCheck(`T112/${id}`, `A5.5 ${titleOf(row.line)}`, a55NonApplicable[id])
