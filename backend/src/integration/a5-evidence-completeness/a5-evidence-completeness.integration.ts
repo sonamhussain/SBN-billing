@@ -613,8 +613,9 @@ async function main() {
     'T59',
     'No public API chaining',
     !/\bfetch\(|callApi|axios|['"`]\/api\//.test(evidenceCode) && /resolvePreClaimCommercialContext\(encounterId, tx\)/.test(serviceSource) &&
-      /evaluateRuleResolutionBundle\([^)]*\{ db: tx \}\)/.test(serviceSource) && /composeRuleDecisionProvenanceRefV1\([^)]*, tx\)/.test(serviceSource),
-    'A4.9/A5.5, A3.8 and A3.9 are reused in-process with this evaluation\'s own transaction client',
+      // PR #59: A3.8 also receives this evaluation's transaction instant as its clock.
+      /evaluateRuleResolutionBundle\([^\n]*\{ db: tx, clock: \(\) => evaluatedAt \}\)/.test(serviceSource) && /composeRuleDecisionProvenanceRefV1\([^)]*, tx\)/.test(serviceSource),
+    'A4.9/A5.5, A3.8 and A3.9 are reused in-process with this evaluation\'s own transaction client, and A3.8 runs on its transaction instant',
   )
   check(
     'T60',
