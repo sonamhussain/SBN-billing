@@ -1273,11 +1273,17 @@ async function main() {
     productionCode.files.length > 0 && !/providerContract|tariffSchedule|contractFacility/i.test(productionCode.code) && columnsMatching(/contract|tariff|price|amount/i).length === 0,
     'no ProviderContract or TariffScheduleVersion is read or selected — A5.5 owns that',
   )
+  // A5.7 legitimately creates validation_runs and validation_findings, so their existence says nothing
+  // about A5.4. What A5.4 must never do is write or read a validation result itself, or carry one on
+  // its own table, and that behaviour is what is judged here.
   check(
     'T109',
     'No ValidationRun',
-    !tables.some((name) => /validation_run|validation_finding/i.test(name)) && !/validationRun|validationFinding/i.test(productionCode.code),
-    'no ValidationRun or ValidationFinding table or write — A5.7 and A5.8 own those',
+    productionCode.files.length > 0 &&
+      lineColumns.length > 0 &&
+      !/validationRun|validationFinding/i.test(productionCode.code) &&
+      columnsMatching(/validation|finding/i).length === 0,
+    'the line module never writes or reads a ValidationRun or ValidationFinding, and no line column carries one — A5.7 and A5.8 own those',
   )
   check(
     'T110',
