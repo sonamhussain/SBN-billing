@@ -42,6 +42,7 @@ import PriorAuthorizationCheck from '../modules/prior-authorization/PriorAuthori
 import AuthorizationLineCheck from '../modules/authorization-line/AuthorizationLineCheck.tsx'
 import PreClaimCommercialContextCheck from '../modules/pre-claim-commercial-context/PreClaimCommercialContextCheck.tsx'
 import EvidenceCompletenessCheck from '../modules/evidence-completeness/EvidenceCompletenessCheck.tsx'
+import ValidationRunCheck from '../modules/validation-run/ValidationRunCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -107,6 +108,7 @@ export default function App() {
         {apiStatus === 'online' && <AuthorizationLineCheck />}
         {apiStatus === 'online' && <PreClaimCommercialContextCheck />}
         {apiStatus === 'online' && <EvidenceCompletenessCheck />}
+        {apiStatus === 'online' && <ValidationRunCheck />}
       </div>
     </main>
   )

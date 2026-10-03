@@ -161,6 +161,10 @@ export const permissionCodes = [
   'encounterEvidence.read',
   'encounterEvidence.update',
   'evidenceCompleteness.evaluate',
+  // A5.7 — reading recorded validation runs and their findings. There is deliberately no create,
+  // execute, update or delete permission: runs are recorded only by the internal recorder that A5.8
+  // will call, and A5.8 introduces the execution permission.
+  'validationRun.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

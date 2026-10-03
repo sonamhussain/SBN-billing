@@ -101,6 +101,7 @@ model InsuranceMembership {
   encounters         Encounter[]
   eligibilityVerifications EligibilityVerification[]
   priorAuthorizations PriorAuthorization[]
+  validationRuns ValidationRun[]
 
 
   @@index([patientId])
@@ -149,6 +150,7 @@ model Encounter {
 
 
   encounterEvidenceLinks EncounterEvidenceLink[]
+  validationRuns ValidationRun[]
   @@index([patientId])
   @@index([facilityId])
   @@index([clinicianId])
@@ -176,6 +178,7 @@ model EncounterDiagnosis {
 
   encounter     Encounter     @relation(fields: [encounterId], references: [id], onDelete: Restrict)
   diagnosisCode DiagnosisCode @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
+  validationFindings ValidationFinding[]
 
   @@index([encounterId])
   @@index([diagnosisCodeId])
@@ -208,6 +211,7 @@ model EncounterActivity {
   procedureCode   ProcedureCode?  @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
   modifiers       EncounterActivityModifier[]
   observations    EncounterObservation[]
+  validationFindings ValidationFinding[]
 
   @@index([encounterId])
   @@index([serviceId])
@@ -283,6 +287,7 @@ model Facility {
   clinicianAssignments ClinicianFacilityAssignment[]
   encounters Encounter[]
   priorAuthorizations PriorAuthorization[]
+  validationRuns ValidationRun[]
 
 
   @@index([organizationId])
@@ -385,6 +390,7 @@ model Payer {
   insuranceMemberships InsuranceMembership[]
   eligibilityVerifications EligibilityVerification[]
   priorAuthorizations PriorAuthorization[]
+  validationRuns ValidationRun[]
 
 
   @@index([organizationId])
@@ -406,6 +412,7 @@ model Tpa {
   insuranceMemberships InsuranceMembership[]
   eligibilityVerifications EligibilityVerification[]
   priorAuthorizations PriorAuthorization[]
+  validationRuns ValidationRun[]
 
 
   @@index([organizationId])
@@ -428,6 +435,7 @@ model Network {
   insuranceMemberships InsuranceMembership[]
   eligibilityVerifications EligibilityVerification[]
   priorAuthorizations PriorAuthorization[]
+  validationRuns ValidationRun[]
 
 
   @@index([organizationId])
@@ -598,6 +606,7 @@ model RuleSourceVersion {
   outgoingRelationships RuleSourceRelationship[] @relation("SourceRelationshipFrom")
   incomingRelationships RuleSourceRelationship[] @relation("SourceRelationshipTo")
   referenceDatasetVersions ReferenceDatasetVersion[]
+  validationFindings ValidationFinding[]
 
   @@unique([sourceId, version])
   @@index([sourceId])
@@ -676,6 +685,7 @@ model RuleVersion {
 
   // A5.6: the one typed documentation-requirement payload, when this version carries one.
   evidenceRequirement EvidenceRequirement?
+  validationFindings ValidationFinding[]
   @@unique([ruleId, version])
   @@index([ruleId])
   @@index([effectType])
@@ -762,6 +772,7 @@ model FacilityRegulatoryProfile {
   facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
   ruleApplicabilities RuleApplicability[]
   encounters Encounter[]
+  validationRuns ValidationRun[]
 
   @@index([facilityId])
   @@index([status])
@@ -788,6 +799,7 @@ model InsuranceProduct {
   insuranceMemberships InsuranceMembership[]
   eligibilityVerifications EligibilityVerification[]
   priorAuthorizations PriorAuthorization[]
+  validationRuns ValidationRun[]
 
 
   @@unique([organizationId, productCode])
@@ -834,6 +846,7 @@ model ProviderContract {
   tariffSchedules    TariffSchedule[]
   ruleSourceScopes   RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
+  validationRuns ValidationRun[]
 
   @@unique([organizationId, contractKey])
   @@index([organizationId])
@@ -871,6 +884,7 @@ model TariffSchedule {
   versions         TariffScheduleVersion[]
   ruleSourceScopes RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
+  validationRuns ValidationRun[]
 
   @@unique([providerContractId, tariffKey])
   @@index([providerContractId])
@@ -891,6 +905,7 @@ model TariffScheduleVersion {
   tariffSchedule   TariffSchedule    @relation(fields: [tariffScheduleId], references: [id], onDelete: Restrict)
   ruleSourceScopes RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
+  validationRuns ValidationRun[]
 
   @@unique([tariffScheduleId, version])
   @@index([tariffScheduleId])
@@ -937,6 +952,7 @@ model ReferenceDatasetVersion {
   dataset         ReferenceDataset                 @relation(fields: [datasetId], references: [id], onDelete: Restrict)
   sourceVersion   RuleSourceVersion?               @relation(fields: [sourceVersionId], references: [id], onDelete: Restrict)
   lifecycleEvents ReferenceDatasetLifecycleEvent[]
+  validationFindings ValidationFinding[]
 
   @@unique([datasetId, version])
   @@index([datasetId])
@@ -1030,6 +1046,7 @@ model User {
 
 
   encounterEvidenceLinksCreated EncounterEvidenceLink[] @relation("EncounterEvidenceLinkCreatedBy")
+  validationRunsCreated ValidationRun[] @relation("ValidationRunCreatedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1285,6 +1302,7 @@ model EvidenceArtifactVersion {
   priorAuthorizationEvidenceLinks PriorAuthorizationVersionEvidence[]
 
   encounterEvidenceLinks EncounterEvidenceLink[]
+  validationFindings ValidationFinding[]
   @@unique([evidenceArtifactId, version])
   @@index([evidenceArtifactId])
   @@index([createdByUserId])
@@ -1361,6 +1379,7 @@ model EligibilityVerification {
   // encounter or context. There is no isCurrent or isPrimary flag either — choosing which
   // verification is usable belongs to a later governed consumer, not to this table.
   priorAuthorizationVersions PriorAuthorizationVersion[]
+  validationFindings ValidationFinding[]
 
   @@index([encounterId])
   @@index([insuranceMembershipId])
@@ -1440,6 +1459,7 @@ model PriorAuthorizationVersion {
   createdBy               User                     @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
   evidenceLinks           PriorAuthorizationVersionEvidence[]
   authorizationLines AuthorizationLine[]
+  validationFindings ValidationFinding[]
 
 
   @@unique([priorAuthorizationId, version])
@@ -1521,6 +1541,7 @@ model AuthorizationLine {
 
   // No uniqueness on the service, procedure or diagnosis combination: a payer may legitimately report
   // the same scope on more than one line. No current, primary or winner column either.
+  validationFindings ValidationFinding[]
   @@unique([priorAuthorizationVersionId, sequence])
   @@index([priorAuthorizationVersionId])
   @@index([serviceId])
@@ -1546,6 +1567,7 @@ model EvidenceRequirement {
 
   ruleVersion   RuleVersion                       @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
   documentTypes EvidenceRequirementDocumentType[]
+  validationFindings ValidationFinding[]
 
   @@index([ruleVersionId])
   @@map("evidence_requirements")
@@ -1586,4 +1608,94 @@ model EncounterEvidenceLink {
   @@index([evidenceArtifactVersionId])
   @@index([encounterId, removedAt])
   @@map("encounter_evidence_links")
+}
+
+// A5.7 — one complete, immutable pre-claim validation run: the exact server-owned context a
+// deterministic validator evaluated, when (the database transaction instant), and by which validator
+// contract version. There is no status, no current/latest pointer and no overall outcome: a later
+// validation is another run, and A5.9 owns readiness. Ownership derives from Encounter -> Patient.
+// Membership and commercial context are nullable so a run can record that they were absent or
+// unresolved; null never means "valid".
+model ValidationRun {
+  id                          String   @id @default(uuid()) @db.Uuid
+  encounterId                 String   @map("encounter_id") @db.Uuid
+  serviceDate                 DateTime @map("service_date") @db.Date
+  facilityId                  String   @map("facility_id") @db.Uuid
+  facilityRegulatoryProfileId String   @map("facility_regulatory_profile_id") @db.Uuid
+  insuranceMembershipId       String?  @map("insurance_membership_id") @db.Uuid
+  payerId                     String?  @map("payer_id") @db.Uuid
+  tpaId                       String?  @map("tpa_id") @db.Uuid
+  networkId                   String?  @map("network_id") @db.Uuid
+  insuranceProductId          String?  @map("insurance_product_id") @db.Uuid
+  providerContractId          String?  @map("provider_contract_id") @db.Uuid
+  tariffScheduleId            String?  @map("tariff_schedule_id") @db.Uuid
+  tariffScheduleVersionId     String?  @map("tariff_schedule_version_id") @db.Uuid
+  validatorVersion            String   @map("validator_version") @db.Text
+  evaluatedAt                 DateTime @map("evaluated_at") @db.Timestamptz(6)
+  createdByUserId             String   @map("created_by_user_id") @db.Uuid
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  encounter                 Encounter                 @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  facility                  Facility                  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  facilityRegulatoryProfile FacilityRegulatoryProfile @relation(fields: [facilityRegulatoryProfileId], references: [id], onDelete: Restrict)
+  insuranceMembership       InsuranceMembership?      @relation(fields: [insuranceMembershipId], references: [id], onDelete: Restrict)
+  payer                     Payer?                    @relation(fields: [payerId], references: [id], onDelete: Restrict)
+  tpa                       Tpa?                      @relation(fields: [tpaId], references: [id], onDelete: Restrict)
+  network                   Network?                  @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  insuranceProduct          InsuranceProduct?         @relation(fields: [insuranceProductId], references: [id], onDelete: Restrict)
+  providerContract          ProviderContract?         @relation(fields: [providerContractId], references: [id], onDelete: Restrict)
+  tariffSchedule            TariffSchedule?           @relation(fields: [tariffScheduleId], references: [id], onDelete: Restrict)
+  tariffScheduleVersion     TariffScheduleVersion?    @relation(fields: [tariffScheduleVersionId], references: [id], onDelete: Restrict)
+  createdBy                 User                      @relation("ValidationRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  findings                  ValidationFinding[]
+
+  @@index([encounterId, evaluatedAt])
+  @@index([providerContractId])
+  @@index([tariffScheduleVersionId])
+  @@map("validation_runs")
+}
+
+// A5.7 — one immutable, ordered result inside a ValidationRun. findingCode is the machine-readable
+// contract downstream consumes; message is frozen human text that is never parsed. Provenance and
+// target references are optional exact ids, never inferred from fieldPath or message. There is
+// deliberately no claimLineId: ClaimLine is A6's, which may add a nullable relation later.
+model ValidationFinding {
+  id                          String   @id @default(uuid()) @db.Uuid
+  validationRunId             String   @map("validation_run_id") @db.Uuid
+  sequence                    Int
+  layer                       String   @db.Text
+  outcome                     String   @db.Text
+  findingCode                 String   @map("finding_code") @db.Text
+  fieldPath                   String?  @map("field_path") @db.Text
+  message                     String   @db.Text
+  ruleVersionId               String?  @map("rule_version_id") @db.Uuid
+  governingSourceVersionId    String?  @map("governing_source_version_id") @db.Uuid
+  referenceDatasetVersionId   String?  @map("reference_dataset_version_id") @db.Uuid
+  encounterActivityId         String?  @map("encounter_activity_id") @db.Uuid
+  encounterDiagnosisId        String?  @map("encounter_diagnosis_id") @db.Uuid
+  eligibilityVerificationId   String?  @map("eligibility_verification_id") @db.Uuid
+  priorAuthorizationVersionId String?  @map("prior_authorization_version_id") @db.Uuid
+  authorizationLineId         String?  @map("authorization_line_id") @db.Uuid
+  evidenceRequirementId       String?  @map("evidence_requirement_id") @db.Uuid
+  evidenceArtifactVersionId   String?  @map("evidence_artifact_version_id") @db.Uuid
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  validationRun             ValidationRun              @relation(fields: [validationRunId], references: [id], onDelete: Restrict)
+  ruleVersion               RuleVersion?               @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
+  governingSourceVersion    RuleSourceVersion?         @relation(fields: [governingSourceVersionId], references: [id], onDelete: Restrict)
+  referenceDatasetVersion   ReferenceDatasetVersion?   @relation(fields: [referenceDatasetVersionId], references: [id], onDelete: Restrict)
+  encounterActivity         EncounterActivity?         @relation(fields: [encounterActivityId], references: [id], onDelete: Restrict)
+  encounterDiagnosis        EncounterDiagnosis?        @relation(fields: [encounterDiagnosisId], references: [id], onDelete: Restrict)
+  eligibilityVerification   EligibilityVerification?   @relation(fields: [eligibilityVerificationId], references: [id], onDelete: Restrict)
+  priorAuthorizationVersion PriorAuthorizationVersion? @relation(fields: [priorAuthorizationVersionId], references: [id], onDelete: Restrict)
+  authorizationLine         AuthorizationLine?         @relation(fields: [authorizationLineId], references: [id], onDelete: Restrict)
+  evidenceRequirement       EvidenceRequirement?       @relation(fields: [evidenceRequirementId], references: [id], onDelete: Restrict)
+  evidenceArtifactVersion   EvidenceArtifactVersion?   @relation(fields: [evidenceArtifactVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([validationRunId, sequence])
+  @@index([validationRunId])
+  @@index([layer, outcome])
+  @@index([findingCode])
+  @@index([ruleVersionId])
+  @@map("validation_findings")
 }
