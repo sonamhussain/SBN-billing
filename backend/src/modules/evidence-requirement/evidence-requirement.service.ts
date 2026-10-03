@@ -164,7 +164,10 @@ export async function evaluateEvidenceCompleteness(
     // §11 — every own-organization documentation RuleDefinition, each through A3.8 then A3.9.
     const resolved: Array<{ ruleDefinitionId: string; ruleVersionId: string; provenance: RequirementCompletenessDto['provenance'] }> = []
     for (const ruleDefinitionId of await findDocumentationRuleDefinitionIds(context.organizationId, DOCUMENTATION_EFFECT, tx)) {
-      const bundle = await evaluateRuleResolutionBundle(ruleDefinitionId, context.serviceDate, contextInputs, { db: tx })
+      // A3.8 is given this evaluation's own transaction instant as its clock, so the provenance
+      // evaluationTimestamp it issues is the same database instant as evaluatedAt — never the
+      // application clock.
+      const bundle = await evaluateRuleResolutionBundle(ruleDefinitionId, context.serviceDate, contextInputs, { db: tx, clock: () => evaluatedAt })
       if (!bundle.ok) return unresolved('REQUIREMENT_RESOLUTION_BLOCKED', `a documentation rule could not be resolved for this encounter: ${bundle.message}`)
       const resolution = bundle.value.resolution
       // NO_MATCH: the rule does not apply to this target. REFERENCE_ONLY: A3 found no governing,
