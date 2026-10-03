@@ -11,6 +11,10 @@ export const apiErrorCodes = [
   // A5.5: the request and the stored data are both sound, but the commercial context does not
   // resolve to exactly one contract and one verified tariff version. A `reason` names which.
   'COMMERCIAL_CONTEXT_UNRESOLVED',
+  // A5.6: the context is sound, but governed evidence requirements could not be resolved — an
+  // applicable documentation rule is blocked in A3, or is VERIFIED without its typed payload. A
+  // `reason` names which.
+  'EVIDENCE_REQUIREMENT_UNRESOLVED',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

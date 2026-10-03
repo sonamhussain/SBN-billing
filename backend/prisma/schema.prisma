@@ -148,6 +148,7 @@ model Encounter {
   priorAuthorizations PriorAuthorization[]
 
 
+  encounterEvidenceLinks EncounterEvidenceLink[]
   @@index([patientId])
   @@index([facilityId])
   @@index([clinicianId])
@@ -673,6 +674,8 @@ model RuleVersion {
   sourceBindings  RuleSourceBinding[]
   packMemberships RulePackMember[]
 
+  // A5.6: the one typed documentation-requirement payload, when this version carries one.
+  evidenceRequirement EvidenceRequirement?
   @@unique([ruleId, version])
   @@index([ruleId])
   @@index([effectType])
@@ -1026,6 +1029,7 @@ model User {
 
 
 
+  encounterEvidenceLinksCreated EncounterEvidenceLink[] @relation("EncounterEvidenceLinkCreatedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1280,6 +1284,7 @@ model EvidenceArtifactVersion {
   // not frozen by this package.
   priorAuthorizationEvidenceLinks PriorAuthorizationVersionEvidence[]
 
+  encounterEvidenceLinks EncounterEvidenceLink[]
   @@unique([evidenceArtifactId, version])
   @@index([evidenceArtifactId])
   @@index([createdByUserId])
@@ -1523,4 +1528,62 @@ model AuthorizationLine {
   @@index([diagnosisCodeId])
   @@index([status])
   @@map("authorization_lines")
+}
+
+// A5.6 — the typed payload of one DOCUMENTATION_REQUIREMENT_EFFECT RuleVersion. A3 owns the rule's
+// identity, applicability, sources, precedence and provenance; this row owns only what evidence the
+// governed rule asks for. It is attached once, while the RuleVersion is UNVERIFIED, and never
+// edited: correcting it means a new RuleVersion. There is deliberately no payer, TPA, network,
+// product, contract, tariff, service, procedure, diagnosis or jurisdiction column here — scope is
+// A3 RuleApplicability's.
+model EvidenceRequirement {
+  id                 String   @id @default(uuid()) @db.Uuid
+  ruleVersionId      String   @unique @map("rule_version_id") @db.Uuid
+  minimumCount       Int      @default(1) @map("minimum_count")
+  sourceDateRequired Boolean  @default(false) @map("source_date_required")
+  maxSourceAgeDays   Int?     @map("max_source_age_days")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ruleVersion   RuleVersion                       @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
+  documentTypes EvidenceRequirementDocumentType[]
+
+  @@index([ruleVersionId])
+  @@map("evidence_requirements")
+}
+
+// A5.6 — the accepted document types of one requirement. Several types are alternatives for that one
+// requirement; two independent documents are two governed rules, never a hidden AND list.
+model EvidenceRequirementDocumentType {
+  id                    String   @id @default(uuid()) @db.Uuid
+  evidenceRequirementId String   @map("evidence_requirement_id") @db.Uuid
+  documentType          String   @map("document_type") @db.Text
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  evidenceRequirement EvidenceRequirement @relation(fields: [evidenceRequirementId], references: [id], onDelete: Restrict)
+
+  @@unique([evidenceRequirementId, documentType])
+  @@index([evidenceRequirementId])
+  @@map("evidence_requirement_document_types")
+}
+
+// A5.6 — one exact A5.1 evidence version associated with an Encounter, where no narrower owner (A5.2
+// eligibility, A5.3 authorization) already links it. Nothing about the evidence is copied. A link is
+// removed once by setting removedAt and is never deleted or reactivated; re-linking is a new row.
+model EncounterEvidenceLink {
+  id                        String    @id @default(uuid()) @db.Uuid
+  encounterId               String    @map("encounter_id") @db.Uuid
+  evidenceArtifactVersionId String    @map("evidence_artifact_version_id") @db.Uuid
+  removedAt                 DateTime? @map("removed_at") @db.Timestamptz(6)
+  createdByUserId           String    @map("created_by_user_id") @db.Uuid
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  encounter               Encounter               @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  evidenceArtifactVersion EvidenceArtifactVersion @relation(fields: [evidenceArtifactVersionId], references: [id], onDelete: Restrict)
+  createdBy               User                    @relation("EncounterEvidenceLinkCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([encounterId])
+  @@index([evidenceArtifactVersionId])
+  @@index([encounterId, removedAt])
+  @@map("encounter_evidence_links")
 }

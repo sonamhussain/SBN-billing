@@ -47,6 +47,9 @@ const lockableTables = [
   // lock, so two concurrent first batches serialize and the second sees the first's lines and is
   // refused, instead of both reading "no lines yet" and racing on the sequence unique key.
   'prior_authorization_versions',
+  // A5.6: removing an Encounter evidence link locks that link, so two concurrent removals serialize
+  // and the second sees it already removed instead of both stamping removedAt.
+  'encounter_evidence_links',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

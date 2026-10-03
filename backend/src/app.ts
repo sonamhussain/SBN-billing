@@ -71,6 +71,8 @@ import {
 } from './modules/prior-authorization/prior-authorization.route.ts'
 import { authorizationLineRouter, versionAuthorizationLineRouter } from './modules/authorization-line/authorization-line.route.ts'
 import { encounterPreClaimCommercialContextRouter } from './modules/pre-claim-commercial-context/pre-claim-commercial-context.route.ts'
+import { encounterEvidenceCompletenessRouter, ruleVersionEvidenceRequirementRouter } from './modules/evidence-requirement/evidence-requirement.route.ts'
+import { encounterEvidenceLinkRouter, encounterEvidenceLinksRouter } from './modules/encounter-evidence/encounter-evidence.route.ts'
 
 export const app = express()
 
@@ -254,6 +256,14 @@ app.use('/api/authorization-lines', authorizationLineRouter)
 // schedule version apply to one Encounter, resolved read-only in one snapshot. One GET; nothing is
 // persisted, priced or audited.
 app.use('/api/encounters', encounterPreClaimCommercialContextRouter)
+
+// A5.6 - the typed evidence-requirement payload of a documentation RuleVersion, Encounter evidence
+// links, and the read-only completeness evaluation. No PATCH or DELETE anywhere, no upload or
+// download, and no persisted result.
+app.use('/api/rule-versions', ruleVersionEvidenceRequirementRouter)
+app.use('/api/encounters', encounterEvidenceLinksRouter)
+app.use('/api/encounters', encounterEvidenceCompletenessRouter)
+app.use('/api/encounter-evidence-links', encounterEvidenceLinkRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
