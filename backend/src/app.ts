@@ -73,6 +73,7 @@ import { authorizationLineRouter, versionAuthorizationLineRouter } from './modul
 import { encounterPreClaimCommercialContextRouter } from './modules/pre-claim-commercial-context/pre-claim-commercial-context.route.ts'
 import { encounterEvidenceCompletenessRouter, ruleVersionEvidenceRequirementRouter } from './modules/evidence-requirement/evidence-requirement.route.ts'
 import { encounterEvidenceLinkRouter, encounterEvidenceLinksRouter } from './modules/encounter-evidence/encounter-evidence.route.ts'
+import { encounterValidationRunsRouter, validationFindingRouter, validationRunRouter } from './modules/validation-run/validation-run.route.ts'
 
 export const app = express()
 
@@ -264,6 +265,12 @@ app.use('/api/rule-versions', ruleVersionEvidenceRequirementRouter)
 app.use('/api/encounters', encounterEvidenceLinksRouter)
 app.use('/api/encounters', encounterEvidenceCompletenessRouter)
 app.use('/api/encounter-evidence-links', encounterEvidenceLinkRouter)
+
+// A5.7 - read-only validation history. Runs are recorded by the internal recorder only; there is no
+// create, execute, update or delete route.
+app.use('/api/encounters', encounterValidationRunsRouter)
+app.use('/api/validation-runs', validationRunRouter)
+app.use('/api/validation-findings', validationFindingRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

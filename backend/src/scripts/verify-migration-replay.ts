@@ -358,13 +358,85 @@ async function main() {
       /(payer|tpa|network|product|contract|tariff|service|procedure|diagnosis|jurisdiction|facility)/i.test(line),
     )
     const copiedEvidence = linkColumns.filter((line) => /(storage|content_hash|document_type|source_date|received_at)/i.test(line))
-    const resultTables = replay.columns.filter((line) => /^(evidence_completeness|completeness_result|validation_run|validation_finding)/i.test(line))
+    // validation_runs and validation_findings are A5.7's own tables, asserted below; a completeness
+    // result table remains forbidden.
+    const resultTables = replay.columns.filter((line) => /^(evidence_completeness|completeness_result)/i.test(line))
     check(
       'evidence requirements copy no A3 scope, links copy no evidence metadata, and no completeness-result table exists, after a clean replay',
       requirementColumns.length > 0 && linkColumns.length > 0 && copiedScope.length === 0 && copiedEvidence.length === 0 && resultTables.length === 0,
       requirementColumns.length === 0 || linkColumns.length === 0
         ? 'the column catalog did not reach the tables, so this absence is unproven'
         : [...copiedScope, ...copiedEvidence, ...resultTables].join(', '),
+    )
+
+    // A5.7 — a run and its findings are historical evidence: neither can be updated or deleted, a
+    // finding can only be recorded in its run's own transaction, and a run cannot commit empty. A
+    // replay that lost any of these would leave validation history editable or incomplete.
+    for (const [trigger, label] of [
+      ['validation_runs_append_only_trg', 'the append-only trigger on validation runs'],
+      ['validation_findings_append_only_trg', 'the append-only trigger on validation findings'],
+      ['validation_findings_same_transaction_trg', 'the same-transaction trigger on validation findings'],
+      ['validation_runs_require_findings_trg', 'the deferred non-empty-run trigger on validation runs'],
+    ] as const) {
+      check(`${label} is present after a clean replay`, replay.triggers.some((line) => line.includes(trigger)))
+    }
+
+    // A5.7 §13 — the vocabularies, safe-text bounds, sequence rule and every RESTRICT foreign key.
+    for (const name of [
+      'validation_runs_validator_version_chk',
+      'validation_findings_sequence_positive_chk',
+      'validation_findings_layer_chk',
+      'validation_findings_outcome_chk',
+      'validation_findings_finding_code_chk',
+      'validation_findings_message_chk',
+      'validation_findings_field_path_chk',
+      'validation_runs_encounter_id_fkey',
+      'validation_runs_facility_id_fkey',
+      'validation_runs_facility_regulatory_profile_id_fkey',
+      'validation_runs_insurance_membership_id_fkey',
+      'validation_runs_payer_id_fkey',
+      'validation_runs_tpa_id_fkey',
+      'validation_runs_network_id_fkey',
+      'validation_runs_insurance_product_id_fkey',
+      'validation_runs_provider_contract_id_fkey',
+      'validation_runs_tariff_schedule_id_fkey',
+      'validation_runs_tariff_schedule_version_id_fkey',
+      'validation_runs_created_by_user_id_fkey',
+      'validation_findings_validation_run_id_fkey',
+      'validation_findings_rule_version_id_fkey',
+      'validation_findings_governing_source_version_id_fkey',
+      'validation_findings_reference_dataset_version_id_fkey',
+      'validation_findings_encounter_activity_id_fkey',
+      'validation_findings_encounter_diagnosis_id_fkey',
+      'validation_findings_eligibility_verification_id_fkey',
+      'validation_findings_prior_authorization_version_id_fkey',
+      'validation_findings_authorization_line_id_fkey',
+      'validation_findings_evidence_requirement_id_fkey',
+      'validation_findings_evidence_artifact_version_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(name)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    for (const name of ['validation_findings_validation_run_id_sequence_key', 'validation_runs_encounter_id_evaluated_at_idx', 'validation_findings_finding_code_idx']) {
+      check(`${name} is present after a clean replay`, replay.indexes.some((line) => line.startsWith(`${name}:`)))
+    }
+
+    // A5.7 §3/§23 — no run status, no current/latest pointer, no overall outcome or readiness, no
+    // organization copy, no sensitive identity copy, no ClaimLine and no generic JSON blob. Asserted
+    // structurally so a future migration cannot add one quietly.
+    const runColumns = replay.columns.filter((line) => line.startsWith('validation_runs.'))
+    const findingColumns = replay.columns.filter((line) => line.startsWith('validation_findings.'))
+    const forbiddenRunColumns = runColumns.filter((line) =>
+      /\.(status|is_current|is_latest|current|latest|overall_outcome|outcome|readiness|ready|approved_for_submission|payer_accepted|organization_id|member_identifier|policy_identifier|authorization_reference)\b/i.test(line),
+    )
+    const forbiddenFindingColumns = findingColumns.filter((line) => /\.(claim_line_id|claim_id|readiness|is_current)\b/i.test(line))
+    const jsonColumns = [...runColumns, ...findingColumns].filter((line) => /\b(json|jsonb)\b/i.test(line))
+    check(
+      'validation runs and findings carry no status, current/latest, overall outcome, readiness, organization, sensitive identity, ClaimLine or JSON column after a clean replay',
+      runColumns.length > 0 && findingColumns.length > 0 && forbiddenRunColumns.length === 0 && forbiddenFindingColumns.length === 0 && jsonColumns.length === 0,
+      runColumns.length === 0 || findingColumns.length === 0
+        ? 'the column catalog did not reach the tables, so this absence is unproven'
+        : [...forbiddenRunColumns, ...forbiddenFindingColumns, ...jsonColumns].join(', '),
     )
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
