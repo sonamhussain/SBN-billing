@@ -74,6 +74,39 @@ type StoredFinding = {
   evidenceRequirementId: string | null
   evidenceArtifactVersionId: string | null
   createdAt: Date
+  ruleProvenance: {
+    provenanceContractVersion: string
+    precedencePolicyVersion: string
+    rulePackVersionId: string | null
+    governingBindingId: string
+    governingSourceInterpretationId: string
+    businessDate: Date
+    evaluationTimestamp: Date
+    historicalOnly: boolean
+  } | null
+  supportingBindings: { ruleSourceBindingId: string }[]
+  matchedApplicabilities: { ruleApplicabilityId: string }[]
+  consumedDatasetVersions: { referenceDatasetVersionId: string }[]
+}
+
+const ascending = (ids: string[]) => [...ids].sort()
+
+function toRuleProvenanceDto(record: StoredFinding): ValidationFindingDto['ruleProvenance'] {
+  const meta = record.ruleProvenance
+  if (!meta) return null
+  return {
+    provenanceContractVersion: meta.provenanceContractVersion,
+    precedencePolicyVersion: meta.precedencePolicyVersion,
+    rulePackVersionId: meta.rulePackVersionId,
+    governingBindingId: meta.governingBindingId,
+    governingSourceInterpretationId: meta.governingSourceInterpretationId,
+    businessDate: formatDateOnly(meta.businessDate) as string,
+    evaluationTimestamp: meta.evaluationTimestamp.toISOString(),
+    historicalOnly: meta.historicalOnly,
+    supportingBindingIds: ascending(record.supportingBindings.map((row) => row.ruleSourceBindingId)),
+    matchedApplicabilityIds: ascending(record.matchedApplicabilities.map((row) => row.ruleApplicabilityId)),
+    referenceDatasetVersionIds: ascending(record.consumedDatasetVersions.map((row) => row.referenceDatasetVersionId)),
+  }
 }
 
 export function toFindingDto(record: StoredFinding): ValidationFindingDto {
@@ -100,6 +133,7 @@ export function toFindingDto(record: StoredFinding): ValidationFindingDto {
       evidenceRequirementId: record.evidenceRequirementId,
       evidenceArtifactVersionId: record.evidenceArtifactVersionId,
     },
+    ruleProvenance: toRuleProvenanceDto(record),
     createdAt: record.createdAt.toISOString(),
   }
 }

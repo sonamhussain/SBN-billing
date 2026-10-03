@@ -165,6 +165,9 @@ export const permissionCodes = [
   // execute, update or delete permission: runs are recorded only by the internal recorder that A5.8
   // will call, and A5.8 introduces the execution permission.
   'validationRun.read',
+  // A5.8 - executing one deterministic pre-claim validation, which records a new immutable run. Admin
+  // only; reading runs stays validationRun.read. There is no validationRun.create permission.
+  'preClaimValidation.execute',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

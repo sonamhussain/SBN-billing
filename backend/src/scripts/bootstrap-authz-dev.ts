@@ -126,6 +126,7 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'encounterEvidence.update', name: 'Remove Encounter Evidence Link' },
   { code: 'evidenceCompleteness.evaluate', name: 'Evaluate Evidence Completeness' },
   { code: 'validationRun.read', name: 'Read Validation Runs' },
+  { code: 'preClaimValidation.execute', name: 'Execute Pre-Claim Validation' },
 ]
 
 const roleCatalogue = [
@@ -256,6 +257,7 @@ const roleCatalogue = [
       'encounterEvidence.update',
       'evidenceCompleteness.evaluate',
       'validationRun.read',
+      'preClaimValidation.execute',
     ],
   },
   {

@@ -148,10 +148,19 @@ export async function findRunById(runId: string, db: DbClient = prisma) {
   return db.validationRun.findUnique({ where: { id: runId }, include: runWithCount })
 }
 
+// A5.8 §21 — a governed finding's normalized provenance rows are read with it, so its decision basis
+// can be returned exactly; a system finding has none.
+const withRuleProvenance = {
+  ruleProvenance: true,
+  supportingBindings: { select: { ruleSourceBindingId: true } },
+  matchedApplicabilities: { select: { ruleApplicabilityId: true } },
+  consumedDatasetVersions: { select: { referenceDatasetVersionId: true } },
+} as const
+
 export async function findFindingsForRun(runId: string, db: DbClient = prisma) {
-  return db.validationFinding.findMany({ where: { validationRunId: runId }, orderBy: [{ sequence: 'asc' }] })
+  return db.validationFinding.findMany({ where: { validationRunId: runId }, include: withRuleProvenance, orderBy: [{ sequence: 'asc' }] })
 }
 
 export async function findFindingById(findingId: string, db: DbClient = prisma) {
-  return db.validationFinding.findUnique({ where: { id: findingId } })
+  return db.validationFinding.findUnique({ where: { id: findingId }, include: withRuleProvenance })
 }

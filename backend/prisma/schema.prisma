@@ -642,6 +642,7 @@ model SourceInterpretation {
 
   sourceVersion RuleSourceVersion @relation(fields: [sourceVersionId], references: [id], onDelete: Restrict)
   bindings      RuleSourceBinding[]
+  validationFindingRuleProvenances ValidationFindingRuleProvenance[]
 
   @@unique([sourceVersionId, interpretationVersion])
   @@index([sourceVersionId])
@@ -722,6 +723,7 @@ model RuleApplicability {
   service                 Service?                   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   procedureCode           ProcedureCode?             @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
   diagnosisCode           DiagnosisCode?             @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
+  validationFindingMatches ValidationFindingMatchedApplicability[]
 
   @@index([ruleVersionId])
   @@index([facilityId])
@@ -748,6 +750,8 @@ model RuleSourceBinding {
 
   ruleVersion          RuleVersion          @relation(fields: [ruleVersionId], references: [id], onDelete: Restrict)
   sourceInterpretation SourceInterpretation @relation(fields: [sourceInterpretationId], references: [id], onDelete: Restrict)
+  governedValidationFindings ValidationFindingRuleProvenance[]
+  supportedValidationFindings ValidationFindingSupportingBinding[]
 
   @@unique([ruleVersionId, sourceInterpretationId])
   @@index([ruleVersionId])
@@ -953,6 +957,7 @@ model ReferenceDatasetVersion {
   sourceVersion   RuleSourceVersion?               @relation(fields: [sourceVersionId], references: [id], onDelete: Restrict)
   lifecycleEvents ReferenceDatasetLifecycleEvent[]
   validationFindings ValidationFinding[]
+  validationFindingDatasets ValidationFindingReferenceDatasetVersion[]
 
   @@unique([datasetId, version])
   @@index([datasetId])
@@ -1220,6 +1225,7 @@ model RulePackVersion {
 
   rulePack RulePack         @relation(fields: [rulePackId], references: [id], onDelete: Restrict)
   members  RulePackMember[]
+  validationFindingRuleProvenances ValidationFindingRuleProvenance[]
 
   @@unique([rulePackId, version])
   @@index([rulePackId])
@@ -1691,6 +1697,10 @@ model ValidationFinding {
   authorizationLine         AuthorizationLine?         @relation(fields: [authorizationLineId], references: [id], onDelete: Restrict)
   evidenceRequirement       EvidenceRequirement?       @relation(fields: [evidenceRequirementId], references: [id], onDelete: Restrict)
   evidenceArtifactVersion   EvidenceArtifactVersion?   @relation(fields: [evidenceArtifactVersionId], references: [id], onDelete: Restrict)
+  ruleProvenance          ValidationFindingRuleProvenance?
+  supportingBindings      ValidationFindingSupportingBinding[]
+  matchedApplicabilities  ValidationFindingMatchedApplicability[]
+  consumedDatasetVersions ValidationFindingReferenceDatasetVersion[]
 
   @@unique([validationRunId, sequence])
   @@index([validationRunId])
@@ -1698,4 +1708,71 @@ model ValidationFinding {
   @@index([findingCode])
   @@index([ruleVersionId])
   @@map("validation_findings")
+}
+
+// A5.8 — the exact A3-PROV-1 decision basis of one governed ValidationFinding, normalized so it can be
+// reconstructed without JSON. Exactly one row per governed finding; a pure system-invariant finding
+// has none (validatorVersion is its execution provenance). Append-only, and only ever written in the
+// transaction that recorded its finding.
+model ValidationFindingRuleProvenance {
+  validationFindingId             String   @id @map("validation_finding_id") @db.Uuid
+  provenanceContractVersion       String   @map("provenance_contract_version") @db.Text
+  precedencePolicyVersion         String   @map("precedence_policy_version") @db.Text
+  rulePackVersionId               String?  @map("rule_pack_version_id") @db.Uuid
+  governingBindingId              String   @map("governing_binding_id") @db.Uuid
+  governingSourceInterpretationId String   @map("governing_source_interpretation_id") @db.Uuid
+  businessDate                    DateTime @map("business_date") @db.Date
+  evaluationTimestamp             DateTime @map("evaluation_timestamp") @db.Timestamptz(6)
+  historicalOnly                  Boolean  @map("historical_only")
+  createdAt                       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  validationFinding               ValidationFinding    @relation(fields: [validationFindingId], references: [id], onDelete: Restrict)
+  rulePackVersion                 RulePackVersion?     @relation(fields: [rulePackVersionId], references: [id], onDelete: Restrict)
+  governingBinding                RuleSourceBinding    @relation(fields: [governingBindingId], references: [id], onDelete: Restrict)
+  governingSourceInterpretation   SourceInterpretation @relation(fields: [governingSourceInterpretationId], references: [id], onDelete: Restrict)
+
+  @@index([governingBindingId])
+  @@index([rulePackVersionId])
+  @@map("validation_finding_rule_provenances")
+}
+
+// A5.8 — the exact supporting bindings A3-PROV-1 named for a governed finding. Never a latest/current
+// substitution.
+model ValidationFindingSupportingBinding {
+  validationFindingId String   @map("validation_finding_id") @db.Uuid
+  ruleSourceBindingId String   @map("rule_source_binding_id") @db.Uuid
+
+  validationFinding ValidationFinding @relation(fields: [validationFindingId], references: [id], onDelete: Restrict)
+  ruleSourceBinding RuleSourceBinding @relation(fields: [ruleSourceBindingId], references: [id], onDelete: Restrict)
+
+  @@id([validationFindingId, ruleSourceBindingId])
+  @@index([ruleSourceBindingId])
+  @@map("validation_finding_supporting_bindings")
+}
+
+// A5.8 — the exact RuleApplicability rows A3.8 matched for a governed finding.
+model ValidationFindingMatchedApplicability {
+  validationFindingId String   @map("validation_finding_id") @db.Uuid
+  ruleApplicabilityId String   @map("rule_applicability_id") @db.Uuid
+
+  validationFinding ValidationFinding @relation(fields: [validationFindingId], references: [id], onDelete: Restrict)
+  ruleApplicability RuleApplicability @relation(fields: [ruleApplicabilityId], references: [id], onDelete: Restrict)
+
+  @@id([validationFindingId, ruleApplicabilityId])
+  @@index([ruleApplicabilityId])
+  @@map("validation_finding_matched_applicabilities")
+}
+
+// A5.8 — every exact ReferenceDatasetVersion a governed finding actually consumed. A5-VAL-1 consumes
+// none; the table exists so a future typed executor records them without rewriting history.
+model ValidationFindingReferenceDatasetVersion {
+  validationFindingId       String   @map("validation_finding_id") @db.Uuid
+  referenceDatasetVersionId String   @map("reference_dataset_version_id") @db.Uuid
+
+  validationFinding       ValidationFinding       @relation(fields: [validationFindingId], references: [id], onDelete: Restrict)
+  referenceDatasetVersion ReferenceDatasetVersion @relation(fields: [referenceDatasetVersionId], references: [id], onDelete: Restrict)
+
+  @@id([validationFindingId, referenceDatasetVersionId])
+  @@index([referenceDatasetVersionId])
+  @@map("validation_finding_reference_dataset_versions")
 }

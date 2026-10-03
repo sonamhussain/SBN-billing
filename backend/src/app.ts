@@ -74,6 +74,7 @@ import { encounterPreClaimCommercialContextRouter } from './modules/pre-claim-co
 import { encounterEvidenceCompletenessRouter, ruleVersionEvidenceRequirementRouter } from './modules/evidence-requirement/evidence-requirement.route.ts'
 import { encounterEvidenceLinkRouter, encounterEvidenceLinksRouter } from './modules/encounter-evidence/encounter-evidence.route.ts'
 import { encounterValidationRunsRouter, validationFindingRouter, validationRunRouter } from './modules/validation-run/validation-run.route.ts'
+import { encounterPreClaimValidationRouter } from './modules/pre-claim-validation/pre-claim-validation.route.ts'
 
 export const app = express()
 
@@ -271,6 +272,10 @@ app.use('/api/encounter-evidence-links', encounterEvidenceLinkRouter)
 app.use('/api/encounters', encounterValidationRunsRouter)
 app.use('/api/validation-runs', validationRunRouter)
 app.use('/api/validation-findings', validationFindingRouter)
+
+// A5.8 - executing one deterministic pre-claim validation, recorded as a new immutable run. Admin only;
+// no route accepts findings, outcomes or context from a client.
+app.use('/api/encounters', encounterPreClaimValidationRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
