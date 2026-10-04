@@ -91,6 +91,8 @@ const otherOrg = process.env.A1_IT_OTHER_ORGANIZATION_ID as string
 // after it. A5.8 is branched from that main.
 const a57Merge = '5bd7f1f'
 const a56Correction = '9743cbb'
+// PR #60 then scoped A5.4 T106 and A5.6 T59 to behaviour, and was merged before A5.8.
+const harnessCorrection = '2658402'
 const a58Branch = 'feature/a5-8-layered-pre-claim-validation-provenance'
 const dbContainer = process.env.A3_IT_DB_CONTAINER ?? 'sbn-billing-db-1'
 const MISSING = '11111111-1111-4111-8111-111111111111'
@@ -212,8 +214,8 @@ async function main() {
   check(
     'T01',
     'Start gate',
-    branch === a58Branch && gitOk(`merge-base --is-ancestor ${a57Merge} origin/main`) && gitOk(`merge-base --is-ancestor ${a56Correction} origin/main`) && gitOk('merge-base --is-ancestor origin/main HEAD'),
-    `branch ${branch}; the A5.7 merge ${a57Merge} (PR #58) and the A5.6 correction ${a56Correction} (PR #59) are on main, and this branch contains the latest main ${git('rev-parse --short origin/main')}`,
+    branch === a58Branch && gitOk(`merge-base --is-ancestor ${a57Merge} origin/main`) && gitOk(`merge-base --is-ancestor ${a56Correction} origin/main`) && gitOk(`merge-base --is-ancestor ${harnessCorrection} origin/main`) && gitOk('merge-base --is-ancestor origin/main HEAD'),
+    `branch ${branch}; the A5.7 merge ${a57Merge} (PR #58) and the corrections ${a56Correction} (PR #59) and ${harnessCorrection} (PR #60) are on main, and this branch contains the latest main ${git('rev-parse --short origin/main')}`,
   )
   const dirty = git('status --porcelain').split(/\r?\n/).filter(Boolean)
   check('T02', 'Git clean', dirty.length === 0, dirty.length === 0 ? 'working tree clean' : `uncommitted: ${dirty.length} path(s)`)
@@ -991,7 +993,7 @@ async function main() {
   check(
     'T119',
     'Frontend privacy',
-    feCode.files.length > 0 && feCode.code.includes('executeValidation') && !/\b(localStorage|sessionStorage|indexedDB)\s*\.\s*[A-Za-z]+\s*\(/.test(feCode.code) && !/RuleProvenance|rule-provenance|\/provenance|findingCode|\.fieldPath|memberIdentifier|eligibilityVerificationId/.test(feCode.code),
+    feCode.files.length > 0 && feCode.code.includes('executeValidation') && !/\b(localStorage|sessionStorage|indexedDB)\s*\.\s*[A-Za-z]+\s*\(/.test(feCode.code) && !/RuleProvenance|rule-provenance|[/]provenance|findingCode|\.fieldPath|memberIdentifier|eligibilityVerificationId/.test(feCode.code),
     'nothing in browser storage; only the run id, time, version and count are shown',
   )
   const tables = (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`).map((row) => row.table_name)
