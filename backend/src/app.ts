@@ -75,6 +75,7 @@ import { encounterEvidenceCompletenessRouter, ruleVersionEvidenceRequirementRout
 import { encounterEvidenceLinkRouter, encounterEvidenceLinksRouter } from './modules/encounter-evidence/encounter-evidence.route.ts'
 import { encounterValidationRunsRouter, validationFindingRouter, validationRunRouter } from './modules/validation-run/validation-run.route.ts'
 import { encounterPreClaimValidationRouter } from './modules/pre-claim-validation/pre-claim-validation.route.ts'
+import { encounterReadinessRouter, readinessAssessmentRouter, validationRunReadinessRouter } from './modules/pre-claim-readiness/pre-claim-readiness.route.ts'
 
 export const app = express()
 
@@ -276,6 +277,12 @@ app.use('/api/validation-findings', validationFindingRouter)
 // A5.8 - executing one deterministic pre-claim validation, recorded as a new immutable run. Admin only;
 // no route accepts findings, outcomes or context from a client.
 app.use('/api/encounters', encounterPreClaimValidationRouter)
+
+// A5.9 - one immutable readiness assessment per validation run and policy (Admin only), assessment
+// reads, and the read-only A6 handoff contract. No approve, submit, claim, update or delete route.
+app.use('/api/validation-runs', validationRunReadinessRouter)
+app.use('/api/encounters', encounterReadinessRouter)
+app.use('/api/pre-claim-readiness-assessments', readinessAssessmentRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

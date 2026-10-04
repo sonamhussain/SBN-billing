@@ -50,6 +50,10 @@ const lockableTables = [
   // A5.6: removing an Encounter evidence link locks that link, so two concurrent removals serialize
   // and the second sees it already removed instead of both stamping removedAt.
   'encounter_evidence_links',
+  // A5.9: recording a readiness assessment locks its validation run, so two concurrent requests for
+  // the same run and policy serialize and the second sees the first assessment instead of racing on
+  // the unique key. The run itself is never modified.
+  'validation_runs',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]
