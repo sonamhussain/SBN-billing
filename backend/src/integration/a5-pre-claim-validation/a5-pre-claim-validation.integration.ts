@@ -997,7 +997,14 @@ async function main() {
     'nothing in browser storage; only the run id, time, version and count are shown',
   )
   const tables = (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`).map((row) => row.table_name)
-  check('T120', 'No readiness', reached && !tables.some((t) => /readiness/.test(t)) && !/readiness|readyForClaim|RESTRICT_OVERALL|overallOutcome/.test(moduleCode.code), 'no ready, restrict or block overall decision')
+  // A5.9 legitimately creates pre_claim_readiness_assessments; A5.8 must never decide or store readiness
+  // itself, so its own provenance tables, the runs and findings it writes, and its code are judged.
+  check(
+    'T120',
+    'No readiness',
+    reached && allProvenanceColumns.length > 0 && ![...allProvenanceColumns, ...runColumns, ...findingColumns].some((c) => /ready|readiness/i.test(c)) && !/readiness|readyForClaim|RESTRICT_OVERALL|overallOutcome/.test(moduleCode.code),
+    'no ready, restrict or block overall decision in A5.8 code, its provenance tables or the runs it records',
+  )
   check('T121', 'No Claim', reached && !tables.some((t) => /(^claims?$|claim_lines?|claim_submissions?)/.test(t)) && !/(prisma|tx)\.(claim|claimLine|claimSubmission)\b/.test(moduleCode.code), 'no Claim, ClaimLine or ClaimSubmission')
   check('T122', 'No real integration', reached && !/\b(fetch|axios|https?\.request|dhpo|eclaimlink|apiKey|clientSecret)\b/i.test(moduleCode.code), 'no payer, DHPO or eClaimLink call or credential')
   const unitTests = run('npm run test:unit')
