@@ -1251,7 +1251,10 @@ async function main() {
   )
   const productionCode = committedProductionCodeOf('backend/src/modules/authorization-line')
   const tables = (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`).map((row) => row.table_name)
-  const matchTables = tables.filter((name) => /match|scope_evaluation/i.test(name))
+  // A5.4's own match results would live in an authorization match or scope-evaluation table — the same
+  // names the migration replay verifier forbids. A later package's table that merely contains the word
+  // "match" (A5.8's matched-applicability provenance) says nothing about A5.4, so it is not judged here.
+  const matchTables = tables.filter((name) => /^(authorization_line_match|scope_evaluation|authorization_match)/i.test(name))
   const persistedMatch = /prisma\.\w+\.(create|update|upsert)|tx\.\w+\.(create|update|upsert)/.test(evaluateBody)
   check(
     'T106',
