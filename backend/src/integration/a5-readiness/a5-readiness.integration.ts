@@ -1130,6 +1130,12 @@ async function main() {
     const row = rows.find((candidate) => candidate.id === id && candidate.verdict === 'FAIL')
     if (row) notApplicableCheck(`T96/${id}`, `A5.8 ${titleOf(row.line)}`, a58NonApplicable[id])
   }
+  // The nested cause is never lost: whatever A5.8 itself printed about a failing child (the A5.7 row
+  // with its own detail), and any abort or uncaught error in the chain, is shown in this run's output.
+  if (!ran || !reconciled || undocumented.length > 0) {
+    for (const text of chain.output.split(/\r?\n/).filter((l) => (l.startsWith('[A5.8]      [') || /RUN ABORTED|uncaught error|INVALID RUN/.test(l)) && !/ substantive checks /.test(l)))
+      console.log(`[A5.9]      ${text.slice(0, 400)}`)
+  }
   const lineOfId = (id: string) => rows.find((row) => row.id === id)?.line ?? ''
   const verdictOf = (id: string) => rows.find((row) => row.id === id)?.verdict ?? 'missing'
   check('T97', 'A5.7 regression', verdictOf('T124') === 'PASS', `A5.8 T124 (A5.7) ${verdictOf('T124')}`)
