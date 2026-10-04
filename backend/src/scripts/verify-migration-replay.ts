@@ -439,6 +439,59 @@ async function main() {
         : [...forbiddenRunColumns, ...forbiddenFindingColumns, ...jsonColumns].join(', '),
     )
 
+    // A5.8 — the normalized A3-PROV-1 provenance of governed findings. All four tables are append-only,
+    // and a row can only be written with its own finding. A replay that lost any of these would leave
+    // the decision basis of a historical finding editable, or attachable after the fact.
+    const provenanceTables = [
+      'validation_finding_rule_provenances',
+      'validation_finding_supporting_bindings',
+      'validation_finding_matched_applicabilities',
+      'validation_finding_reference_dataset_versions',
+    ]
+    // Trigger names are listed exactly: Postgres truncates an identifier beyond 63 characters, so a
+    // derived name could silently stop matching the trigger it means.
+    for (const trigger of [
+      'validation_finding_rule_provenances_append_only_trg',
+      'validation_finding_supporting_bindings_append_only_trg',
+      'validation_finding_matched_applicabilities_append_only_trg',
+      'validation_finding_reference_dataset_versions_append_only_trg',
+      'validation_finding_rule_provenances_same_transaction_trg',
+      'validation_finding_supporting_bindings_same_transaction_trg',
+      'validation_finding_matched_applicabilities_same_transaction_trg',
+      'validation_finding_ref_dataset_versions_same_transaction_trg',
+    ]) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const table of provenanceTables) {
+      check(`${table}_pkey is present after a clean replay`, replay.constraints.some((line) => line.includes(`${table}_pkey`)))
+    }
+    // §16 — every provenance foreign key is ON DELETE RESTRICT, and the two label CHECKs survive.
+    for (const name of [
+      'validation_finding_rule_provenances_contract_version_chk',
+      'validation_finding_rule_provenances_policy_version_chk',
+      'validation_finding_rule_provenances_validation_finding_id_fkey',
+      'validation_finding_rule_provenances_rule_pack_version_id_fkey',
+      'validation_finding_rule_provenances_governing_binding_id_fkey',
+      'validation_finding_rule_provenances_governing_source_inter_fkey',
+      'validation_finding_supporting_bindings_validation_finding__fkey',
+      'validation_finding_supporting_bindings_rule_source_binding_fkey',
+      'validation_finding_matched_applicabilities_validation_find_fkey',
+      'validation_finding_matched_applicabilities_rule_applicabil_fkey',
+      'validation_finding_reference_dataset_versions_validation_f_fkey',
+      'validation_finding_reference_dataset_versions_reference_da_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(name)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    // §16 — no provenance JSON/JSONB column anywhere in the four tables.
+    const provenanceColumns = replay.columns.filter((line) => provenanceTables.some((table) => line.startsWith(`${table}.`)))
+    const provenanceJson = provenanceColumns.filter((line) => /\b(json|jsonb)\b/i.test(line))
+    check(
+      'the four provenance tables carry no JSON or JSONB column after a clean replay',
+      provenanceColumns.length > 0 && provenanceJson.length === 0,
+      provenanceColumns.length === 0 ? 'the column catalog did not reach the tables, so this absence is unproven' : provenanceJson.join(', '),
+    )
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration

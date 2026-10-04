@@ -107,6 +107,21 @@ export type ValidationFindingDto = {
   message: string
   provenance: Record<ProvenanceField, string | null>
   targets: Record<TargetField, string | null>
+  // A5.8 §21 — the exact normalized A3-PROV-1 basis of a governed finding; null for a system finding,
+  // whose execution provenance is the run's validatorVersion. Id sets are ascending.
+  ruleProvenance: {
+    provenanceContractVersion: string
+    precedencePolicyVersion: string
+    rulePackVersionId: string | null
+    governingBindingId: string
+    governingSourceInterpretationId: string
+    businessDate: string
+    evaluationTimestamp: string
+    historicalOnly: boolean
+    supportingBindingIds: string[]
+    matchedApplicabilityIds: string[]
+    referenceDatasetVersionIds: string[]
+  } | null
   createdAt: string
 }
 
