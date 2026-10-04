@@ -1291,8 +1291,10 @@ async function main() {
   check(
     'T110',
     'No readiness',
-    !tables.some((name) => /readiness/i.test(name)) && !/readiness|readyForClaim|isSatisfied|RESTRICT'|BLOCK'/.test(productionCode.code) && columnsMatching(/ready|restrict|block|satisf/i).length === 0,
-    'no overall ready, restrict or block decision anywhere — A5.9 owns readiness',
+    // A5.9 legitimately creates pre_claim_readiness_assessments; what A5.4 must never do is decide or
+    // store readiness itself, so its own code and its own line columns are what is judged.
+    productionCode.files.length > 0 && lineColumns.length > 0 && !/readiness|readyForClaim|isSatisfied|RESTRICT'|BLOCK'/.test(productionCode.code) && columnsMatching(/ready|restrict|block|satisf/i).length === 0,
+    'the line module decides and stores no ready, restrict or block state — A5.9 owns readiness',
   )
   const claimTables = tables.filter((name) => /(^claims?$|claim_lines?|claim_submissions?|remittance)/i.test(name))
   check(

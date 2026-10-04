@@ -750,7 +750,14 @@ async function main() {
   check('T83', 'No authorization execution', importsOf(/(authorization-line|prior-authorization)/).length === 0 && !/scope-evaluation|evaluateAuthorizationScope|matchLine|MATCHED/.test(moduleCode.code), 'no authorization matching or satisfaction decision')
   check('T84', 'No commercial resolution', importsOf(/pre-claim-commercial-context|commercial-coverage|provider-contract|tariff/).length === 0 && !/resolvePreClaimCommercialContext|providerContract\.findMany|tariffScheduleVersion\.findMany/.test(moduleCode.code), 'no contract or tariff candidate is resolved; context ids are only checked for tenancy')
   check('T85', 'No evidence completeness execution', importsOf(/evidence-requirement|encounter-evidence/).length === 0 && !/classifyCandidate|evaluateRequirement|evaluateEvidenceCompleteness|documentType|sourceDate/.test(moduleCode.code), 'no document-requirement matching or staleness evaluation')
-  check('T86', 'No readiness', !tables.some((t) => /readiness/i.test(t)) && !dtoKeys.some((k) => /ready|readiness/i.test(k)) && !/readyForClaim|composeReadiness|readinessState/.test(moduleCode.code), 'no ready, restrict or block aggregate anywhere')
+  // A5.9 legitimately creates pre_claim_readiness_assessments; A5.7 must never carry or compose readiness
+  // itself, so its own run and finding columns, its DTOs and its code are what is judged.
+  check(
+    'T86',
+    'No readiness',
+    runColumns.length > 0 && findingColumns.length > 0 && ![...runColumns, ...findingColumns].some((c) => /ready|readiness/i.test(c)) && !dtoKeys.some((k) => /ready|readiness/i.test(k)) && !/readyForClaim|composeReadiness|readinessState/.test(moduleCode.code),
+    'no ready, restrict or block aggregate on a run, a finding, a DTO or in the module',
+  )
   check('T87', 'No Claim', !tables.some((t) => /(^claims?$|claim_lines?|claim_submissions?)/.test(t)) && !/(prisma|tx|db)\.(claim|claimLine|claimSubmission)\b/.test(moduleCode.code), 'no Claim, ClaimLine or ClaimSubmission table or access')
   check('T88', 'No real integration', !/\b(fetch|axios|https?\.request|dhpo|eclaimlink|apiKey|clientSecret)\b/i.test(moduleCode.code), 'no payer, DHPO or eClaimLink network call or credential')
   const jsonColumns = (await prisma.$queryRaw<{ c: string }[]>`SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('validation_runs','validation_findings') AND data_type IN ('json','jsonb')`).map((row) => row.c)
