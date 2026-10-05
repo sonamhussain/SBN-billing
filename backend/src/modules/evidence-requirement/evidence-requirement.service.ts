@@ -104,6 +104,12 @@ export async function getEvidenceRequirement(ruleVersionId: string): Promise<Evi
 
 // ---------------------------------------------------------------- completeness (§8–§14, §17)
 
+// A5.10 closure measured one HTTP evaluation at 13 s idle against the 15 s default snapshot bound, and
+// over it under load (HTTP 500): A3.8 runs for every applicable governed documentation rule, and that
+// set grows with governed data. The read snapshot keeps its isolation and READ ONLY guarantee; only
+// its time limit is raised for this evaluation. A5.8 calls this with its own transaction and is unaffected.
+const COMPLETENESS_SNAPSHOT_TIMEOUT_MS = 120_000
+
 export async function evaluateEvidenceCompleteness(
   encounterId: string,
   body: unknown,
@@ -234,5 +240,5 @@ export async function evaluateEvidenceCompleteness(
         requirements,
       },
     }
-  })
+  }, { timeoutMs: COMPLETENESS_SNAPSHOT_TIMEOUT_MS })
 }
