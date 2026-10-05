@@ -492,6 +492,42 @@ async function main() {
       provenanceColumns.length === 0 ? 'the column catalog did not reach the tables, so this absence is unproven' : provenanceJson.join(', '),
     )
 
+    // A5.9 — a readiness assessment is historical business truth: the database refuses UPDATE and
+    // DELETE, holds the state vocabulary and the policy label, keeps one assessment per run and policy,
+    // and restricts deletion of the run and the actor it names.
+    check(
+      'pre_claim_readiness_assessments_append_only_trg is present after a clean replay',
+      replay.triggers.some((line) => line.endsWith(':pre_claim_readiness_assessments_append_only_trg')),
+    )
+    for (const name of [
+      'pre_claim_readiness_assessments_pkey',
+      'pre_claim_readiness_assessments_state_chk',
+      'pre_claim_readiness_assessments_policy_version_chk',
+      'pre_claim_readiness_assessments_validation_run_id_fkey',
+      'pre_claim_readiness_assessments_created_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(name)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    check(
+      'the one-assessment-per-run-and-policy unique index is present after a clean replay',
+      replay.indexes.some((line) => line.startsWith('pre_claim_readiness_assessments_validation_run_id_readiness_key:') && /UNIQUE/i.test(line)),
+    )
+    // §6 — the assessment copies no counts, reasons, context, claim or payer state, and there is no
+    // handoff, reason or current-pointer table: the A6 handoff is a read-time contract.
+    const readinessColumns = replay.columns.filter((line) => line.startsWith('pre_claim_readiness_assessments.'))
+    const forbiddenReadinessColumns = readinessColumns.filter((line) =>
+      /\.(\w*count\w*|\w*reason\w*|encounter_id|facility_id|payer_id|organization_id|is_current|is_latest|current|latest|claim\w*|approved\w*|submitted\w*|status)[:]|[:](json|jsonb)[:]/i.test(line),
+    )
+    const handoffTables = replay.columns.filter((line) => /^(pre_claim_a6_handoff|a6_handoff|pre_claim_readiness_reason|readiness_current)/i.test(line))
+    check(
+      'readiness assessments copy no counts, reasons, context, claim or payer state, and no handoff or pointer table exists, after a clean replay',
+      readinessColumns.length > 0 && forbiddenReadinessColumns.length === 0 && handoffTables.length === 0,
+      readinessColumns.length === 0
+        ? 'the column catalog did not reach the table, so this absence is unproven'
+        : [...forbiddenReadinessColumns, ...handoffTables].join(', '),
+    )
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration

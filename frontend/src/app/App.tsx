@@ -44,6 +44,7 @@ import PreClaimCommercialContextCheck from '../modules/pre-claim-commercial-cont
 import EvidenceCompletenessCheck from '../modules/evidence-completeness/EvidenceCompletenessCheck.tsx'
 import ValidationRunCheck from '../modules/validation-run/ValidationRunCheck.tsx'
 import PreClaimValidationCheck from '../modules/pre-claim-validation/PreClaimValidationCheck.tsx'
+import PreClaimReadinessCheck from '../modules/pre-claim-readiness/PreClaimReadinessCheck.tsx'
 
 type ApiStatus = 'checking' | 'online' | 'offline'
 
@@ -111,6 +112,7 @@ export default function App() {
         {apiStatus === 'online' && <EvidenceCompletenessCheck />}
         {apiStatus === 'online' && <ValidationRunCheck />}
         {apiStatus === 'online' && <PreClaimValidationCheck />}
+        {apiStatus === 'online' && <PreClaimReadinessCheck />}
       </div>
     </main>
   )

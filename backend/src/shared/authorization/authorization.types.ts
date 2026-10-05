@@ -168,6 +168,12 @@ export const permissionCodes = [
   // A5.8 - executing one deterministic pre-claim validation, which records a new immutable run. Admin
   // only; reading runs stays validationRun.read. There is no validationRun.create permission.
   'preClaimValidation.execute',
+  // A5.9 - recording one immutable readiness assessment for an exact validation run (Admin only),
+  // reading assessments, and reading the derived A6 handoff contract. There is no update, delete,
+  // override or approval permission: readiness is never edited, and a handoff is never stored.
+  'preClaimReadiness.evaluate',
+  'preClaimReadiness.read',
+  'preClaimA6Handoff.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

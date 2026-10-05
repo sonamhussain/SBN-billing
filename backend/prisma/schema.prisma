@@ -1052,6 +1052,7 @@ model User {
 
   encounterEvidenceLinksCreated EncounterEvidenceLink[] @relation("EncounterEvidenceLinkCreatedBy")
   validationRunsCreated ValidationRun[] @relation("ValidationRunCreatedBy")
+  preClaimReadinessAssessmentsCreated PreClaimReadinessAssessment[] @relation("PreClaimReadinessAssessmentCreatedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1654,6 +1655,7 @@ model ValidationRun {
   tariffScheduleVersion     TariffScheduleVersion?    @relation(fields: [tariffScheduleVersionId], references: [id], onDelete: Restrict)
   createdBy                 User                      @relation("ValidationRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   findings                  ValidationFinding[]
+  readinessAssessments PreClaimReadinessAssessment[]
 
   @@index([encounterId, evaluatedAt])
   @@index([providerContractId])
@@ -1775,4 +1777,27 @@ model ValidationFindingReferenceDatasetVersion {
   @@id([validationFindingId, referenceDatasetVersionId])
   @@index([referenceDatasetVersionId])
   @@map("validation_finding_reference_dataset_versions")
+}
+
+// A5.9 — one immutable readiness decision for one exact ValidationRun under one readiness policy
+// version. The state is a deterministic reduction of that run's immutable finding outcomes; counts,
+// reasons, context and provenance are never copied here because the run owns them. There is no
+// current/latest pointer and no claim, approval or payer state: a later validation is another run with
+// its own assessment.
+model PreClaimReadinessAssessment {
+  id                     String   @id @default(uuid()) @db.Uuid
+  validationRunId        String   @map("validation_run_id") @db.Uuid
+  readinessPolicyVersion String   @map("readiness_policy_version") @db.Text
+  state                  String   @db.Text
+  assessedAt             DateTime @map("assessed_at") @db.Timestamptz(6)
+  createdByUserId        String   @map("created_by_user_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  validationRun ValidationRun @relation(fields: [validationRunId], references: [id], onDelete: Restrict)
+  createdBy     User          @relation("PreClaimReadinessAssessmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([validationRunId, readinessPolicyVersion])
+  @@index([validationRunId])
+  @@index([state, assessedAt])
+  @@map("pre_claim_readiness_assessments")
 }
