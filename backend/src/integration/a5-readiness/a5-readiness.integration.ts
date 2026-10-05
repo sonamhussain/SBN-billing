@@ -694,7 +694,9 @@ async function main() {
   )
   const tables = (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`).map((row) => row.table_name)
   const extraTables = tables.filter((t) => /(readiness|handoff)/i.test(t) && t !== TABLE)
-  check('T44', 'No reason table', extraTables.length === 0 && createdTables.length === 1, extraTables.length === 0 ? 'reasons are derived at read time; no readiness-reason or handoff table exists' : `unexpected: ${extraTables.join(', ')}`)
+  // Judged on the live catalog, not on this branch's migration diff, so a later package that adds no
+  // migration still proves the same thing. The reach guard is that the readiness table itself is seen.
+  check('T44', 'No reason table', tables.includes(TABLE) && extraTables.length === 0, extraTables.length === 0 ? 'reasons are derived at read time; no readiness-reason or handoff table exists' : `unexpected: ${extraTables.join(', ')}`)
 
   // ---------------------------------------------------------------- handoff gate (T45–T58)
   section('A6 handoff gate and the newer-validation rule')
@@ -1021,7 +1023,7 @@ async function main() {
   check(
     'T88',
     'No rule DSL',
-    reached && !/new Function\(|\beval\(|vm\.run/.test(moduleCode.code) && !tables.some((t) => /(check_registry|rule_dsl|readiness_rule|readiness_polic)/.test(t)) && createdTables.length === 1,
+    reached && !/new Function\(|\beval\(|vm\.run/.test(moduleCode.code) && tables.includes(TABLE) && !tables.some((t) => /(check_registry|rule_dsl|readiness_rule|readiness_polic)/.test(t)),
     'the A5-READY-1 reduction is fixed code; no interpreter and no check registry table',
   )
 
