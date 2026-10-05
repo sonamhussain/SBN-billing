@@ -84,9 +84,12 @@ const viewerPassword = process.env.A1_IT_VIEWER_PASSWORD as string
 const org = process.env.A1_IT_ORGANIZATION_ID as string
 const otherOrg = process.env.A1_IT_OTHER_ORGANIZATION_ID as string
 // A5.9 FINAL PASS was merged into main as PR #63. The first A5.10 self-test then exposed the A5.6
-// completeness read-snapshot bound, corrected by PR #64 and merged before A5.10 was recreated.
+// completeness read-snapshot bound, corrected by PR #64 and merged before A5.10 was recreated. The first
+// official run then showed A5.9 T44/T88 tied to the A5.9 branch diff; PR #65 judges them on the live
+// catalog and was merged into this branch (a merge, never a rebase).
 const a59Merge = 'e9b9159'
 const a56Correction = '9028911'
+const a59HarnessCorrection = 'c4751f7'
 const a510Branch = 'feature/a5-10-a5-integration-acceptance'
 const dbContainer = process.env.A3_IT_DB_CONTAINER ?? 'sbn-billing-db-1'
 const MISSING = '11111111-1111-4111-8111-111111111111'
@@ -198,8 +201,8 @@ async function main() {
   check(
     'T001',
     'Start gate',
-    branch === a510Branch && gitOk(`merge-base --is-ancestor ${a59Merge} origin/main`) && gitOk(`merge-base --is-ancestor ${a56Correction} origin/main`) && gitOk('merge-base --is-ancestor origin/main HEAD'),
-    `branch ${branch}; the A5.9 merge ${a59Merge} (PR #63) and the A5.6 correction ${a56Correction} (PR #64) are on main, and this branch contains the latest main ${git('rev-parse --short origin/main')}`,
+    branch === a510Branch && gitOk(`merge-base --is-ancestor ${a59Merge} origin/main`) && gitOk(`merge-base --is-ancestor ${a56Correction} origin/main`) && gitOk(`merge-base --is-ancestor ${a59HarnessCorrection} origin/main`) && gitOk('merge-base --is-ancestor origin/main HEAD'),
+    `branch ${branch}; the A5.9 merge ${a59Merge} (PR #63), the A5.6 correction ${a56Correction} (PR #64) and the A5.9 harness correction ${a59HarnessCorrection} (PR #65) are on main, and this branch contains the latest main ${git('rev-parse --short origin/main')}`,
   )
   const dirty = git('status --porcelain').split(/\r?\n/).filter(Boolean)
   check('T002', 'Git clean', dirty.length === 0, dirty.length === 0 ? 'working tree clean' : `uncommitted: ${dirty.length} path(s)`)
