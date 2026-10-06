@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { usePermission } from './PermissionContext.tsx'
+import { usePermission } from './usePermission.ts'
 
 export function PermissionGate({
   permission,

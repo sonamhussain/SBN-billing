@@ -15,9 +15,14 @@ const nav = [
 export function AppShell() {
   const navigate = useNavigate()
 
+  // The private Query cache is cleared even if the sign-out request fails: client-state cleanup never
+  // depends on a successful network call.
   async function signOut() {
-    await authClient.signOut()
-    queryClient.clear()
+    try {
+      await authClient.signOut()
+    } finally {
+      queryClient.clear()
+    }
     navigate('/login', { replace: true })
   }
 
@@ -45,8 +50,8 @@ export function AppShell() {
       </aside>
 
       <div className="pl-52">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white/95 px-7">
-          <div className="text-sm text-slate-500">Current organization context</div>
+        {/* No organization label until an authoritative organization-context contract exists (FE-02). */}
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-end border-b border-slate-200 bg-white/95 px-7">
           <button className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-950" onClick={signOut} type="button">
             <LogOut aria-hidden="true" size={16} /> Sign out
           </button>
