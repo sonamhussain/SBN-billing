@@ -59,7 +59,8 @@
     "test:a5:evidence-completeness": "node --env-file=.env src/integration/a5-evidence-completeness/a5-evidence-completeness.integration.ts",
     "test:a5:validation-foundation": "node --env-file=.env src/integration/a5-validation-foundation/a5-validation-foundation.integration.ts",
     "test:a5:pre-claim-validation": "node --env-file=.env src/integration/a5-pre-claim-validation/a5-pre-claim-validation.integration.ts",
-    "test:a5:readiness": "node --env-file=.env src/integration/a5-readiness/a5-readiness.integration.ts"
+    "test:a5:readiness": "node --env-file=.env src/integration/a5-readiness/a5-readiness.integration.ts",
+    "test:a5:integration": "node --env-file=.env src/integration/a5-phase-closure/a5-phase-closure.integration.ts"
   },
   "keywords": [],
   "author": "",
