@@ -17,7 +17,10 @@ import type { DbClient } from './database.types.ts'
 // - The transaction is READ ONLY: the evaluation path writes nothing, and Postgres now enforces it.
 // - This protects read consistency only. Write-side invariants keep their own locking protocol
 //   (row-lock.ts); a read snapshot is not a substitute for it.
-export async function withReadSnapshot<T>(db: DbClient | undefined, run: (tx: DbClient) => Promise<T>): Promise<T> {
+// - The snapshot closes after 15 s unless the caller names a longer bound for an evaluation whose cost
+//   is known to grow with governed data (A5.6 completeness). Only the time limit changes; the
+//   isolation and READ ONLY guarantees are the same for every caller.
+export async function withReadSnapshot<T>(db: DbClient | undefined, run: (tx: DbClient) => Promise<T>, options: { timeoutMs?: number } = {}): Promise<T> {
   if (db) return run(db)
   return prisma.$transaction(
     async (tx) => {
@@ -25,6 +28,6 @@ export async function withReadSnapshot<T>(db: DbClient | undefined, run: (tx: Db
       await tx.$executeRaw`SET TRANSACTION READ ONLY`
       return run(tx)
     },
-    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 15_000 },
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: options.timeoutMs ?? 15_000 },
   )
 }

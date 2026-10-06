@@ -444,8 +444,27 @@ async function main() {
   ).map((row) => row.column_name)
   check('T38', 'no facility on Patient', !columns.some((name) => /facility/i.test(name)), `columns: ${columns.join(', ')}`)
   check('T39', 'no insurance on Patient', !columns.some((name) => /(payer|tpa|network|product|member|policy|coverage|insur)/i.test(name)), 'no coverage column')
-  check('T40', 'no external patient IDs', !columns.some((name) => /(mrn|emirates|external|emr)/i.test(name)) && (await prisma.$queryRaw<{ n: bigint }[]>`
-      SELECT count(*) AS n FROM information_schema.columns WHERE table_name = 'external_identifiers' AND column_name LIKE '%patient%'`)[0].n === 0n, 'no MRN/Emirates/EMR column and ExternalIdentifier is unchanged')
+  // A4.8 (PR #46) added `external_identifiers.patient_id` as an approved typed target, so the
+  // original "no Patient-related column anywhere" assertion is obsolete. The boundary A4.1 actually
+  // owns is narrower and still holds: Patient must carry no outside-system identifier of its own,
+  // and the identity table must map to a Patient without copying Patient demographics.
+  const identityColumns = (
+    await prisma.$queryRaw<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns WHERE table_name = 'external_identifiers' ORDER BY column_name`
+  ).map((row) => row.column_name)
+  const demographicsLeak = identityColumns.filter((name) =>
+    /(given_name|middle_name|family_name|display_name|date_of_birth|dob|mobile_phone|phone|email)/i.test(name),
+  )
+  check(
+    'T40',
+    'no external patient IDs',
+    !columns.some((name) => /(mrn|emirates|external|emr)/i.test(name)) &&
+      identityColumns.includes('patient_id') &&
+      demographicsLeak.length === 0,
+    demographicsLeak.length === 0
+      ? 'no MRN/Emirates/EMR column on Patient; ExternalIdentifier maps to a Patient without copying any demographic field'
+      : `ExternalIdentifier duplicates Patient demographics: ${demographicsLeak.join(', ')}`,
+  )
   check('T41', 'no encounter', !columns.some((name) => /(encounter|visit|service_date|admission)/i.test(name)), 'no encounter column')
   check('T42', 'no claims/A5 runtime', !columns.some((name) => /(claim|eligib|authoriz|price|evidence)/i.test(name)) && (await get('/api/patients/eligibility')).status === 404, 'no eligibility/authorization/claim field or route')
 

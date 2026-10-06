@@ -35,6 +35,25 @@ const lockableTables = [
   // A4.4: an encounter PATCH locks its own row first, then the resulting clinician, facility and
   // membership, so concurrent partial corrections serialize and context is read stable.
   'encounters',
+  // A5.1: every version append for one evidence artifact serializes on that artifact's row,
+  // so the next version number is read and claimed under the same lock and the sequence stays
+  // gap-free. Locking only the new version row could not protect a number nobody holds yet.
+  'evidence_artifacts',
+  // A5.3: every lifecycle version append for one authorization case serializes on that case's
+  // row, so the next version number is read and claimed under the same lock and the sequence
+  // stays gap-free. Locking only the new version row could not protect a number nobody holds yet.
+  'prior_authorizations',
+  // A5.4: the one line batch for an authorization version is captured under that version's row
+  // lock, so two concurrent first batches serialize and the second sees the first's lines and is
+  // refused, instead of both reading "no lines yet" and racing on the sequence unique key.
+  'prior_authorization_versions',
+  // A5.6: removing an Encounter evidence link locks that link, so two concurrent removals serialize
+  // and the second sees it already removed instead of both stamping removedAt.
+  'encounter_evidence_links',
+  // A5.9: recording a readiness assessment locks its validation run, so two concurrent requests for
+  // the same run and policy serialize and the second sees the first assessment instead of racing on
+  // the unique key. The run itself is never modified.
+  'validation_runs',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

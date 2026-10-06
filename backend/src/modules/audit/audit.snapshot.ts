@@ -371,23 +371,44 @@ export const ruleSourceScopeAuditSnapshot = (x: {
   tariffScheduleVersionId: x.tariffScheduleVersionId,
 })
 
-export const externalIdentifierAuditSnapshot = (x: {
-  id: string
-  organizationId: string
-  sourceSystem: string
-  externalValue: string
-  organizationTargetId: string | null
-  facilityId: string | null
-  clinicianId: string | null
-  specialtyId: string | null
-  payerId: string | null
-  tpaId: string | null
-  networkId: string | null
-  serviceId: string | null
-  procedureCodeId: string | null
-  diagnosisCodeId: string | null
-}) => {
+// A4.8 — an external identifier that points at a Patient or an Encounter is itself a sensitive
+// identifier: it is exactly the string an outside system uses to name a person or a visit. The
+// domain row stores it and returns it to authorized callers, but AuditEvent must not become a
+// second identifier store, so for those two target types the snapshot carries neither the value
+// nor the target id. A change is proven by changedFields, not by keeping the old and new strings.
+// The other ten target types are business references, and their existing snapshot is unchanged.
+export const externalIdentifierAuditSnapshot = (
+  x: {
+    id: string
+    organizationId: string
+    sourceSystem: string
+    externalValue: string
+    organizationTargetId: string | null
+    facilityId: string | null
+    clinicianId: string | null
+    specialtyId: string | null
+    payerId: string | null
+    tpaId: string | null
+    networkId: string | null
+    serviceId: string | null
+    procedureCodeId: string | null
+    diagnosisCodeId: string | null
+    patientId: string | null
+    encounterId: string | null
+  },
+  changedFields?: string[],
+) => {
   const target = deriveTargetFromRecord(x)
+
+  if (target.type === 'PATIENT' || target.type === 'ENCOUNTER') {
+    return {
+      id: x.id,
+      sourceSystem: x.sourceSystem,
+      targetType: target.type,
+      ...(changedFields ? { changedFields: [...changedFields].sort() } : {}),
+    }
+  }
+
   return {
     id: x.id,
     organizationId: x.organizationId,
@@ -522,6 +543,26 @@ export const encounterAuditSnapshot = (x: { id: string; updatedAt: Date }, chang
 export const encounterDiagnosisAuditSnapshot = (x: { id: string; sequence?: number; removedAt?: Date | null; updatedAt?: Date }) => ({
   id: x.id,
   ...(x.sequence !== undefined ? { sequence: x.sequence } : {}),
+  ...(x.removedAt !== undefined ? { removedAt: x.removedAt ? x.removedAt.toISOString() : null } : {}),
+  ...(x.updatedAt !== undefined ? { updatedAt: x.updatedAt.toISOString() } : {}),
+})
+
+// A4.6 §24 — an encounter activity is a clinical/billing fact, so business audit records only WHICH
+// activity row changed and its removal state. encounterId, serviceId, procedureCodeId, quantity,
+// unitCode, modifier codes, patient and provider data never enter AuditEvent; the immutable domain
+// row holds the facts and AuditEvent.organizationId carries the organization boundary.
+export const encounterActivityAuditSnapshot = (x: { id: string; removedAt?: Date | null; updatedAt?: Date }) => ({
+  id: x.id,
+  ...(x.removedAt !== undefined ? { removedAt: x.removedAt ? x.removedAt.toISOString() : null } : {}),
+  ...(x.updatedAt !== undefined ? { updatedAt: x.updatedAt.toISOString() } : {}),
+})
+
+// A4.7 §20 — a structured observation is a clinical/billing fact, so business audit records only
+// WHICH observation row changed and its removal state. encounterId, encounterActivityId, factKey,
+// the typed value, unitCode, patient/provider/payer context and the request body never enter
+// AuditEvent; the domain row holds the fact and AuditEvent.organizationId carries the boundary.
+export const encounterObservationAuditSnapshot = (x: { id: string; removedAt?: Date | null; updatedAt?: Date }) => ({
+  id: x.id,
   ...(x.removedAt !== undefined ? { removedAt: x.removedAt ? x.removedAt.toISOString() : null } : {}),
   ...(x.updatedAt !== undefined ? { updatedAt: x.updatedAt.toISOString() } : {}),
 })

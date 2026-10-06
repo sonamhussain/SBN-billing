@@ -9,6 +9,7 @@ import {
   normalizeRegulatoryAuthorityCode,
   normalizeRequiredDateOnly,
   rangesOverlap,
+  toFacilityRegulatoryProfileDto as toDto,
 } from './facility-regulatory.validation.ts'
 import {
   createFacilityRegulatoryProfileRecord,
@@ -52,20 +53,6 @@ export type FacilityProfileInternalOptions = {
 
 function isSerializationConflict(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034'
-}
-
-function toDto(record: FacilityRegulatoryProfileRecord): FacilityRegulatoryProfileDto {
-  return {
-    id: record.id,
-    facilityId: record.facilityId,
-    jurisdictionCode: record.jurisdictionCode,
-    regulatoryAuthorityCode: record.regulatoryAuthorityCode,
-    effectiveFrom: formatDateOnly(record.effectiveFrom) as string,
-    effectiveTo: formatDateOnly(record.effectiveTo),
-    status: record.status,
-    createdAt: record.createdAt.toISOString(),
-    updatedAt: record.updatedAt.toISOString(),
-  }
 }
 
 export async function createFacilityRegulatoryProfile(

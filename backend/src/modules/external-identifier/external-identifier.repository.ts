@@ -15,6 +15,8 @@ export type CreateExternalIdentifierData = {
   serviceId?: string
   procedureCodeId?: string
   diagnosisCodeId?: string
+  patientId?: string
+  encounterId?: string
 }
 
 export async function createExternalIdentifierRecord(
@@ -30,6 +32,21 @@ export async function findExternalIdentifierById(id: string, db: DbClient = pris
 
 export async function findExternalIdentifiersByOrganizationId(organizationId: string, db: DbClient = prisma) {
   return db.externalIdentifier.findMany({ where: { organizationId }, orderBy: { createdAt: 'asc' } })
+}
+
+// A4.9 — the mappings that name one Patient or one Encounter, and nothing else. The organization's
+// other identifiers are deliberately out of reach here: a billing context carries the mappings for
+// its own subject, not an organization-wide directory. The caller passes its read snapshot so these
+// rows belong to the same point in time as the rest of the bundle.
+export async function findExternalIdentifiersForEncounterContext(
+  patientId: string,
+  encounterId: string,
+  db: DbClient = prisma,
+) {
+  return db.externalIdentifier.findMany({
+    where: { OR: [{ patientId }, { encounterId }] },
+    orderBy: [{ sourceSystem: 'asc' }, { externalValue: 'asc' }, { id: 'asc' }],
+  })
 }
 
 export async function updateExternalIdentifierRecord(

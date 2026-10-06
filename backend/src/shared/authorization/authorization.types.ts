@@ -107,6 +107,73 @@ export const permissionCodes = [
   'encounterDiagnosis.create',
   'encounterDiagnosis.read',
   'encounterDiagnosis.update',
+  // A4.6 — encounter activity capture: add, list/get and remove. There is deliberately no delete,
+  // restore, patch, pricing or claim permission.
+  'encounterActivity.create',
+  'encounterActivity.read',
+  'encounterActivity.update',
+  // A4.7 — encounter observations (typed structured facts): add, list/get and remove. There is
+  // deliberately no delete, restore, patch, evaluate, execute or verify permission.
+  'encounterObservation.create',
+  'encounterObservation.read',
+  'encounterObservation.update',
+
+  // A4.9 - the canonical billing context is an AGGREGATE: one response carries patient
+  // identity, the selected insurance membership and every active clinical/billing fact of an
+  // encounter together. Reading any one of those through its own endpoint is a smaller
+  // disclosure than reading all of them at once, so the aggregate gets its own code and
+  // `encounter.read` alone must never open it. It is read-only: there is deliberately no
+  // create, update or delete counterpart.
+  'encounterBillingContext.read',
+
+  // A5.1 - evidence identity and its immutable versions. There is deliberately no update,
+  // delete or download permission: a version is append-only, a correction is a new version,
+  // and A5.1 never transports evidence content.
+  'evidenceArtifact.create',
+  'evidenceArtifact.read',
+  'evidenceArtifactVersion.create',
+  // A5.2 — recording a verification and reading verification history. There is deliberately
+  // no update, delete or execute-network permission: a correction is a new verification, and
+  // real payer transport belongs to A9.
+  'eligibilityVerification.create',
+  'eligibilityVerification.read',
+  // A5.3 — recording an authorization case, appending a lifecycle version, and reading
+  // authorization history. There is deliberately no update, delete or execute-network
+  // permission: a correction is a new version, and real payer transport belongs to A9.
+  'priorAuthorization.create',
+  'priorAuthorization.read',
+  'priorAuthorizationVersion.create',
+  // A5.4 — capturing a line set, reading lines, and evaluating scope. There is deliberately no
+  // update, delete, claim or network permission: a correction is a new A5.3 version with a new
+  // line set, and scope evaluation is read-only.
+  'authorizationLine.create',
+  'authorizationLine.read',
+  'authorizationLine.evaluate',
+  // A5.5 — resolving the pre-claim commercial context is one read-only aggregate permission. There
+  // is deliberately no create, update, delete or pricing permission: nothing is persisted.
+  'preClaimCommercialContext.read',
+  // A5.6 — attaching a typed requirement payload to an own-organization documentation RuleVersion,
+  // reading it, linking and removing exact evidence versions on an Encounter, and evaluating
+  // completeness. There is deliberately no evidence-byte, claim or delete permission.
+  'evidenceRequirement.create',
+  'evidenceRequirement.read',
+  'encounterEvidence.create',
+  'encounterEvidence.read',
+  'encounterEvidence.update',
+  'evidenceCompleteness.evaluate',
+  // A5.7 — reading recorded validation runs and their findings. There is deliberately no create,
+  // execute, update or delete permission: runs are recorded only by the internal recorder that A5.8
+  // will call, and A5.8 introduces the execution permission.
+  'validationRun.read',
+  // A5.8 - executing one deterministic pre-claim validation, which records a new immutable run. Admin
+  // only; reading runs stays validationRun.read. There is no validationRun.create permission.
+  'preClaimValidation.execute',
+  // A5.9 - recording one immutable readiness assessment for an exact validation run (Admin only),
+  // reading assessments, and reading the derived A6 handoff contract. There is no update, delete,
+  // override or approval permission: readiness is never edited, and a handoff is never stored.
+  'preClaimReadiness.evaluate',
+  'preClaimReadiness.read',
+  'preClaimA6Handoff.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

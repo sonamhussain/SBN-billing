@@ -84,13 +84,11 @@ externalIdentifierRouter.patch(
   '/:id',
   requireOrganizationPermission(organizationIdFromExistingExternalIdentifier, 'external_identifier.update'),
   async (req, res) => {
+    // The whole body goes to the service. Naming individual fields here is exactly what let an
+    // unknown or immutable one ride along unread beside a legitimate change.
     const result = await updateExternalIdentifier(
       externalIdentifierIdFromParams(req),
-      req.body?.sourceSystem,
-      req.body?.externalValue,
-      req.body?.target,
-      req.body?.targetType,
-      req.body?.targetId,
+      req.body,
       String(res.locals.actorUserId),
     )
     if (!result.ok) {

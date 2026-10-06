@@ -2,7 +2,14 @@ import { getOrganization } from '../organization/organization.service.ts'
 import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
 import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import type { ExternalIdentifierDto, ExternalIdentifierResult } from './external-identifier.types.ts'
-import { isExternalIdentifierUuid, normalizeExternalValue, normalizeSourceSystem } from './external-identifier.validation.ts'
+import {
+  isExternalIdentifierUuid,
+  normalizeExternalValue,
+  normalizeSourceSystem,
+  toExternalIdentifierDto as toDto,
+  validateUpdateBody,
+  type ExternalIdentifierRecord,
+} from './external-identifier.validation.ts'
 import { deriveTargetFromRecord, resolveTarget, targetForeignKeyColumn, type PersistedTargetColumns } from './external-identifier.target.ts'
 import {
   createExternalIdentifierRecord,
@@ -14,27 +21,6 @@ import { prisma } from '../../shared/database/prisma.ts'
 import { Prisma } from '../../../generated/prisma/client.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
 import { externalIdentifierAuditSnapshot } from '../audit/audit.snapshot.ts'
-
-type ExternalIdentifierRecord = PersistedTargetColumns & {
-  id: string
-  organizationId: string
-  sourceSystem: string
-  externalValue: string
-  createdAt: Date
-  updatedAt: Date
-}
-
-function toDto(record: ExternalIdentifierRecord): ExternalIdentifierDto {
-  return {
-    id: record.id,
-    organizationId: record.organizationId,
-    sourceSystem: record.sourceSystem,
-    externalValue: record.externalValue,
-    target: deriveTargetFromRecord(record),
-    createdAt: record.createdAt.toISOString(),
-    updatedAt: record.updatedAt.toISOString(),
-  }
-}
 
 function isUniqueConstraintViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
@@ -141,18 +127,18 @@ export async function listExternalIdentifiers(
 
 export async function updateExternalIdentifier(
   id: string,
-  sourceSystemInput: unknown,
-  externalValueInput: unknown,
-  targetInput: unknown,
-  targetTypeInput: unknown,
-  targetIdInput: unknown,
+  body: unknown,
   actorUserId: string,
 ): Promise<ExternalIdentifierResult<ExternalIdentifierDto>> {
   if (!isExternalIdentifierUuid(id)) return { ok: false, code: 'VALIDATION_ERROR', message: 'invalid external identifier id' }
 
-  if (targetInput !== undefined || targetTypeInput !== undefined || targetIdInput !== undefined)
-    return { ok: false, code: 'VALIDATION_ERROR', message: 'target cannot be changed' }
+  // A4.8 — the body is judged as a whole before anything is read out of it, so a legitimate field
+  // can never carry an unknown or immutable one through with it. Nothing below this line runs, and
+  // no transaction is opened, unless every supplied key is one this endpoint owns.
+  const validated = validateUpdateBody(body)
+  if (!validated.ok) return { ok: false, code: 'VALIDATION_ERROR', message: validated.message }
 
+  const { sourceSystem: sourceSystemInput, externalValue: externalValueInput } = validated
   const hasSourceSystem = sourceSystemInput !== undefined
   const hasExternalValue = externalValueInput !== undefined
 
@@ -172,18 +158,29 @@ export async function updateExternalIdentifier(
   }
 
   try {
-    const updated = await prisma.$transaction(async (tx) => {
+    const outcome = await prisma.$transaction(async (tx) => {
       // Audit F08: lock before reading so the audit beforeState is the true serial predecessor.
       await lockRowForUpdate(tx, 'external_identifiers', id)
       const existing = await findExternalIdentifierById(id, tx)
-      if (!existing) return null
+      if (!existing) return { kind: 'missing' as const }
       await concurrencyProbe('external_identifier.update')
+
+      // A4.8 — decide what actually changes against the row as it is inside this transaction.
+      // A submitted value identical to the stored one is not an update: writing it would move
+      // updatedAt and record an AuditEvent describing a change that never happened. For a Patient
+      // or Encounter identifier the audit trail is the only evidence that survives, so it has to
+      // be truthful; the same rule is applied to every target type because this is the one shared
+      // update path and a false event is no more acceptable for the other ten.
+      const changedFields: string[] = []
+      if (sourceSystem !== null && sourceSystem !== existing.sourceSystem) changedFields.push('sourceSystem')
+      if (externalValue !== null && externalValue !== existing.externalValue) changedFields.push('externalValue')
+      if (changedFields.length === 0) return { kind: 'no_change' as const }
 
       const record = await updateExternalIdentifierRecord(
         id,
         {
-          ...(sourceSystem ? { sourceSystem } : {}),
-          ...(externalValue ? { externalValue } : {}),
+          ...(changedFields.includes('sourceSystem') && sourceSystem ? { sourceSystem } : {}),
+          ...(changedFields.includes('externalValue') && externalValue ? { externalValue } : {}),
         },
         tx,
       )
@@ -196,17 +193,19 @@ export async function updateExternalIdentifier(
           entityType: 'EXTERNAL_IDENTIFIER',
           entityId: id,
           beforeState: externalIdentifierAuditSnapshot(existing),
-          afterState: externalIdentifierAuditSnapshot(record),
+          afterState: externalIdentifierAuditSnapshot(record, changedFields),
         },
         tx,
       )
 
-      return record
+      return { kind: 'updated' as const, record }
     })
 
-    if (!updated) return { ok: false, code: 'NOT_FOUND', message: 'external identifier not found' }
+    if (outcome.kind === 'missing') return { ok: false, code: 'NOT_FOUND', message: 'external identifier not found' }
+    if (outcome.kind === 'no_change')
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'the submitted values match the stored values; nothing to update' }
 
-    return { ok: true, value: toDto(updated) }
+    return { ok: true, value: toDto(outcome.record) }
   } catch (error) {
     if (isUniqueConstraintViolation(error))
       return {

@@ -87,10 +87,46 @@ export const auditActionCodes = [
   'encounterDiagnosis.added',
   'encounterDiagnosis.reordered',
   'encounterDiagnosis.removed',
+  // A4.6 — activity audit proves THAT an activity was captured or removed, never which service,
+  // procedure, quantity, unit, modifier or encounter it holds.
+  'encounterActivity.created',
+  'encounterActivity.removed',
+  // A4.7 — observation audit proves THAT a structured fact was recorded or removed, never its key,
+  // value, unit, anchors or any clinical context.
+  'encounterObservation.created',
+  'encounterObservation.removed',
+
+  // A5.1 - evidence identity and its immutable versions. There is no updated or removed
+  // counterpart: a version is append-only, so the only thing that ever happens is a create.
+  'evidence_artifact.created',
+  'evidence_artifact_version.created',
+  // A5.2 — recording an eligibility verification. There is no updated or deleted counterpart:
+  // a correction is a new verification, and the database refuses the alternative.
+  'eligibility_verification.created',
+  // A5.3 — recording an authorization case and appending a lifecycle version. There is no
+  // updated or deleted counterpart: a correction is a new version, and the database refuses
+  // the alternative.
+  'prior_authorization.created',
+  'prior_authorization_version.created',
+  // A5.4 — one event per captured authorization line. There is no updated or deleted counterpart:
+  // a line set is captured once per version, and a correction is a new A5.3 version.
+  'authorization_line.created',
+  // A5.6 — attaching a requirement payload, and linking or removing an Encounter evidence link.
+  // There is no updated or deleted counterpart for either: a payload is immutable, and a link is
+  // corrected only by its one-way removal.
+  'evidence_requirement.created',
+  'encounter_evidence_link.created',
+  'encounter_evidence_link.removed',
+  // A5.7 — one event per complete validation run, never one per finding. A run is immutable, so
+  // there is no updated or deleted counterpart.
+  'validation_run.recorded',
+  // A5.9 - one event per readiness assessment. An assessment is immutable, so there is no updated or
+  // deleted counterpart, and reading the A6 handoff writes nothing.
+  'pre_claim_readiness.recorded',
 ] as const
 
 export type AuditActionCode = (typeof auditActionCodes)[number]
-export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY' | 'RULE_SOURCE_BINDING' | 'FACILITY_REGULATORY_PROFILE' | 'INSURANCE_PRODUCT' | 'PRODUCT_NETWORK' | 'PROVIDER_CONTRACT' | 'CONTRACT_FACILITY' | 'TARIFF_SCHEDULE' | 'TARIFF_SCHEDULE_VERSION' | 'RULE_SOURCE_SCOPE' | 'RULE_PACK' | 'RULE_PACK_VERSION' | 'RULE_PACK_MEMBER' | 'PATIENT' | 'CLINICIAN_FACILITY_ASSIGNMENT' | 'CLINICIAN_SPECIALTY_ASSIGNMENT' | 'INSURANCE_MEMBERSHIP' | 'ENCOUNTER' | 'ENCOUNTER_DIAGNOSIS'
+export type AuditEntityType = 'ORGANIZATION' | 'FACILITY' | 'CLINICIAN' | 'SPECIALTY' | 'PAYER' | 'TPA' | 'NETWORK' | 'SERVICE' | 'PROCEDURE_CODE' | 'DIAGNOSIS_CODE' | 'EXTERNAL_IDENTIFIER' | 'RULE_SOURCE' | 'RULE_SOURCE_VERSION' | 'SOURCE_INTERPRETATION' | 'RULE_SOURCE_RELATIONSHIP' | 'RULE_DEFINITION' | 'RULE_VERSION' | 'RULE_APPLICABILITY' | 'RULE_SOURCE_BINDING' | 'FACILITY_REGULATORY_PROFILE' | 'INSURANCE_PRODUCT' | 'PRODUCT_NETWORK' | 'PROVIDER_CONTRACT' | 'CONTRACT_FACILITY' | 'TARIFF_SCHEDULE' | 'TARIFF_SCHEDULE_VERSION' | 'RULE_SOURCE_SCOPE' | 'RULE_PACK' | 'RULE_PACK_VERSION' | 'RULE_PACK_MEMBER' | 'PATIENT' | 'CLINICIAN_FACILITY_ASSIGNMENT' | 'CLINICIAN_SPECIALTY_ASSIGNMENT' | 'INSURANCE_MEMBERSHIP' | 'ENCOUNTER' | 'ENCOUNTER_DIAGNOSIS' | 'ENCOUNTER_ACTIVITY' | 'ENCOUNTER_OBSERVATION' | 'EVIDENCE_ARTIFACT' | 'EVIDENCE_ARTIFACT_VERSION' | 'ELIGIBILITY_VERIFICATION' | 'PRIOR_AUTHORIZATION' | 'PRIOR_AUTHORIZATION_VERSION' | 'AUTHORIZATION_LINE' | 'EVIDENCE_REQUIREMENT' | 'ENCOUNTER_EVIDENCE_LINK' | 'VALIDATION_RUN' | 'PRE_CLAIM_READINESS_ASSESSMENT'
 
 export type AuditWriteInput = {
   organizationId: string

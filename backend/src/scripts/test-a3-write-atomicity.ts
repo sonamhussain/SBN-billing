@@ -367,8 +367,8 @@ async function main() {
     })
     const { firstResult: a, secondResult: b, state } = await race(
       'external_identifier.update',
-      () => updateExternalIdentifier(identifier.id, undefined, 'first', undefined, undefined, undefined, actor),
-      () => updateExternalIdentifier(identifier.id, undefined, 'second', undefined, undefined, undefined, actor),
+      () => updateExternalIdentifier(identifier.id, { externalValue: 'first' }, actor),
+      () => updateExternalIdentifier(identifier.id, { externalValue: 'second' }, actor),
     )
     const { first, second } = await auditChain(identifier.id, 'external_identifier.updated', 'externalValue', 'first', 'second')
     check('C27 external identifier: second edit waited for the first', state === 'blocked', `(observed: ${state})`)

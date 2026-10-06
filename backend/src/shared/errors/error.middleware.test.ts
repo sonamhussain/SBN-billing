@@ -38,6 +38,21 @@ test('sendApiError emits {error:{code,message,requestId}}', () => {
   })
 })
 
+test('sendApiError adds a reason only when one is supplied', () => {
+  const res = createMockResponse()
+  sendApiError(res, 409, 'COMMERCIAL_CONTEXT_UNRESOLVED', 'more than one provider contract applies', 'AMBIGUOUS_CONTRACT')
+
+  assert.equal(res.statusCode, 409)
+  assert.deepEqual(res.body, {
+    error: {
+      code: 'COMMERCIAL_CONTEXT_UNRESOLVED',
+      message: 'more than one provider contract applies',
+      requestId: '550e8400-e29b-41d4-a716-446655440000',
+      reason: 'AMBIGUOUS_CONTRACT',
+    },
+  })
+})
+
 test('X-Request-Id is UUID-shaped and matches body requestId', () => {
   const res: any = {
     locals: {},

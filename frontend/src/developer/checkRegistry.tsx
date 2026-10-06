@@ -32,9 +32,21 @@ import ClinicianAssignmentCheck from '../modules/clinician-assignment/ClinicianA
 import InsuranceMembershipCheck from '../modules/insurance-membership/InsuranceMembershipCheck.tsx'
 import EncounterCheck from '../modules/encounter/EncounterCheck.tsx'
 import EncounterDiagnosisCheck from '../modules/encounter-diagnosis/EncounterDiagnosisCheck.tsx'
+import EncounterActivityCheck from '../modules/encounter-activity/EncounterActivityCheck.tsx'
+import EncounterObservationCheck from '../modules/encounter-observation/EncounterObservationCheck.tsx'
+import EncounterBillingContextCheck from '../modules/encounter-billing-context/EncounterBillingContextCheck.tsx'
+import EvidenceArtifactCheck from '../modules/evidence-artifact/EvidenceArtifactCheck.tsx'
+import EligibilityVerificationCheck from '../modules/eligibility-verification/EligibilityVerificationCheck.tsx'
+import PriorAuthorizationCheck from '../modules/prior-authorization/PriorAuthorizationCheck.tsx'
+import AuthorizationLineCheck from '../modules/authorization-line/AuthorizationLineCheck.tsx'
+import PreClaimCommercialContextCheck from '../modules/pre-claim-commercial-context/PreClaimCommercialContextCheck.tsx'
+import EvidenceCompletenessCheck from '../modules/evidence-completeness/EvidenceCompletenessCheck.tsx'
+import ValidationRunCheck from '../modules/validation-run/ValidationRunCheck.tsx'
+import PreClaimValidationCheck from '../modules/pre-claim-validation/PreClaimValidationCheck.tsx'
+import PreClaimReadinessCheck from '../modules/pre-claim-readiness/PreClaimReadinessCheck.tsx'
 
 // FE-01 — every existing engineering check, moved unchanged from the former Development Check page.
-// Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4. A new backend *Check is registered
+// Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4 -> A5. A new backend *Check is registered
 // here only; the check itself is never rewritten to fit the shell.
 
 export type DeveloperCheck = {
@@ -77,4 +89,16 @@ export const developerChecks: DeveloperCheck[] = [
   { key: 'insurance-membership', label: 'Insurance membership', Component: InsuranceMembershipCheck },
   { key: 'encounter', label: 'Encounter', Component: EncounterCheck },
   { key: 'encounter-diagnosis', label: 'Encounter diagnosis', Component: EncounterDiagnosisCheck },
+  { key: 'encounter-activity', label: 'Encounter activity', Component: EncounterActivityCheck },
+  { key: 'encounter-observation', label: 'Encounter observation', Component: EncounterObservationCheck },
+  { key: 'encounter-billing-context', label: 'Encounter billing context', Component: EncounterBillingContextCheck },
+  { key: 'evidence-artifact', label: 'Evidence artifact', Component: EvidenceArtifactCheck },
+  { key: 'eligibility-verification', label: 'Eligibility verification', Component: EligibilityVerificationCheck },
+  { key: 'prior-authorization', label: 'Prior authorization', Component: PriorAuthorizationCheck },
+  { key: 'authorization-line', label: 'Authorization line', Component: AuthorizationLineCheck },
+  { key: 'pre-claim-commercial-context', label: 'Pre-claim commercial context', Component: PreClaimCommercialContextCheck },
+  { key: 'evidence-completeness', label: 'Evidence completeness', Component: EvidenceCompletenessCheck },
+  { key: 'validation-run', label: 'Validation run', Component: ValidationRunCheck },
+  { key: 'pre-claim-validation', label: 'Pre-claim validation', Component: PreClaimValidationCheck },
+  { key: 'pre-claim-readiness', label: 'Pre-claim readiness', Component: PreClaimReadinessCheck },
 ]

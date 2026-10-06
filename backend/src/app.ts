@@ -52,6 +52,30 @@ import {
 } from './modules/insurance-membership/insurance-membership.route.ts'
 import { encounterRouter, patientEncounterRouter } from './modules/encounter/encounter.route.ts'
 import { encounterDiagnosesRouter, encounterDiagnosisRouter } from './modules/encounter-diagnosis/encounter-diagnosis.route.ts'
+import { encounterActivitiesRouter, encounterActivityRouter } from './modules/encounter-activity/encounter-activity.route.ts'
+import { encounterObservationsRouter, encounterObservationRouter } from './modules/encounter-observation/encounter-observation.route.ts'
+import { encounterBillingContextRouter } from './modules/encounter-billing-context/encounter-billing-context.route.ts'
+import {
+  organizationEvidenceArtifactRouter,
+  evidenceArtifactRouter,
+  evidenceArtifactVersionRouter,
+} from './modules/evidence-artifact/evidence-artifact.route.ts'
+import {
+  encounterEligibilityVerificationRouter,
+  eligibilityVerificationRouter,
+} from './modules/eligibility-verification/eligibility-verification.route.ts'
+import {
+  encounterPriorAuthorizationRouter,
+  priorAuthorizationRouter,
+  priorAuthorizationVersionRouter,
+} from './modules/prior-authorization/prior-authorization.route.ts'
+import { authorizationLineRouter, versionAuthorizationLineRouter } from './modules/authorization-line/authorization-line.route.ts'
+import { encounterPreClaimCommercialContextRouter } from './modules/pre-claim-commercial-context/pre-claim-commercial-context.route.ts'
+import { encounterEvidenceCompletenessRouter, ruleVersionEvidenceRequirementRouter } from './modules/evidence-requirement/evidence-requirement.route.ts'
+import { encounterEvidenceLinkRouter, encounterEvidenceLinksRouter } from './modules/encounter-evidence/encounter-evidence.route.ts'
+import { encounterValidationRunsRouter, validationFindingRouter, validationRunRouter } from './modules/validation-run/validation-run.route.ts'
+import { encounterPreClaimValidationRouter } from './modules/pre-claim-validation/pre-claim-validation.route.ts'
+import { encounterReadinessRouter, readinessAssessmentRouter, validationRunReadinessRouter } from './modules/pre-claim-readiness/pre-claim-readiness.route.ts'
 
 export const app = express()
 
@@ -197,6 +221,68 @@ app.use('/api/encounters', encounterRouter)
 // A4.5 — ordered, correctable encounter diagnoses (add / list / reorder / remove; no delete).
 app.use('/api/encounters', encounterDiagnosesRouter)
 app.use('/api/encounter-diagnoses', encounterDiagnosisRouter)
+
+// A4.6 — immutable encounter activity facts (add / list / get / remove; no patch, no delete).
+app.use('/api/encounters', encounterActivitiesRouter)
+app.use('/api/encounter-activities', encounterActivityRouter)
+
+// A4.7 — typed, non-executable encounter observations (add / list / get / remove; no patch, no delete).
+app.use('/api/encounters', encounterObservationsRouter)
+app.use('/api/encounter-observations', encounterObservationRouter)
+// A4.9 - one read-only aggregate: GET /api/encounters/:encounterId/billing-context
+app.use('/api/encounters', encounterBillingContextRouter)
+// A5.1 - evidence identity and its append-only versions. No PATCH, DELETE or content route.
+app.use('/api/organizations', organizationEvidenceArtifactRouter)
+app.use('/api/evidence-artifacts', evidenceArtifactRouter)
+app.use('/api/evidence-artifact-versions', evidenceArtifactVersionRouter)
+
+// A5.2 - immutable, evidence-bearing eligibility verifications. Three routes, all GET or POST:
+// no PATCH, no DELETE, and deliberately no /verify endpoint, because A5.2 records what a
+// verification reported rather than performing one. Real payer transport belongs to A9.
+app.use('/api/encounters', encounterEligibilityVerificationRouter)
+app.use('/api/eligibility-verifications', eligibilityVerificationRouter)
+
+// A5.3 - the authorization case and its immutable lifecycle versions. Six routes, all GET or
+// POST: no PATCH, no DELETE, and deliberately no request or submit endpoint, because A5.3
+// records what an authorization source reported rather than performing one. A9 owns transport.
+app.use('/api/encounters', encounterPriorAuthorizationRouter)
+app.use('/api/prior-authorizations', priorAuthorizationRouter)
+app.use('/api/prior-authorization-versions', priorAuthorizationVersionRouter)
+
+// A5.4 - line-level authorization scope for one exact A5.3 version, captured once as an immutable
+// batch, and a read-only scope evaluation against the Encounter as it stands now. No PATCH, no
+// DELETE, no single-line append and no claim-line endpoint.
+app.use('/api/prior-authorization-versions', versionAuthorizationLineRouter)
+app.use('/api/authorization-lines', authorizationLineRouter)
+
+// A5.5 - the pre-claim commercial context: which provider contract and which exact VERIFIED tariff
+// schedule version apply to one Encounter, resolved read-only in one snapshot. One GET; nothing is
+// persisted, priced or audited.
+app.use('/api/encounters', encounterPreClaimCommercialContextRouter)
+
+// A5.6 - the typed evidence-requirement payload of a documentation RuleVersion, Encounter evidence
+// links, and the read-only completeness evaluation. No PATCH or DELETE anywhere, no upload or
+// download, and no persisted result.
+app.use('/api/rule-versions', ruleVersionEvidenceRequirementRouter)
+app.use('/api/encounters', encounterEvidenceLinksRouter)
+app.use('/api/encounters', encounterEvidenceCompletenessRouter)
+app.use('/api/encounter-evidence-links', encounterEvidenceLinkRouter)
+
+// A5.7 - read-only validation history. Runs are recorded by the internal recorder only; there is no
+// create, execute, update or delete route.
+app.use('/api/encounters', encounterValidationRunsRouter)
+app.use('/api/validation-runs', validationRunRouter)
+app.use('/api/validation-findings', validationFindingRouter)
+
+// A5.8 - executing one deterministic pre-claim validation, recorded as a new immutable run. Admin only;
+// no route accepts findings, outcomes or context from a client.
+app.use('/api/encounters', encounterPreClaimValidationRouter)
+
+// A5.9 - one immutable readiness assessment per validation run and policy (Admin only), assessment
+// reads, and the read-only A6 handoff contract. No approve, submit, claim, update or delete route.
+app.use('/api/validation-runs', validationRunReadinessRouter)
+app.use('/api/encounters', encounterReadinessRouter)
+app.use('/api/pre-claim-readiness-assessments', readinessAssessmentRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

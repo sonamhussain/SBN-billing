@@ -543,11 +543,20 @@ async function main() {
   const externalIdentifierColumns = await columnsOf('external_identifiers')
   const externalIdentifierFks = await prisma.$queryRaw<{ n: bigint }[]>`
     SELECT count(*) AS n FROM pg_constraint WHERE contype = 'f' AND conrelid = 'external_identifiers'::regclass AND confrelid = 'insurance_memberships'::regclass`
+  // A4.8 (PR #46) added the approved `patient_id` and `encounter_id` targets, so naming Patient here
+  // is no longer a conflation. What A4.3 owns is unchanged: a membership's registration truth —
+  // the member and policy identifiers and the recorded coverage period — must never be duplicated
+  // into the identity table, and InsuranceMembership must never become an external-ID target.
+  const membershipLeak = externalIdentifierColumns.filter((name) =>
+    /(insurance|member|policy|coverage)/i.test(name),
+  )
   check(
     'T56',
     'no external-ID conflation',
-    !externalIdentifierColumns.some((name) => /(member|policy|insurance|patient)/i.test(name)) && Number(externalIdentifierFks[0].n) === 0,
-    'ExternalIdentifier unchanged; memberIdentifier is not an external-ID target',
+    membershipLeak.length === 0 && Number(externalIdentifierFks[0].n) === 0,
+    membershipLeak.length === 0
+      ? 'memberIdentifier is not an external-ID target and no membership truth is duplicated; the approved patient_id/encounter_id targets are allowed'
+      : `ExternalIdentifier duplicates membership truth: ${membershipLeak.join(', ')}`,
   )
   const tables = (await prisma.$queryRaw<{ table_name: string }[]>`
     SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`).map((row) => row.table_name)

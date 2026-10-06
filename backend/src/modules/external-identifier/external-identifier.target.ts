@@ -12,6 +12,10 @@ export const targetTypes = [
   'SERVICE',
   'PROCEDURE_CODE',
   'DIAGNOSIS_CODE',
+  // A4.8 — the two additive targets. A2.9 was built with typed nullable FKs precisely so
+  // this list could grow without a second identity model; nothing else is added here.
+  'PATIENT',
+  'ENCOUNTER',
 ] as const
 
 export type TargetType = (typeof targetTypes)[number]
@@ -31,6 +35,8 @@ const targetForeignKeyColumns: Record<TargetType, string> = {
   SERVICE: 'serviceId',
   PROCEDURE_CODE: 'procedureCodeId',
   DIAGNOSIS_CODE: 'diagnosisCodeId',
+  PATIENT: 'patientId',
+  ENCOUNTER: 'encounterId',
 }
 
 export function targetForeignKeyColumn(type: TargetType): string {
@@ -48,6 +54,8 @@ export type PersistedTargetColumns = {
   serviceId: string | null
   procedureCodeId: string | null
   diagnosisCodeId: string | null
+  patientId: string | null
+  encounterId: string | null
 }
 
 export function deriveTargetFromRecord(record: PersistedTargetColumns): { type: TargetType; id: string } {
@@ -61,6 +69,8 @@ export function deriveTargetFromRecord(record: PersistedTargetColumns): { type: 
   if (record.serviceId) return { type: 'SERVICE', id: record.serviceId }
   if (record.procedureCodeId) return { type: 'PROCEDURE_CODE', id: record.procedureCodeId }
   if (record.diagnosisCodeId) return { type: 'DIAGNOSIS_CODE', id: record.diagnosisCodeId }
+  if (record.patientId) return { type: 'PATIENT', id: record.patientId }
+  if (record.encounterId) return { type: 'ENCOUNTER', id: record.encounterId }
   throw new Error('external identifier record has no target set')
 }
 
@@ -115,6 +125,24 @@ async function lookupTargetOwner(
     case 'DIAGNOSIS_CODE': {
       const record = await db.diagnosisCode.findUnique({ where: { id } })
       return record ? { id: record.id, organizationId: record.organizationId } : null
+    }
+    // A4.8 — external identity needs ownership and nothing else, so these two read the
+    // narrowest possible projection. A Patient row carries names, date of birth, phone and
+    // email; selecting the whole row to answer "who owns this?" would pull that into memory
+    // for no reason. The A4.4 regulatory/provider resolution is deliberately not reused.
+    case 'PATIENT': {
+      const record = await db.patient.findUnique({ where: { id }, select: { id: true, organizationId: true } })
+      return record ? { id: record.id, organizationId: record.organizationId } : null
+    }
+    // An Encounter has no organizationId of its own: ownership is derived through its Patient,
+    // which is the single canonical source. A foreign Encounter therefore resolves to a foreign
+    // organization and is refused by the caller, never adopted.
+    case 'ENCOUNTER': {
+      const record = await db.encounter.findUnique({
+        where: { id },
+        select: { id: true, patient: { select: { organizationId: true } } },
+      })
+      return record ? { id: record.id, organizationId: record.patient.organizationId } : null
     }
   }
 }
