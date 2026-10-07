@@ -16,7 +16,9 @@ import { Skeleton } from '../shared/ui/Skeleton.tsx'
 export default function PatientWorkspacePage() {
   const { patientId = '' } = useParams()
   const patient = usePatient(patientId)
-  const memberships = useMemberships(patientId)
+  // Coverage is requested only after the Patient itself has loaded, so a missing or foreign Patient never
+  // triggers a membership request and nothing reveals whether memberships exist.
+  const memberships = useMemberships(patient.data ? patientId : '')
 
   if (patient.isPending) return <Skeleton className="h-40 w-full" />
   if (!patient.data) {
