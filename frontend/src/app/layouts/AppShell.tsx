@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { authClient } from '../../shared/auth-client.ts'
 import { queryClient } from '../../shared/api/query-client.ts'
 import { cn } from '../../shared/cn.ts'
+import { useOrganization } from '../../shared/organization/useOrganization.ts'
 
 // Labeled product navigation only (FE-01 hard lock): no dashboard and no Developer Tools entry.
 const nav = [
@@ -14,6 +15,7 @@ const nav = [
 
 export function AppShell() {
   const navigate = useNavigate()
+  const { organizationName } = useOrganization()
 
   // The private Query cache is cleared even if the sign-out request fails: client-state cleanup never
   // depends on a successful network call.
@@ -50,8 +52,9 @@ export function AppShell() {
       </aside>
 
       <div className="pl-52">
-        {/* No organization label until an authoritative organization-context contract exists (FE-02). */}
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-end border-b border-slate-200 bg-white/95 px-7">
+        {/* The organization name comes from the server-validated OrganizationContext; there is no switcher. */}
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-4 border-b border-slate-200 bg-white/95 px-7">
+          <span className="truncate text-sm text-slate-500">{organizationName}</span>
           <button className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-950" onClick={signOut} type="button">
             <LogOut aria-hidden="true" size={16} /> Sign out
           </button>

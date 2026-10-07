@@ -1,10 +1,12 @@
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { AuthBoundary } from './AuthBoundary.tsx'
+import { OrganizationBoundary } from './OrganizationBoundary.tsx'
 import { AppShell } from './layouts/AppShell.tsx'
 import { AuthLayout } from './layouts/AuthLayout.tsx'
 import LoginPage from '../pages/LoginPage.tsx'
 import HomePage from '../pages/HomePage.tsx'
-import PatientsPlaceholderPage from '../pages/PatientsPlaceholderPage.tsx'
+import PatientsPage from '../pages/PatientsPage.tsx'
+import PatientWorkspacePage from '../pages/PatientWorkspacePage.tsx'
 import EncountersPlaceholderPage from '../pages/EncountersPlaceholderPage.tsx'
 import AdministrationPlaceholderPage from '../pages/AdministrationPlaceholderPage.tsx'
 import NotFoundPage from '../pages/NotFoundPage.tsx'
@@ -25,14 +27,21 @@ const router = createBrowserRouter([
     element: <AuthBoundary />,
     children: [
       {
-        path: '/app',
-        element: <AppShell />,
+        // FE-02 — the product shell renders only inside a server-validated organization.
+        element: <OrganizationBoundary />,
         children: [
-          { index: true, element: <Navigate to="home" replace /> },
-          { path: 'home', element: <HomePage /> },
-          { path: 'patients', element: <PatientsPlaceholderPage /> },
-          { path: 'encounters', element: <EncountersPlaceholderPage /> },
-          { path: 'admin', element: <AdministrationPlaceholderPage /> },
+          {
+            path: '/app',
+            element: <AppShell />,
+            children: [
+              { index: true, element: <Navigate to="home" replace /> },
+              { path: 'home', element: <HomePage /> },
+              { path: 'patients', element: <PatientsPage /> },
+              { path: 'patients/:patientId', element: <PatientWorkspacePage /> },
+              { path: 'encounters', element: <EncountersPlaceholderPage /> },
+              { path: 'admin', element: <AdministrationPlaceholderPage /> },
+            ],
+          },
         ],
       },
       ...(developerToolsEnabled
