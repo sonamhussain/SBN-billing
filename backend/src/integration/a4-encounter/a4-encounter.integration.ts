@@ -737,7 +737,7 @@ async function main() {
   check('T77', 'A2 regression', a2.ok && /36\/36 PASS/.test(a2.output), (a2.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0])
   await apiReady('the A1 regression')
   const a1 = run('npm run test:a1:integration')
-  check('T78', 'A1 regression', /26\/27 PASS/.test(a1.output) && /worker graceful stop/.test(a1.output), `${(a1.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0]} (only the known Windows SIGTERM limitation)`)
+  check('T78', 'A1 regression', /27\/28 PASS/.test(a1.output) && /worker graceful stop/.test(a1.output), `${(a1.output.match(/automated summary: [^\n]*/) ?? ['no summary'])[0]} (only the known Windows SIGTERM limitation)`)
 
   await apiReady('the DB truth check')
   const upHealth = await health()

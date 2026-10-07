@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { prisma } from '../../shared/database/prisma.ts'
 import { callApi, extractCookieHeader, isUuid } from './integration.http.ts'
 import { runWorkerAcceptance } from './integration.worker.ts'
 
@@ -238,8 +239,9 @@ async function main() {
       requestIdSafe(unknownRoute.body?.error?.requestId, unknownRoute.requestId),
   )
 
-  // T22 — malformed JSON
-  const malformedJson = await callApi(baseUrl, '/api/organizations', {
+  // T22 — malformed JSON. express.json() rejects the body before any route authentication runs, so this
+  // proves only the JSON error envelope, not an authentication outcome.
+  const malformedJson = await callApi(baseUrl, `/api/organizations/${organizationId}/facilities`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: '{"name": "broken json"',
@@ -249,6 +251,33 @@ async function main() {
     malformedJson.status === 400 &&
       malformedJson.body?.error?.code === 'INVALID_JSON' &&
       requestIdSafe(malformedJson.body?.error?.requestId, malformedJson.requestId),
+  )
+
+  // T26 — the public Organization create route no longer exists. A valid body is sent both anonymously and
+  // as the signed-in admin; each is an unknown route, and no Organization with the probe name is written.
+  // It runs before T23 so the no-false-audit check covers it, and before T24 signs the admin out.
+  const probeName = `A1 removed create route probe ${Date.now()}`
+  const anonymousCreate = await callApi(baseUrl, '/api/organizations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: probeName }),
+  })
+  const adminCreate = await callApi(baseUrl, '/api/organizations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+    body: JSON.stringify({ name: probeName }),
+  })
+  const routeGone = [anonymousCreate, adminCreate].every(
+    (response) =>
+      response.status === 404 &&
+      response.body?.error?.code === 'NOT_FOUND' &&
+      requestIdSafe(response.body?.error?.requestId, response.requestId),
+  )
+  const probeOrganizations = await prisma.organization.count({ where: { name: probeName } })
+  record(
+    'T26 public org create removed',
+    routeGone && probeOrganizations === 0,
+    `anonymous=${anonymousCreate.status} admin=${adminCreate.status} organizationsWritten=${probeOrganizations}`,
   )
 
   // T23 — false-audit check
@@ -298,7 +327,11 @@ async function main() {
   process.exitCode = failCount > 0 ? 1 : 0
 }
 
-main().catch((error) => {
-  console.error('[A1.10] integration runner crashed:', error instanceof Error ? error.message : error)
-  process.exitCode = 1
-})
+main()
+  .catch((error) => {
+    console.error('[A1.10] integration runner crashed:', error instanceof Error ? error.message : error)
+    process.exitCode = 1
+  })
+  .finally(async () => {
+    await prisma.$disconnect()
+  })

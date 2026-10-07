@@ -1,5 +1,4 @@
 import type { ComponentType } from 'react'
-import OrganizationSetup from '../modules/organization/OrganizationSetup.tsx'
 import FacilitySetup from '../modules/facility/FacilitySetup.tsx'
 import AuthSetup from '../modules/auth/AuthSetup.tsx'
 import AuthorizationCheck from '../modules/access/AuthorizationCheck.tsx'
@@ -56,7 +55,6 @@ export type DeveloperCheck = {
 }
 
 export const developerChecks: DeveloperCheck[] = [
-  { key: 'organization-setup', label: 'Organization setup', Component: OrganizationSetup },
   { key: 'facility-setup', label: 'Facility setup', Component: FacilitySetup },
   { key: 'auth-setup', label: 'Auth setup', Component: AuthSetup },
   { key: 'authorization', label: 'Authorization', Component: AuthorizationCheck },
