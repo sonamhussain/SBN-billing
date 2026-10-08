@@ -9,6 +9,8 @@ import PatientsPage from '../pages/PatientsPage.tsx'
 import PatientWorkspacePage from '../pages/PatientWorkspacePage.tsx'
 import EncountersPage from '../pages/EncountersPage.tsx'
 import EncounterWorkspacePage from '../pages/EncounterWorkspacePage.tsx'
+import BillingPage from '../pages/BillingPage.tsx'
+import BillingWorkspacePage from '../pages/BillingWorkspacePage.tsx'
 import AdministrationPlaceholderPage from '../pages/AdministrationPlaceholderPage.tsx'
 import NotFoundPage from '../pages/NotFoundPage.tsx'
 import DeveloperToolsPage from '../developer/DeveloperToolsPage.tsx'
@@ -41,6 +43,8 @@ const router = createBrowserRouter([
               { path: 'patients/:patientId', element: <PatientWorkspacePage /> },
               { path: 'encounters', element: <EncountersPage /> },
               { path: 'encounters/:encounterId', element: <EncounterWorkspacePage /> },
+              { path: 'billing', element: <BillingPage /> },
+              { path: 'billing/encounters/:encounterId', element: <BillingWorkspacePage /> },
               { path: 'admin', element: <AdministrationPlaceholderPage /> },
             ],
           },

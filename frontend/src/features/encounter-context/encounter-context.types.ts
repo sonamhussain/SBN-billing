@@ -16,6 +16,9 @@ export type EncounterBillingContext = {
   assembledAt: string
   organizationId: string
   encounter: Encounter
+  // FE-04 reads the patient's display name for the Billing context summary; contact details are not part
+  // of the aggregate.
+  patient: { id: string; displayName: string }
   facility: { id: string; name: string }
   clinician: { id: string; displayName: string }
   // null means only that no membership was selected on this Encounter.
@@ -36,6 +39,10 @@ export type EncounterBillingContext = {
       status: string
     }
   }
+  // The aggregate's active child records; FE-04 shows only their counts.
+  diagnoses: unknown[]
+  activities: unknown[]
+  observations: unknown[]
   externalIdentifiers: {
     patient: ExternalReference[]
     encounter: ExternalReference[]

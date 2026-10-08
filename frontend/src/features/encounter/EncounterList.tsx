@@ -9,12 +9,12 @@ import type { Encounter } from './encounter.types.ts'
 // first. Rows show the service date, facility and clinician: no eligibility, authorization, readiness,
 // claim or price column.
 
-function EncounterRow({ encounter }: { encounter: Encounter }) {
+function EncounterRow({ encounter, to }: { encounter: Encounter; to: string }) {
   const facility = useFacilityName(encounter.facilityId)
   const clinician = useClinicianName(encounter.clinicianId)
   return (
     <Link
-      to={`/app/encounters/${encounter.id}`}
+      to={to}
       className="grid grid-cols-[8rem_1fr_1fr_1rem] items-center gap-4 px-4 py-3.5 text-sm hover:bg-slate-50 focus-visible:bg-slate-50"
     >
       <span className="font-medium text-slate-950">{formatDateOnly(encounter.serviceDate)}</span>
@@ -25,7 +25,15 @@ function EncounterRow({ encounter }: { encounter: Encounter }) {
   )
 }
 
-export function EncounterList({ items }: { items: Encounter[] }) {
+// `linkTo` lets another workspace (FE-04 Billing) open the same rows in its own route; by default a row
+// opens the Encounter Workspace.
+export function EncounterList({
+  items,
+  linkTo = (encounter) => `/app/encounters/${encounter.id}`,
+}: {
+  items: Encounter[]
+  linkTo?: (encounter: Encounter) => string
+}) {
   if (items.length === 0) return <EmptyState title="No encounters recorded" message="Encounters recorded for this patient appear here." />
 
   // The backend lists by service date ascending (then creation, then id); the newest is shown first.
@@ -40,7 +48,7 @@ export function EncounterList({ items }: { items: Encounter[] }) {
         <span />
       </div>
       {newestFirst.map((encounter) => (
-        <EncounterRow key={encounter.id} encounter={encounter} />
+        <EncounterRow key={encounter.id} encounter={encounter} to={linkTo(encounter)} />
       ))}
     </div>
   )

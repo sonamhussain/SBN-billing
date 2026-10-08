@@ -70,9 +70,18 @@ function EncounterWorkspace({ encounter }: { encounter: Encounter }) {
         eyebrow="Encounter"
         title={`Encounter — ${formatDateOnly(encounter.serviceDate)}`}
         action={
-          <PermissionGate permission="encounter.update">
-            <EncounterEditorSheet encounter={encounter} trigger={<Button className={secondaryButton}>Edit encounter</Button>} />
-          </PermissionGate>
+          <div className="flex items-center gap-3">
+            {/* FE-04 — a permission-neutral way into Billing review; the Billing page gates its own reads. */}
+            <Link
+              to={`/app/billing/encounters/${encounter.id}`}
+              className="inline-flex min-h-10 items-center rounded-md px-3 text-sm font-medium text-[var(--sbn-accent)] hover:bg-slate-100"
+            >
+              Billing review
+            </Link>
+            <PermissionGate permission="encounter.update">
+              <EncounterEditorSheet encounter={encounter} trigger={<Button className={secondaryButton}>Edit encounter</Button>} />
+            </PermissionGate>
+          </div>
         }
       />
       <p className="-mt-4 mb-6 text-sm text-slate-500">

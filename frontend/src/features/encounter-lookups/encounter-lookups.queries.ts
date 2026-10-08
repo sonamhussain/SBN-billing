@@ -2,6 +2,7 @@ import { useQueries, useQuery } from '@tanstack/react-query'
 import { usePermission } from '../../shared/auth/usePermission.ts'
 import {
   getClinician,
+  getDiagnosisCode,
   getFacility,
   getProcedureCode,
   getService,
@@ -95,4 +96,9 @@ export const useProcedureCodeName = (id: string | null) =>
   useLabel('procedure-code', id, 'procedure_code.read', async (value) => {
     const procedure = await getProcedureCode(value)
     return `${procedure.internalCode} — ${procedure.displayName}`
+  })
+export const useDiagnosisCodeName = (id: string | null) =>
+  useLabel('diagnosis-code', id, 'diagnosisCode.read', async (value) => {
+    const code = await getDiagnosisCode(value)
+    return `${code.code} — ${code.displayName}`
   })
