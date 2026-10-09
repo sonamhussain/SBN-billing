@@ -7,6 +7,8 @@ export class ApiClientError extends Error {
   readonly status: number
   readonly code: string
   readonly requestId?: string
+  // FE-04: the optional machine-readable refinement of `code` (for example an A5.5 resolution reason).
+  readonly reason?: string
 
   constructor(status: number, error: ApiError) {
     super(error.message)
@@ -14,6 +16,7 @@ export class ApiClientError extends Error {
     this.status = status
     this.code = error.code
     this.requestId = error.requestId
+    this.reason = error.reason
   }
 }
 

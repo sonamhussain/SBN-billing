@@ -43,3 +43,4 @@ export const getClinician = (id: string) => apiRequest<ClinicianOption>(`/api/cl
 export const getFacility = (id: string) => apiRequest<FacilityLabel>(`/api/facilities/${id}`)
 export const getService = (id: string) => apiRequest<ServiceOption>(`/api/services/${id}`)
 export const getProcedureCode = (id: string) => apiRequest<ProcedureCodeOption>(`/api/procedure-codes/${id}`)
+export const getDiagnosisCode = (id: string) => apiRequest<DiagnosisCodeOption>(`/api/diagnosis-codes/${id}`)

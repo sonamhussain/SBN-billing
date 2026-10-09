@@ -1,4 +1,4 @@
-import { Home, Users, Stethoscope, Settings, LogOut } from 'lucide-react'
+import { Home, Users, Stethoscope, Receipt, Settings, LogOut } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { authClient } from '../../shared/auth-client.ts'
 import { queryClient } from '../../shared/api/query-client.ts'
@@ -10,6 +10,7 @@ const nav = [
   { to: '/app/home', label: 'Home', icon: Home },
   { to: '/app/patients', label: 'Patients', icon: Users },
   { to: '/app/encounters', label: 'Encounters', icon: Stethoscope },
+  { to: '/app/billing', label: 'Billing', icon: Receipt },
   { to: '/app/admin', label: 'Administration', icon: Settings },
 ]
 
