@@ -21,6 +21,15 @@ const tones: Record<string, Tone> = {
   FRESH: 'success',
   STALE: 'attention',
   MATCHED: 'success',
+  // FE-05 governance and commercial lifecycle values.
+  VERIFIED: 'success',
+  IN_REVIEW: 'attention',
+  REJECTED: 'danger',
+  ACTIVE: 'success',
+  SUSPENDED: 'attention',
+  RETIRED: 'neutral',
+  SUPERSEDED: 'neutral',
+  PUBLISHED: 'success',
 }
 
 export function OutcomeBadge({ value, label }: { value: string; label?: string }) {
