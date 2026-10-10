@@ -528,6 +528,49 @@ async function main() {
         : [...forbiddenReadinessColumns, ...handoffTables].join(', '),
     )
 
+    // A6.1 — the Claim is a stable identity bound to one exact readiness assessment of its own
+    // Encounter. The database holds both contract labels, keeps one Claim per assessment, refuses a
+    // cross-Encounter binding and refuses any change to the identity or a delete.
+    for (const trigger of ['claims_binding_coherence_trg', 'claims_identity_guard_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'claims_pkey',
+      'claims_claim_contract_version_chk',
+      'claims_handoff_schema_version_chk',
+      'claims_encounter_id_fkey',
+      'claims_pre_claim_readiness_assessment_id_fkey',
+      'claims_created_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(name)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const contractCheck = replay.constraints.find((line) => line.includes('claims_claim_contract_version_chk')) ?? ''
+    const handoffCheck = replay.constraints.find((line) => line.includes('claims_handoff_schema_version_chk')) ?? ''
+    check(
+      'the two Claim CHECKs pin A6-CLAIM-1 and PreClaimA6HandoffV1 after a clean replay',
+      contractCheck.includes("'A6-CLAIM-1'") && handoffCheck.includes("'PreClaimA6HandoffV1'"),
+      `${contractCheck.slice(0, 120)} | ${handoffCheck.slice(0, 120)}`,
+    )
+    check(
+      'the one-Claim-per-assessment unique index is present after a clean replay',
+      replay.indexes.some((line) => line.startsWith('claims_pre_claim_readiness_assessment_id_key:') && /UNIQUE/i.test(line)),
+    )
+    // §6/§T027 — many Claims may exist for one Encounter, and no A5 context, money, lifecycle,
+    // approval, payload or current pointer is copied onto the row.
+    check(
+      'no unique index on claims.encounter_id after a clean replay',
+      !replay.indexes.some((line) => line.startsWith('claims_') && /UNIQUE/i.test(line) && /\(encounter_id\)/.test(line)),
+    )
+    const claimColumns = replay.columns.filter((line) => line.startsWith('claims.'))
+    const allowedClaimColumns = ['id', 'encounter_id', 'pre_claim_readiness_assessment_id', 'claim_contract_version', 'handoff_schema_version', 'created_by_user_id', 'created_at']
+    const unexpectedClaimColumns = claimColumns.filter((line) => !allowedClaimColumns.includes(line.slice('claims.'.length).split(':')[0]))
+    check(
+      'claims carries exactly its seven identity columns after a clean replay',
+      claimColumns.length === allowedClaimColumns.length && unexpectedClaimColumns.length === 0,
+      claimColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : unexpectedClaimColumns.join(', '),
+    )
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration

@@ -1,4 +1,5 @@
 import { Prisma } from '../../../generated/prisma/client.ts'
+import type { DbClient } from '../../shared/database/database.types.ts'
 import { prisma } from '../../shared/database/prisma.ts'
 import { withReadSnapshot } from '../../shared/database/read-snapshot.ts'
 import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
@@ -158,61 +159,67 @@ const exactSet = (ids: (string | null)[]) => [...new Set(ids.filter((id): id is 
 // produce a handoff that was never true. Nothing is written, and no pointer is stored.
 export async function getA6Handoff(assessmentId: string): Promise<PreClaimReadinessResult<PreClaimA6HandoffV1>> {
   if (!isReadinessUuid(assessmentId)) return invalid('invalid readiness assessment id')
-  return withReadSnapshot(undefined, async (tx): Promise<PreClaimReadinessResult<PreClaimA6HandoffV1>> => {
-    const assessment = await findAssessmentById(assessmentId, tx)
-    if (!assessment) return { ok: false, code: 'NOT_FOUND', message: 'readiness assessment not found' }
-    if (assessment.state !== 'READY_FOR_REVIEW') {
-      return { ok: false, code: 'PRECLAIM_NOT_READY_FOR_HANDOFF', message: 'only a READY_FOR_REVIEW assessment can be handed off' }
-    }
-    if (assessment.readinessPolicyVersion !== READINESS_POLICY_VERSION || !isValidatorCompatible(assessment.readinessPolicyVersion, assessment.validationRun.validatorVersion)) {
-      return { ok: false, code: 'READINESS_POLICY_INCOMPATIBLE', message: 'this handoff contract does not accept the assessment policy or validator version' }
-    }
-    const recency = decideRecency(await findRecencyRelations(assessment.validationRunId, tx))
-    if (recency === 'SUPERSEDED') {
-      return { ok: false, code: 'READINESS_SUPERSEDED_BY_NEWER_VALIDATION', message: 'a later validation run exists for this encounter' }
-    }
-    if (recency === 'AMBIGUOUS') {
-      return { ok: false, code: 'VALIDATION_RUN_RECENCY_AMBIGUOUS', message: 'another validation run of this encounter has the same evaluation and creation time' }
-    }
+  return withReadSnapshot(undefined, (tx) => composeA6Handoff(assessmentId, tx))
+}
 
-    const run = await findRunById(assessment.validationRunId, tx)
-    if (!run) return { ok: false, code: 'NOT_FOUND', message: 'readiness assessment not found' }
-    const findings = await findFindingsForRun(run.id, tx)
-    const count = (outcome: string) => findings.filter((finding) => finding.outcome === outcome).length
+// A6.1 §8 — the one transaction-aware handoff composer. The public GET runs it inside its own read
+// snapshot; A6.1 Claim creation runs it on its REPEATABLE READ write transaction, so the handoff
+// decision and the Claim insert see the same snapshot. Every read uses the caller's client.
+export async function composeA6Handoff(assessmentId: string, tx: DbClient): Promise<PreClaimReadinessResult<PreClaimA6HandoffV1>> {
+  if (!isReadinessUuid(assessmentId)) return invalid('invalid readiness assessment id')
+  const assessment = await findAssessmentById(assessmentId, tx)
+  if (!assessment) return { ok: false, code: 'NOT_FOUND', message: 'readiness assessment not found' }
+  if (assessment.state !== 'READY_FOR_REVIEW') {
+    return { ok: false, code: 'PRECLAIM_NOT_READY_FOR_HANDOFF', message: 'only a READY_FOR_REVIEW assessment can be handed off' }
+  }
+  if (assessment.readinessPolicyVersion !== READINESS_POLICY_VERSION || !isValidatorCompatible(assessment.readinessPolicyVersion, assessment.validationRun.validatorVersion)) {
+    return { ok: false, code: 'READINESS_POLICY_INCOMPATIBLE', message: 'this handoff contract does not accept the assessment policy or validator version' }
+  }
+  const recency = decideRecency(await findRecencyRelations(assessment.validationRunId, tx))
+  if (recency === 'SUPERSEDED') {
+    return { ok: false, code: 'READINESS_SUPERSEDED_BY_NEWER_VALIDATION', message: 'a later validation run exists for this encounter' }
+  }
+  if (recency === 'AMBIGUOUS') {
+    return { ok: false, code: 'VALIDATION_RUN_RECENCY_AMBIGUOUS', message: 'another validation run of this encounter has the same evaluation and creation time' }
+  }
 
-    return {
-      ok: true,
-      value: {
-        schemaVersion: HANDOFF_SCHEMA_VERSION,
-        readinessAssessmentId: assessment.id,
-        readinessPolicyVersion: 'A5-READY-1',
-        readinessState: 'READY_FOR_REVIEW',
-        assessedAt: assessment.assessedAt.toISOString(),
-        validationRun: {
-          id: run.id,
-          validatorVersion: 'A5-VAL-1',
-          evaluatedAt: run.evaluatedAt.toISOString(),
-          encounterId: run.encounterId,
-          context: toRunDto(run).context,
-        },
-        findingSummary: { total: findings.length, pass: count('PASS'), warning: count('WARNING'), restrict: count('RESTRICT'), fail: count('FAIL') },
-        findingRefs: findings.map((finding) => ({ id: finding.id, sequence: finding.sequence, layer: finding.layer, outcome: finding.outcome, findingCode: finding.findingCode })),
-        exactReferences: {
-          encounterActivityIds: exactSet(findings.map((finding) => finding.encounterActivityId)),
-          encounterDiagnosisIds: exactSet(findings.map((finding) => finding.encounterDiagnosisId)),
-          eligibilityVerificationIds: exactSet(findings.map((finding) => finding.eligibilityVerificationId)),
-          priorAuthorizationVersionIds: exactSet(findings.map((finding) => finding.priorAuthorizationVersionId)),
-          authorizationLineIds: exactSet(findings.map((finding) => finding.authorizationLineId)),
-          evidenceRequirementIds: exactSet(findings.map((finding) => finding.evidenceRequirementId)),
-          evidenceArtifactVersionIds: exactSet(findings.map((finding) => finding.evidenceArtifactVersionId)),
-          ruleVersionIds: exactSet(findings.map((finding) => finding.ruleVersionId)),
-          governingSourceVersionIds: exactSet(findings.map((finding) => finding.governingSourceVersionId)),
-          // A finding's base dataset reference plus every dataset version its A5.8 provenance consumed.
-          referenceDatasetVersionIds: exactSet(
-            findings.flatMap((finding) => [finding.referenceDatasetVersionId, ...finding.consumedDatasetVersions.map((row) => row.referenceDatasetVersionId)]),
-          ),
-        },
+  const run = await findRunById(assessment.validationRunId, tx)
+  if (!run) return { ok: false, code: 'NOT_FOUND', message: 'readiness assessment not found' }
+  const findings = await findFindingsForRun(run.id, tx)
+  const count = (outcome: string) => findings.filter((finding) => finding.outcome === outcome).length
+
+  return {
+    ok: true,
+    value: {
+      schemaVersion: HANDOFF_SCHEMA_VERSION,
+      readinessAssessmentId: assessment.id,
+      readinessPolicyVersion: 'A5-READY-1',
+      readinessState: 'READY_FOR_REVIEW',
+      assessedAt: assessment.assessedAt.toISOString(),
+      validationRun: {
+        id: run.id,
+        validatorVersion: 'A5-VAL-1',
+        evaluatedAt: run.evaluatedAt.toISOString(),
+        encounterId: run.encounterId,
+        context: toRunDto(run).context,
       },
-    }
-  })
+      findingSummary: { total: findings.length, pass: count('PASS'), warning: count('WARNING'), restrict: count('RESTRICT'), fail: count('FAIL') },
+      findingRefs: findings.map((finding) => ({ id: finding.id, sequence: finding.sequence, layer: finding.layer, outcome: finding.outcome, findingCode: finding.findingCode })),
+      exactReferences: {
+        encounterActivityIds: exactSet(findings.map((finding) => finding.encounterActivityId)),
+        encounterDiagnosisIds: exactSet(findings.map((finding) => finding.encounterDiagnosisId)),
+        eligibilityVerificationIds: exactSet(findings.map((finding) => finding.eligibilityVerificationId)),
+        priorAuthorizationVersionIds: exactSet(findings.map((finding) => finding.priorAuthorizationVersionId)),
+        authorizationLineIds: exactSet(findings.map((finding) => finding.authorizationLineId)),
+        evidenceRequirementIds: exactSet(findings.map((finding) => finding.evidenceRequirementId)),
+        evidenceArtifactVersionIds: exactSet(findings.map((finding) => finding.evidenceArtifactVersionId)),
+        ruleVersionIds: exactSet(findings.map((finding) => finding.ruleVersionId)),
+        governingSourceVersionIds: exactSet(findings.map((finding) => finding.governingSourceVersionId)),
+        // A finding's base dataset reference plus every dataset version its A5.8 provenance consumed.
+        referenceDatasetVersionIds: exactSet(
+          findings.flatMap((finding) => [finding.referenceDatasetVersionId, ...finding.consumedDatasetVersions.map((row) => row.referenceDatasetVersionId)]),
+        ),
+      },
+    },
+  }
 }

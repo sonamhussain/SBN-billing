@@ -54,6 +54,10 @@ const lockableTables = [
   // the same run and policy serialize and the second sees the first assessment instead of racing on
   // the unique key. The run itself is never modified.
   'validation_runs',
+  // A6.1: creating a Claim locks its readiness assessment, so two concurrent creates for the same
+  // assessment serialize; the unique key on the Claim's assessment is the backstop. The assessment
+  // itself is never modified.
+  'pre_claim_readiness_assessments',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

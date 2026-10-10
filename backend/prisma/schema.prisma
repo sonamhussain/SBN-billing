@@ -151,6 +151,7 @@ model Encounter {
 
   encounterEvidenceLinks EncounterEvidenceLink[]
   validationRuns ValidationRun[]
+  claims Claim[]
   @@index([patientId])
   @@index([facilityId])
   @@index([clinicianId])
@@ -1053,6 +1054,7 @@ model User {
   encounterEvidenceLinksCreated EncounterEvidenceLink[] @relation("EncounterEvidenceLinkCreatedBy")
   validationRunsCreated ValidationRun[] @relation("ValidationRunCreatedBy")
   preClaimReadinessAssessmentsCreated PreClaimReadinessAssessment[] @relation("PreClaimReadinessAssessmentCreatedBy")
+  claimsCreated Claim[] @relation("ClaimCreatedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1795,9 +1797,33 @@ model PreClaimReadinessAssessment {
 
   validationRun ValidationRun @relation(fields: [validationRunId], references: [id], onDelete: Restrict)
   createdBy     User          @relation("PreClaimReadinessAssessmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  claim         Claim?
 
   @@unique([validationRunId, readinessPolicyVersion])
   @@index([validationRunId])
   @@index([state, assessedAt])
   @@map("pre_claim_readiness_assessments")
+}
+
+// A6.1 — the stable internal billing-case identity, bound forever to the one exact READY_FOR_REVIEW
+// readiness assessment that established it (A6-CLAIM-1 over PreClaimA6HandoffV1). It is not a
+// submission: there are no lines, money, lifecycle state, approval or payload here. Organization, payer,
+// facility, regulatory profile, run and readiness state are never copied — they are reached through the
+// exact bound A5 chain, so they cannot contradict it. One assessment creates at most one Claim; one
+// Encounter may have many.
+model Claim {
+  id                            String   @id @default(uuid()) @db.Uuid
+  encounterId                   String   @map("encounter_id") @db.Uuid
+  preClaimReadinessAssessmentId String   @unique @map("pre_claim_readiness_assessment_id") @db.Uuid
+  claimContractVersion          String   @map("claim_contract_version") @db.Text
+  handoffSchemaVersion          String   @map("handoff_schema_version") @db.Text
+  createdByUserId               String   @map("created_by_user_id") @db.Uuid
+  createdAt                     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  encounter                   Encounter                   @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  preClaimReadinessAssessment PreClaimReadinessAssessment @relation(fields: [preClaimReadinessAssessmentId], references: [id], onDelete: Restrict)
+  createdBy                   User                        @relation("ClaimCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([encounterId, createdAt])
+  @@map("claims")
 }

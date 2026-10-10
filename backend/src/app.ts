@@ -76,6 +76,7 @@ import { encounterEvidenceLinkRouter, encounterEvidenceLinksRouter } from './mod
 import { encounterValidationRunsRouter, validationFindingRouter, validationRunRouter } from './modules/validation-run/validation-run.route.ts'
 import { encounterPreClaimValidationRouter } from './modules/pre-claim-validation/pre-claim-validation.route.ts'
 import { encounterReadinessRouter, readinessAssessmentRouter, validationRunReadinessRouter } from './modules/pre-claim-readiness/pre-claim-readiness.route.ts'
+import { assessmentClaimRouter, claimRouter, encounterClaimRouter } from './modules/claim/claim.route.ts'
 
 export const app = express()
 
@@ -283,6 +284,12 @@ app.use('/api/encounters', encounterPreClaimValidationRouter)
 app.use('/api/validation-runs', validationRunReadinessRouter)
 app.use('/api/encounters', encounterReadinessRouter)
 app.use('/api/pre-claim-readiness-assessments', readinessAssessmentRouter)
+
+// A6.1 - one stable A6-CLAIM-1 Claim per exact READY_FOR_REVIEW readiness assessment (Admin only), the
+// Claim read and the Encounter's Claim history. No PATCH, PUT, DELETE, approve, submit or transmit route.
+app.use('/api/pre-claim-readiness-assessments', assessmentClaimRouter)
+app.use('/api/claims', claimRouter)
+app.use('/api/encounters', encounterClaimRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
