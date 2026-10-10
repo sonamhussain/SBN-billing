@@ -1,9 +1,5 @@
 import { Router, type Request } from 'express'
-import {
-  createOrganization,
-  getOrganization,
-  updateOrganization,
-} from './organization.service.ts'
+import { getOrganization, updateOrganization } from './organization.service.ts'
 import { requireOrganizationPermission } from '../../shared/authorization/require-permission.ts'
 import { sendApiError } from '../../shared/errors/error-response.ts'
 
@@ -17,16 +13,8 @@ function statusForServiceError(code: 'VALIDATION_ERROR' | 'NOT_FOUND') {
   return code === 'NOT_FOUND' ? 404 : 400
 }
 
-organizationRouter.post('/', async (req, res) => {
-  const result = await createOrganization(req.body?.name)
-
-  if (!result.ok) {
-    sendApiError(res, statusForServiceError(result.code), result.code, result.message)
-    return
-  }
-
-  res.status(201).json(result.value)
-})
+// Organization provisioning sits above the organization-scoped RBAC model, so it has no HTTP route.
+// Local development provisions through src/scripts/provision-organization-dev.ts.
 
 organizationRouter.get(
   '/:id',
