@@ -781,11 +781,12 @@ async function main() {
   )
   // Phase-boundary correction: A5 and A6 legitimately create eligibility, authorization and claim
   // tables, so their existence no longer says anything about A3. What A3 must never do is run them: no
-  // A3 governance module reads or writes one. The search is first shown to reach the A3 code.
+  // A3 governance module reads or writes one. The search is first shown to reach the A3 code; the paths
+  // are repository-root pathspecs (:/) because this suite runs from backend/.
   const a3Modules = [
     'rule-source', 'rule-source-version', 'source-interpretation', 'rule-source-relationship', 'rule-definition', 'rule-version', 'rule-applicability',
     'rule-source-binding', 'rule-source-scope', 'rule-resolution', 'rule-pack', 'rule-provenance', 'reference-dataset', 'facility-regulatory', 'commercial-coverage',
-  ].map((name) => `backend/src/modules/${name}`)
+  ].map((name) => `:/backend/src/modules/${name}`)
   const a3Reach = gitGrep('(prisma|tx|db)[[:space:]]*\\.[[:space:]]*ruleVersion([^A-Za-z0-9_]|$)', a3Modules)
   const a5Runtime = gitGrep(
     '(prisma|tx|db)[[:space:]]*\\.[[:space:]]*(claim|claimLine|claimSubmission|remittance|payment|paymentAllocation|authorizationRequest|eligibilityVerification|priorAuthorization|authorizationLine)([^A-Za-z0-9_]|$)',
