@@ -766,11 +766,13 @@ async function main() {
   check('T67', 'No pricing fields', keysMatching(/price|rate|fee|amount|reimburs|responsibility|allowed|charge|cost/i).length === 0, 'no price, rate, fee, amount, reimbursement or patient-responsibility field')
   check('T68', 'No readiness fields', keysMatching(/ready|readiness|restrict|block|submission|payerAcceptance/i).length === 0, 'no ready, restrict, block, submission or payer-acceptance field')
   const tables = (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`).map((row) => row.table_name)
+  // Phase-boundary correction: A6 legitimately creates the claims tables, so whether one exists no
+  // longer says anything about A5.5. What A5.5 must never do is read or write one.
   check(
     'T69',
     'No Claim',
-    !tables.some((name) => /(^claims?$|claim_lines?|claim_submissions?|remittance)/i.test(name)) && !/(prisma|tx)\.(claim|claimLine|claimSubmission)\b/.test(productionCode.code),
-    `no Claim, ClaimLine or ClaimSubmission among ${tables.length} tables, and none is read`,
+    productionCode.files.length > 0 && !/(prisma|tx)\.(claim|claimLine|claimSubmission)\b/.test(productionCode.code),
+    'the commercial-context module neither reads nor writes a Claim, ClaimLine or ClaimSubmission',
   )
 
   // ---------------------------------------------------------------- persistence (T70–T74)

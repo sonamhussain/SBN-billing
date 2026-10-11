@@ -865,7 +865,9 @@ async function main() {
     `no rate, fee, amount, allowed or patient-responsibility column across ${a5Columns.length} A5 columns or in any A5 response`,
   )
   const tables = (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`).map((row) => row.table_name)
-  check('T060', 'No Claim', !tables.some((t) => /(^claims?$|claim_lines?|claim_submissions?)/.test(t)) && allDtos.every((dto) => ![...deepKeys(dto)].some((k) => /claim/i.test(k))), 'no Claim, ClaimLine or ClaimSubmission table, row or field')
+  // Phase-boundary correction: A6 legitimately creates the claims tables, so their existence no longer
+  // says anything about A5. What no A5 response may ever carry is a claim field.
+  check('T060', 'No Claim', allDtos.length > 0 && allDtos.every((dto) => ![...deepKeys(dto)].some((k) => /claim/i.test(k))), 'no A5 response carries a Claim, ClaimLine or ClaimSubmission field')
 
   // ---------------------------------------------------------------- history and closure (T061–T068)
   section('Historical correction and immutability')

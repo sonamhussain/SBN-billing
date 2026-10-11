@@ -173,15 +173,20 @@ section('T59 no RuleDecision / T60 no billing execution')
 {
   const schema = readFileSync(join(backend, 'prisma', 'schema.prisma'), 'utf8')
   check('schema.prisma has no *Decision* model', !decisionModel.test(schema))
-  const tables = await prisma.$queryRaw<{ table_name: string }[]>`
+  // Phase-boundary correction: a generic decision or workflow engine is never legitimate, so that stays
+  // a database-wide guard. Eligibility (A5.2), readiness (A5.9) and claim (A6) tables are legitimately
+  // created by later phases, so for them what matters is that A3.9 itself created none.
+  const engineTables = await prisma.$queryRaw<{ table_name: string }[]>`
     SELECT table_name FROM information_schema.tables
-    WHERE table_schema = 'public' AND (table_name ILIKE '%decision%' OR table_name ILIKE '%claim%' OR table_name ILIKE '%eligib%' OR table_name ILIKE '%reimburs%' OR table_name ILIKE '%workflow%')`
-  check('the database has no decision / claim / eligibility / reimbursement / workflow table', tables.length === 0, tables.map((t) => t.table_name).join(', '))
+    WHERE table_schema = 'public' AND (table_name ILIKE '%decision%' OR table_name ILIKE '%workflow%')`
+  check('the database has no decision or workflow table', engineTables.length === 0, engineTables.map((t) => t.table_name).join(', '))
   const migrationDir = walk(join(backend, 'prisma', 'migrations'), (path) => path.includes('a3_9_rule_pack_provenance') && path.endsWith('.sql'))
   check('the A3.9 migration exists', migrationDir.length === 1)
   const sql = readFileSync(migrationDir[0], 'utf8').replace(/--.*$/gm, '')
   const created = [...sql.matchAll(/CREATE TABLE "(\w+)"/g)].map((m) => m[1]).sort()
   check('the A3.9 migration creates exactly rule_packs, rule_pack_versions, rule_pack_members', JSON.stringify(created) === JSON.stringify(['rule_pack_members', 'rule_pack_versions', 'rule_packs']), created.join(', '))
+  const billingTables = created.filter((name) => /decision|claim|eligib|reimburs|workflow/i.test(name))
+  check('the A3.9 migration creates no decision / claim / eligibility / reimbursement / workflow table', created.length > 0 && billingTables.length === 0, billingTables.join(', '))
   check('SQL comment stripping works (a DROP mentioned in a comment is not a DROP)', !/DROP/.test('-- the two spurious DROP INDEX statements'.replace(/--.*$/gm, '')))
   check('the A3.9 migration drops nothing and rewrites no earlier table', !/DROP (TABLE|COLUMN|INDEX)|ALTER TABLE "(?!rule_pack)/.test(sql))
   const memberCols = await prisma.$queryRaw<{ column_name: string }[]>`

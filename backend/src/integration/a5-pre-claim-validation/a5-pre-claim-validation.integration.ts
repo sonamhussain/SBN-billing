@@ -1005,7 +1005,9 @@ async function main() {
     reached && allProvenanceColumns.length > 0 && ![...allProvenanceColumns, ...runColumns, ...findingColumns].some((c) => /ready|readiness/i.test(c)) && !/readiness|readyForClaim|RESTRICT_OVERALL|overallOutcome/.test(moduleCode.code),
     'no ready, restrict or block overall decision in A5.8 code, its provenance tables or the runs it records',
   )
-  check('T121', 'No Claim', reached && !tables.some((t) => /(^claims?$|claim_lines?|claim_submissions?)/.test(t)) && !/(prisma|tx)\.(claim|claimLine|claimSubmission)\b/.test(moduleCode.code), 'no Claim, ClaimLine or ClaimSubmission')
+  // Phase-boundary correction: A6 legitimately creates the claims tables; A5.8 must only never read or
+  // write one.
+  check('T121', 'No Claim', reached && !/(prisma|tx)\.(claim|claimLine|claimSubmission)\b/.test(moduleCode.code), 'the A5.8 module neither reads nor writes a Claim, ClaimLine or ClaimSubmission')
   check('T122', 'No real integration', reached && !/\b(fetch|axios|https?\.request|dhpo|eclaimlink|apiKey|clientSecret)\b/i.test(moduleCode.code), 'no payer, DHPO or eClaimLink call or credential')
   const unitTests = run('npm run test:unit')
   const typecheck = run('npm run typecheck')
@@ -1057,12 +1059,13 @@ async function main() {
   check('T128', 'A5.3/A5.2/A5.1 regressions', verdictOf('T97') === 'PASS' && verdictOf('T98') === 'PASS', `A5.7 T97 (A5.3) ${verdictOf('T97')}, T98 (A5.2 and A5.1) ${verdictOf('T98')}`)
   check('T129', 'A4 regressions', verdictOf('T99') === 'PASS', `A5.7 T99 (A4.10 and A4.9 to A1) ${verdictOf('T99')}`)
   for (const text of chain.output.split(/\r?\n/).filter((l) => l.startsWith('[A5.7]      ') && / substantive checks /.test(l))) console.log(`[A5.8]      ${text.replace('[A5.7]', '').trim().slice(0, 190)}`)
-  // The A3.9 scope suite runs inside A3.10 T65, which already fails on the A5.2 eligibility table; it is
-  // run directly here so a new A3 scope failure can never hide behind that tolerated id.
+  // The A3.9 scope suite is run directly here so an A3 scope failure can never hide inside A3.10 T65.
+  // Phase-boundary correction: its A3-era table guard now judges what A3.9 created, so it no longer
+  // fails on the eligibility table and no failure at all is tolerated.
   const scope = run('npm run test:a3:scope')
   const scopeFails = scope.output.split(/\r?\n/).filter((l) => /^\s*FAIL\s/.test(l))
-  const scopeOnlyKnown = scopeFails.length === 1 && /eligibility_verifications/.test(scopeFails[0])
-  check('T130', 'A3 regressions', verdictOf('T100') === 'PASS' && scopeOnlyKnown, `A5.7 T100 (A3) ${verdictOf('T100')}; the A3.9 scope suite fails only its A3-era no-eligibility-table guard (${scopeFails.length} line)`)
+  const scopeClean = scope.output.includes('[a3.9-scope]') && scopeFails.length === 0
+  check('T130', 'A3 regressions', verdictOf('T100') === 'PASS' && scopeClean, `A5.7 T100 (A3) ${verdictOf('T100')}; the A3.9 scope suite run directly: ${scopeFails.length} failure(s)`)
   check('T131', 'A2/A1 regressions', verdictOf('T101') === 'PASS', `A5.7 T101 (A2 and A1) ${verdictOf('T101')}`)
 
   await apiReady('the DB truth check')
