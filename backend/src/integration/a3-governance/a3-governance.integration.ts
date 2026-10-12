@@ -779,8 +779,25 @@ async function main() {
     a4Tables.length === 0 && !a4Routes.matched && a4Routes.failed === null,
     a4Routes.failed ?? 'no Patient / InsuranceMembership / Encounter table or route (A1 membership_roles is RBAC, not A4)',
   )
-  const a5Tables = modelNames.filter((name) => /^(claims|claim_lines|claim_submissions|remittances|payments|payment_allocations|authorization_requests|eligibility_verifications)$/i.test(name))
-  check('T67', 'no A5+ runtime', a5Tables.length === 0, 'no eligibility / authorization / claim / payment execution schema')
+  // Phase-boundary correction: A5 and A6 legitimately create eligibility, authorization and claim
+  // tables, so their existence no longer says anything about A3. What A3 must never do is run them: no
+  // A3 governance module reads or writes one. The search is first shown to reach the A3 code; the paths
+  // are repository-root pathspecs (:/) because this suite runs from backend/.
+  const a3Modules = [
+    'rule-source', 'rule-source-version', 'source-interpretation', 'rule-source-relationship', 'rule-definition', 'rule-version', 'rule-applicability',
+    'rule-source-binding', 'rule-source-scope', 'rule-resolution', 'rule-pack', 'rule-provenance', 'reference-dataset', 'facility-regulatory', 'commercial-coverage',
+  ].map((name) => `:/backend/src/modules/${name}`)
+  const a3Reach = gitGrep('(prisma|tx|db)[[:space:]]*\\.[[:space:]]*ruleVersion([^A-Za-z0-9_]|$)', a3Modules)
+  const a5Runtime = gitGrep(
+    '(prisma|tx|db)[[:space:]]*\\.[[:space:]]*(claim|claimLine|claimSubmission|remittance|payment|paymentAllocation|authorizationRequest|eligibilityVerification|priorAuthorization|authorizationLine)([^A-Za-z0-9_]|$)',
+    a3Modules,
+  )
+  check(
+    'T67',
+    'no A5+ runtime',
+    a3Reach.matched && !a5Runtime.matched && a5Runtime.failed === null && a3Reach.failed === null,
+    a5Runtime.failed ?? a3Reach.failed ?? (a5Runtime.matched ? `A3 code touches A5+ runtime: ${a5Runtime.files.join(', ')}` : 'no A3 governance module reads or writes an eligibility, authorization, claim or payment record (search verified to reach the A3 code)'),
+  )
   const realIntegration = gitGrep('(dhpo|eclaimlink|dha_(api|client|secret)|payer_api_key|shafafiya)', ['backend/src', 'frontend/src'])
   check(
     'T68',

@@ -840,7 +840,9 @@ async function main() {
   const stateValues = JSON.stringify(mainEval.body)
   check('T105', 'No PASS/WARNING/RESTRICT/FAIL', !/"(PASS|WARNING|RESTRICT|FAIL)"/.test(stateValues) && !/'(PASS|WARNING|RESTRICT|FAIL)'/.test(evidenceCode), 'completeness states stay SATISFIED/MISSING/INCOMPLETE, separate from A5.8 outcomes')
   check('T106', 'No readiness', !dtoKeys.some((k) => /ready|readiness|submission|payerAcceptance/i.test(k)) && !/readyForClaim|submissionAllowed/.test(evidenceCode), 'no ready, restrict, block or submission field')
-  check('T107', 'No Claim', !tables.some((t) => /(^claims?$|claim_lines?|claim_submissions?)/.test(t)) && !/(prisma|tx)\.(claim|claimLine|claimSubmission)\b/.test(evidenceCode), 'no Claim, ClaimLine or ClaimSubmission')
+  // Phase-boundary correction: A6 legitimately creates the claims tables; A5.6 must only never read or
+  // write one.
+  check('T107', 'No Claim', evidenceCode.length > 0 && !/(prisma|tx)\.(claim|claimLine|claimSubmission)\b/.test(evidenceCode), 'the A5.6 code neither reads nor writes a Claim, ClaimLine or ClaimSubmission')
   const routeCode = committedProductionCodeOf(['backend/src/modules/evidence-requirement', 'backend/src/modules/encounter-evidence']).code
   check('T108', 'No real integration', !/\b(fetch|axios|https?\.request|multer|upload|download|dhpo|eclaimlink)\b/i.test(routeCode), 'no upload, download, payer, DHPO or eClaimLink transport')
   const feCode = committedCodeOf('frontend/src/modules/evidence-completeness')

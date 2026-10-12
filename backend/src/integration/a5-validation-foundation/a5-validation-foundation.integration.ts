@@ -758,7 +758,9 @@ async function main() {
     runColumns.length > 0 && findingColumns.length > 0 && ![...runColumns, ...findingColumns].some((c) => /ready|readiness/i.test(c)) && !dtoKeys.some((k) => /ready|readiness/i.test(k)) && !/readyForClaim|composeReadiness|readinessState/.test(moduleCode.code),
     'no ready, restrict or block aggregate on a run, a finding, a DTO or in the module',
   )
-  check('T87', 'No Claim', !tables.some((t) => /(^claims?$|claim_lines?|claim_submissions?)/.test(t)) && !/(prisma|tx|db)\.(claim|claimLine|claimSubmission)\b/.test(moduleCode.code), 'no Claim, ClaimLine or ClaimSubmission table or access')
+  // Phase-boundary correction: A6 legitimately creates the claims tables; A5.7 must only never read or
+  // write one.
+  check('T87', 'No Claim', moduleCode.code.length > 0 && !/(prisma|tx|db)\.(claim|claimLine|claimSubmission)\b/.test(moduleCode.code), 'the validation-run module neither reads nor writes a Claim, ClaimLine or ClaimSubmission')
   check('T88', 'No real integration', !/\b(fetch|axios|https?\.request|dhpo|eclaimlink|apiKey|clientSecret)\b/i.test(moduleCode.code), 'no payer, DHPO or eClaimLink network call or credential')
   const jsonColumns = (await prisma.$queryRaw<{ c: string }[]>`SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('validation_runs','validation_findings') AND data_type IN ('json','jsonb')`).map((row) => row.c)
   const schemaModels = (git('show HEAD:backend/prisma/schema.prisma').match(/model Validation(Run|Finding) \{[\s\S]*?\n\}/g) ?? []).join('\n')

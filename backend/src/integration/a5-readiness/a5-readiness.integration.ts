@@ -261,7 +261,12 @@ async function main() {
   const allCodes = (await prisma.permission.findMany({ select: { code: true } })).map((row) => row.code)
   const grantsOf = async (code: string) => (await prisma.rolePermission.findMany({ where: { permission: { code } }, select: { role: { select: { code: true } } } })).map((g) => g.role.code).sort().join(',')
   const readinessCodes = allCodes.filter((code) => /^preClaim(Readiness|A6Handoff)/.test(code)).sort()
-  const invented = allCodes.filter((code) => /^(claim|claimLine|claimSubmission)\./i.test(code) || /(approve|submit|override)/i.test(code))
+  // Phase-boundary correction: A6 legitimately adds claim.* permissions, so their existence no longer
+  // says anything about A5.9. What A5.9 must never do is require one: its routes are judged on the
+  // permissions they actually demand.
+  const invented = allCodes.filter((code) => /(approve|submit|override)/i.test(code))
+  const readinessRouteCode = committedCode('backend/src/modules/pre-claim-readiness/pre-claim-readiness.route.ts')
+  const demanded = [...readinessRouteCode.matchAll(/requireOrganizationPermission\([^,]+,\s*'([^']+)'\)/g)].map((m) => m[1])
   check(
     'T06',
     'Permissions',
@@ -269,8 +274,12 @@ async function main() {
       (await grantsOf('preClaimReadiness.evaluate')) === 'ORG_ADMIN' &&
       (await grantsOf('preClaimReadiness.read')) === 'ORG_ADMIN,ORG_VIEWER' &&
       (await grantsOf('preClaimA6Handoff.read')) === 'ORG_ADMIN,ORG_VIEWER' &&
-      invented.length === 0,
-    invented.length === 0 ? 'evaluate for Admin only; read and handoff-read for Admin and Viewer; no approve, submit, override or claim permission' : `unexpected: ${invented.join(', ')}`,
+      invented.length === 0 &&
+      demanded.length === 4 &&
+      demanded.every((code) => /^preClaim(Readiness|A6Handoff)\./.test(code)),
+    invented.length === 0
+      ? 'evaluate for Admin only; read and handoff-read for Admin and Viewer; no approve, submit or override permission; the A5.9 routes demand only readiness permissions, never a claim permission'
+      : `unexpected: ${invented.join(', ')}`,
   )
 
   // ---------------------------------------------------------------- fixtures
@@ -980,10 +989,12 @@ async function main() {
   )
   check('T77', 'No evidence metadata', !handoffKeys.some((k) => /storageRef|contentHash|documentType|sourceDate|bytes/i.test(k)) && !handoffText.includes('synthetic://evidence') && !handoffText.includes('e'.repeat(64)), 'no storage reference, content hash, document type or bytes')
   check('T78', 'No pricing', !handoffKeys.some((k) => /(rate|fee|amount|allowed|reimburs|price|responsib|copay|deductible|total(?!$))/i.test(k)), 'no rate, fee, amount, allowed, reimbursement or patient-responsibility field')
+  // Phase-boundary correction: A6 legitimately creates the claims tables; A5.9 must only never create,
+  // read or return a Claim.
   check(
     'T79',
     'No Claim IDs',
-    reached && !handoffKeys.some((k) => /claim/i.test(k)) && !tables.some((t) => /(^claims?$|claim_lines?|claim_submissions?)/.test(t)) && !/(prisma|tx|db)\s*\.\s*(claim|claimLine|claimSubmission)\b/.test(moduleCode.code),
+    reached && !handoffKeys.some((k) => /claim/i.test(k)) && !/(prisma|tx|db)\s*\.\s*(claim|claimLine|claimSubmission)\b/.test(moduleCode.code),
     'no Claim, ClaimLine or ClaimSubmission is created or returned',
   )
   check('T80', 'No approval', !handoffKeys.some((k) => /(approv|payerAccept|submit|humanApprover|reviewer)/i.test(k)) && !/APPROVED_FOR_SUBMISSION/.test(handoffText), 'no approval, submission or payer-acceptance flag')

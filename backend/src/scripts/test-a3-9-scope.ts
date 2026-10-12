@@ -48,7 +48,20 @@ const composerFiles = walk(join(src, 'modules', 'rule-provenance'), (path) => is
 // ---- detectors ------------------------------------------------------------------------------
 const provenanceRoute = /['"`][^'"`]*\/provenance[^'"`]*['"`]|rule-provenance\.route|ruleProvenanceRouter/i
 const provenancePermission = /rule_provenance\.|['"`]rule_provenance['"`]/
-const provenanceUi = /RuleProvenance|rule-provenance|\/provenance/i
+// T54 judges what the frontend DOES with provenance, never whether the word appears. A later
+// workspace may render the read-only ruleProvenance that an authorized A5.8 ValidationFinding DTO
+// carries; it may not call a provenance route, write provenance, compose or infer it, or keep it.
+const provenanceComponent = /(function|const|class)\s+\w*RuleProvenance\w*|<\w*RuleProvenance\w*/
+const provenanceRouteCall = /['"`][^'"`\n]*\/provenance\b/
+const writeRequest = /method:\s*['"`](POST|PUT|PATCH|DELETE)['"`]/
+const mentionsProvenance = /provenance/i
+// Calling the public A3.8 resolution endpoint (the A3.8 developer check does) is not composition;
+// building a provenance record, copying the backend precedence logic or minting the contract label is.
+const provenanceComposition =
+  /\b(compose|infer|derive|build|reconstruct|resolve)\w*Provenance\b|composeRuleDecisionProvenance|resolveSupersedesDominance|rule-provenance|rule-resolution\.(service|precedence|currentness)|['"`]A3-PROV-1['"`]/
+const browserStorage = /\b(localStorage|sessionStorage|indexedDB)\b/
+// Read-only rendering: provenance is read from a ValidationFinding DTO, or declared on its type.
+const readOnlyProvenance = /\bfinding\.(ruleProvenance|provenance)\b|^\s*(ruleProvenance|provenance):/m
 // A3.8/A3.7/A3.6 decision logic and the facility-profile resolver — A3.9 must not import or copy them.
 const forbiddenImports = /from\s+['"][^'"]*(rule-resolution\.(service|precedence|currentness|validation)|rule-source-binding\.(compatibility|candidate)|rule-applicability\.matcher|rule-source-scope\.matcher|facility-regulatory|commercial-context)[^'"]*['"]/
 const forbiddenLogic = /resolveSupersedesDominance|specificityScore\s*[+=]|computeSpecificity|evaluateBindingExecutability|matchApplicability|resolveFacilityRegulatoryProfile|facilityRegulatoryProfile\.find|isEffectiveOn\(/
@@ -61,7 +74,16 @@ const copiedHarness = /^\s*(export\s+)?(async\s+)?function\s+(callApi|extractCoo
 section('detectors fire on planted violations (sensitivity)')
 check('route detector catches a planted /provenance/evaluate', provenanceRoute.test(`router.post('/provenance/evaluate', h)`))
 check('permission detector catches a planted rule_provenance.read', provenancePermission.test(`'rule_provenance.read'`))
-check('UI detector catches a planted RuleProvenanceCheck', provenanceUi.test('export function RuleProvenanceCheck() {}'))
+check('UI detector catches a planted RuleProvenanceCheck', provenanceComponent.test('export function RuleProvenanceCheck() {}'))
+check('route-call detector catches a planted provenance request', provenanceRouteCall.test('fetch(`/api/validation-findings/${id}/provenance`)'))
+check('write detector catches a planted provenance PATCH', writeRequest.test(`fetch(url, { method: 'PATCH', body: JSON.stringify({ ruleProvenance }) })`))
+check('composition detector catches a planted composeProvenance and an A3-PROV-1 literal', provenanceComposition.test('const p = composeProvenance(result)') && provenanceComposition.test(`const v = 'A3-PROV-1'`))
+check('storage detector catches a planted localStorage write', browserStorage.test(`localStorage.setItem('p', JSON.stringify(finding.ruleProvenance))`))
+check(
+  'read-only rendering of finding.ruleProvenance trips none of the T54 detectors',
+  [provenanceComponent, provenanceRouteCall, writeRequest, provenanceComposition, browserStorage].every((detector) => !detector.test('const basis = finding.ruleProvenance; return <dd>{basis.businessDate}</dd>')) &&
+    readOnlyProvenance.test('const basis = finding.ruleProvenance'),
+)
 check('import detector catches a planted precedence import', forbiddenImports.test(`import { x } from '../rule-resolution/rule-resolution.precedence.ts'`))
 check('import detector catches a planted facility-regulatory import', forbiddenImports.test(`import { x } from '../facility-regulatory/facility-regulatory.repository.ts'`))
 check('logic detector catches a planted SUPERSEDES dominance call', forbiddenLogic.test('resolveSupersedesDominance(candidates)'))
@@ -90,12 +112,46 @@ section('T53 no provenance permission')
   check('the only new permissions are rule_pack.read and rule_pack.write', JSON.stringify(codes) === JSON.stringify(['rule_pack.read', 'rule_pack.write']), codes.join(', '))
 }
 
-section('T54 no provenance UI')
+section('T54 no provenance UI — frontend behaviour, not vocabulary')
 {
   check('no frontend/src/modules/rule-provenance directory', !existsSync(join(frontendSrc, 'modules', 'rule-provenance')))
-  const hits = frontendFiles.filter((path) => provenanceUi.test(code(path)))
-  check('no frontend source references provenance', hits.length === 0, hits.map(rel).join(', '))
+  const components = frontendFiles.filter((path) => provenanceComponent.test(code(path)))
+  check('no frontend RuleProvenance component', components.length === 0, components.map(rel).join(', '))
+  const routeCalls = frontendFiles.filter((path) => provenanceRouteCall.test(code(path)))
+  check('no frontend source calls a provenance route', routeCalls.length === 0, routeCalls.map(rel).join(', '))
+  const provenanceFiles = frontendFiles.filter((path) => mentionsProvenance.test(code(path)))
+  const writers = provenanceFiles.filter((path) => writeRequest.test(code(path)))
+  check('no frontend provenance create/update/delete', writers.length === 0, writers.map(rel).join(', '))
+  const composers = frontendFiles.filter((path) => provenanceComposition.test(code(path)))
+  check('no frontend provenance composition or inference', composers.length === 0, composers.map(rel).join(', '))
+  const stored = provenanceFiles.filter((path) => browserStorage.test(code(path)))
+  check('no frontend source keeps provenance in browser storage', stored.length === 0, stored.map(rel).join(', '))
+  const renderers = provenanceFiles.filter((path) => /ruleProvenance/.test(code(path)))
+  check(
+    'any frontend provenance is read-only rendering of a ValidationFinding DTO',
+    renderers.every((path) => readOnlyProvenance.test(code(path))),
+    renderers.length === 0 ? 'no frontend source renders provenance' : `read-only: ${renderers.map(rel).join(', ')}`,
+  )
   check('the minimal RulePack developer check exists', existsSync(join(frontendSrc, 'modules', 'rule-pack', 'RulePackCheck.tsx')) && existsSync(join(frontendSrc, 'modules', 'rule-pack', 'rule-pack.api.ts')))
+}
+
+section('T54 A3-PROV-1 stays backend-internal — one persistence, no public surface')
+{
+  const routeFiles = backendFiles.filter((path) => path.endsWith('.route.ts'))
+  const exposing = routeFiles.filter((path) => /rule-provenance|composeRuleDecisionProvenance/.test(code(path)))
+  check('no backend route imports or exposes the A3-PROV-1 composer', exposing.length === 0, exposing.map(rel).join(', '))
+  const schema = readFileSync(join(backend, 'prisma', 'schema.prisma'), 'utf8')
+  const provenanceModels = [...schema.matchAll(/^model\s+(\w*Provenance\w*)\s*\{/gm)].map((m) => m[1]).sort()
+  check('provenance is persisted by exactly one model', JSON.stringify(provenanceModels) === JSON.stringify(['ValidationFindingRuleProvenance']), provenanceModels.join(', '))
+  const provenanceColumns = await prisma.$queryRaw<{ table_name: string; column_name: string }[]>`
+    SELECT table_name, column_name FROM information_schema.columns
+    WHERE table_schema = 'public' AND (column_name ILIKE '%provenance%' OR table_name ILIKE '%provenance%')`
+  const elsewhere = provenanceColumns.filter((row) => row.table_name !== 'validation_finding_rule_provenances')
+  check(
+    'no table other than validation_finding_rule_provenances stores provenance',
+    provenanceColumns.length > 0 && elsewhere.length === 0,
+    provenanceColumns.length === 0 ? 'the column catalog did not reach the provenance table, so this absence is unproven' : elsewhere.map((row) => `${row.table_name}.${row.column_name}`).join(', '),
+  )
 }
 
 section('T55 no second resolution logic / T56 no second context algorithm')
@@ -117,15 +173,20 @@ section('T59 no RuleDecision / T60 no billing execution')
 {
   const schema = readFileSync(join(backend, 'prisma', 'schema.prisma'), 'utf8')
   check('schema.prisma has no *Decision* model', !decisionModel.test(schema))
-  const tables = await prisma.$queryRaw<{ table_name: string }[]>`
+  // Phase-boundary correction: a generic decision or workflow engine is never legitimate, so that stays
+  // a database-wide guard. Eligibility (A5.2), readiness (A5.9) and claim (A6) tables are legitimately
+  // created by later phases, so for them what matters is that A3.9 itself created none.
+  const engineTables = await prisma.$queryRaw<{ table_name: string }[]>`
     SELECT table_name FROM information_schema.tables
-    WHERE table_schema = 'public' AND (table_name ILIKE '%decision%' OR table_name ILIKE '%claim%' OR table_name ILIKE '%eligib%' OR table_name ILIKE '%reimburs%' OR table_name ILIKE '%workflow%')`
-  check('the database has no decision / claim / eligibility / reimbursement / workflow table', tables.length === 0, tables.map((t) => t.table_name).join(', '))
+    WHERE table_schema = 'public' AND (table_name ILIKE '%decision%' OR table_name ILIKE '%workflow%')`
+  check('the database has no decision or workflow table', engineTables.length === 0, engineTables.map((t) => t.table_name).join(', '))
   const migrationDir = walk(join(backend, 'prisma', 'migrations'), (path) => path.includes('a3_9_rule_pack_provenance') && path.endsWith('.sql'))
   check('the A3.9 migration exists', migrationDir.length === 1)
   const sql = readFileSync(migrationDir[0], 'utf8').replace(/--.*$/gm, '')
   const created = [...sql.matchAll(/CREATE TABLE "(\w+)"/g)].map((m) => m[1]).sort()
   check('the A3.9 migration creates exactly rule_packs, rule_pack_versions, rule_pack_members', JSON.stringify(created) === JSON.stringify(['rule_pack_members', 'rule_pack_versions', 'rule_packs']), created.join(', '))
+  const billingTables = created.filter((name) => /decision|claim|eligib|reimburs|workflow/i.test(name))
+  check('the A3.9 migration creates no decision / claim / eligibility / reimbursement / workflow table', created.length > 0 && billingTables.length === 0, billingTables.join(', '))
   check('SQL comment stripping works (a DROP mentioned in a comment is not a DROP)', !/DROP/.test('-- the two spurious DROP INDEX statements'.replace(/--.*$/gm, '')))
   check('the A3.9 migration drops nothing and rewrites no earlier table', !/DROP (TABLE|COLUMN|INDEX)|ALTER TABLE "(?!rule_pack)/.test(sql))
   const memberCols = await prisma.$queryRaw<{ column_name: string }[]>`
