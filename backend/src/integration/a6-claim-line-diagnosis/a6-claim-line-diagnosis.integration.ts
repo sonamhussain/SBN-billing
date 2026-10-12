@@ -1178,7 +1178,15 @@ async function main() {
   check('T105', 'NABIDH boundary', hieScan(/nabidh/i), 'no NABIDH message, status or identifier')
   check('T106', 'Malaffi boundary', hieScan(/malaffi/i), 'no Malaffi message, status or identifier')
   check('T107', 'Riayati boundary', hieScan(/riayati/i), 'no Riayati message, status or identifier')
-  check('T108', 'Connected Care separation', hieScan(/\b(hl7|fhir|hie|his_\w+|clinical_\w+)\b/i) && same(sorted(createdTables), A62_TABLES), 'no clinical or HIS table or field joins the claim structure')
+  // Judged on the database itself, independent of how many migrations the branch diff shows (T004).
+  const claimStructureTables = (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'claim%'`).map((row) => row.table_name).sort()
+  const clinicalTables = (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(hl7|fhir|nabidh|malaffi|riayati|^his_|clinical_)'`).map((row) => row.table_name)
+  check(
+    'T108',
+    'Connected Care separation',
+    hieScan(/\b(hl7|fhir|hie|his_\w+|clinical_\w+)\b/i) && same(claimStructureTables, ['claims', ...A62_TABLES].sort()) && clinicalTables.length === 0,
+    clinicalTables.length === 0 ? `the claim structure is exactly ${claimStructureTables.join(', ')}; no clinical or HIS table or field joins it` : `clinical tables: ${clinicalTables.join(', ')}`,
+  )
 
   // ---------------------------------------------------------------- A1 provisioning (T109)
   section('A1 provisioning')
