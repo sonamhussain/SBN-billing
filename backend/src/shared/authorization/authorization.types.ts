@@ -179,6 +179,15 @@ export const permissionCodes = [
   // immutable, and approval and submission belong to later A6 owners.
   'claim.create',
   'claim.read',
+  // A6.2 - building the draft line and diagnosis structure of a Claim from its bound handoff (Admin) and
+  // reading it (Admin, Viewer). update covers reorder, one-way removal and line diagnosis pointers. There
+  // is no price, approve, submit or transmit permission: later A6 owners hold those.
+  'claimLine.create',
+  'claimLine.read',
+  'claimLine.update',
+  'claimDiagnosis.create',
+  'claimDiagnosis.read',
+  'claimDiagnosis.update',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

@@ -58,6 +58,10 @@ const lockableTables = [
   // assessment serialize; the unique key on the Claim's assessment is the backstop. The assessment
   // itself is never modified.
   'pre_claim_readiness_assessments',
+  // A6.2: every line, diagnosis and pointer writer of one Claim serializes on that Claim's row, so the
+  // active positions, the active sources and the pointers of one Claim are decided by one writer at a
+  // time. The Claim itself is never modified.
+  'claims',
 ] as const
 
 export type LockableTable = (typeof lockableTables)[number]

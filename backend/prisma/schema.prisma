@@ -180,6 +180,7 @@ model EncounterDiagnosis {
   encounter     Encounter     @relation(fields: [encounterId], references: [id], onDelete: Restrict)
   diagnosisCode DiagnosisCode @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
   validationFindings ValidationFinding[]
+  claimDiagnoses     ClaimDiagnosis[]
 
   @@index([encounterId])
   @@index([diagnosisCodeId])
@@ -213,6 +214,7 @@ model EncounterActivity {
   modifiers       EncounterActivityModifier[]
   observations    EncounterObservation[]
   validationFindings ValidationFinding[]
+  claimLineSources   ClaimLineSourceActivity[]
 
   @@index([encounterId])
   @@index([serviceId])
@@ -1055,6 +1057,9 @@ model User {
   validationRunsCreated ValidationRun[] @relation("ValidationRunCreatedBy")
   preClaimReadinessAssessmentsCreated PreClaimReadinessAssessment[] @relation("PreClaimReadinessAssessmentCreatedBy")
   claimsCreated Claim[] @relation("ClaimCreatedBy")
+  claimLinesCreated ClaimLine[] @relation("ClaimLineCreatedBy")
+  claimDiagnosesCreated ClaimDiagnosis[] @relation("ClaimDiagnosisCreatedBy")
+  claimLineDiagnosisPointersCreated ClaimLineDiagnosisPointer[] @relation("ClaimLineDiagnosisPointerCreatedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1823,7 +1828,95 @@ model Claim {
   encounter                   Encounter                   @relation(fields: [encounterId], references: [id], onDelete: Restrict)
   preClaimReadinessAssessment PreClaimReadinessAssessment @relation(fields: [preClaimReadinessAssessmentId], references: [id], onDelete: Restrict)
   createdBy                   User                        @relation("ClaimCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  lines                       ClaimLine[]
+  diagnoses                   ClaimDiagnosis[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
+}
+
+// A6.2 — a stable draft billing-line identity under one A6.1 Claim (A6-LINE-1). It is not an external
+// Activity row and not a submitted snapshot. Service, procedure, quantity, unit and modifiers are never
+// copied here: they are read from the exact source EncounterActivity recorded in ClaimLineSourceActivity.
+// sequence is the Claim-specific order among ACTIVE lines and is written only by the server; removal is
+// one-way and the row is kept as history. No price, lifecycle, approval, payload or submission field.
+model ClaimLine {
+  id                       String    @id @default(uuid()) @db.Uuid
+  claimId                  String    @map("claim_id") @db.Uuid
+  sequence                 Int
+  claimLineContractVersion String    @map("claim_line_contract_version") @db.Text
+  removedAt                DateTime? @map("removed_at") @db.Timestamptz(6)
+  createdByUserId          String    @map("created_by_user_id") @db.Uuid
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  claim             Claim                       @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  createdBy         User                        @relation("ClaimLineCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  sources           ClaimLineSourceActivity[]
+  diagnosisPointers ClaimLineDiagnosisPointer[]
+
+  @@index([claimId, removedAt])
+  @@map("claim_lines")
+}
+
+// A6.2 — the immutable record of which exact EncounterActivity a ClaimLine was created from. One source
+// per line in A6-LINE-1; the separate table leaves room for later composite sources without changing
+// ClaimLine identity. Never updated, never deleted.
+model ClaimLineSourceActivity {
+  id                  String   @id @default(uuid()) @db.Uuid
+  claimLineId         String   @map("claim_line_id") @db.Uuid
+  encounterActivityId String   @map("encounter_activity_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  claimLine         ClaimLine         @relation(fields: [claimLineId], references: [id], onDelete: Restrict)
+  encounterActivity EncounterActivity @relation(fields: [encounterActivityId], references: [id], onDelete: Restrict)
+
+  @@unique([claimLineId, encounterActivityId])
+  @@index([encounterActivityId])
+  @@map("claim_line_source_activities")
+}
+
+// A6.2 — a Claim-specific diagnosis selection (A6-DX-1): one exact EncounterDiagnosis with an explicit
+// canonical role and a Claim-specific order. The ICD code and text are never copied; the role is never
+// inferred from the Encounter order and is corrected only by remove + re-add.
+model ClaimDiagnosis {
+  id                            String    @id @default(uuid()) @db.Uuid
+  claimId                       String    @map("claim_id") @db.Uuid
+  encounterDiagnosisId          String    @map("encounter_diagnosis_id") @db.Uuid
+  sequence                      Int
+  roleCode                      String    @map("role_code") @db.Text
+  claimDiagnosisContractVersion String    @map("claim_diagnosis_contract_version") @db.Text
+  removedAt                     DateTime? @map("removed_at") @db.Timestamptz(6)
+  createdByUserId               String    @map("created_by_user_id") @db.Uuid
+  createdAt                     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  claim              Claim                       @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  encounterDiagnosis EncounterDiagnosis          @relation(fields: [encounterDiagnosisId], references: [id], onDelete: Restrict)
+  createdBy          User                        @relation("ClaimDiagnosisCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  linePointers       ClaimLineDiagnosisPointer[]
+
+  @@index([claimId, removedAt])
+  @@index([encounterDiagnosisId])
+  @@map("claim_diagnoses")
+}
+
+// A6.2 — an optional internal link from one ClaimLine to one ClaimDiagnosis of the same Claim. There is
+// no pointer order column: the order is ClaimDiagnosis.sequence. Removal is one-way history.
+model ClaimLineDiagnosisPointer {
+  id               String    @id @default(uuid()) @db.Uuid
+  claimLineId      String    @map("claim_line_id") @db.Uuid
+  claimDiagnosisId String    @map("claim_diagnosis_id") @db.Uuid
+  removedAt        DateTime? @map("removed_at") @db.Timestamptz(6)
+  createdByUserId  String    @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  claimLine      ClaimLine      @relation(fields: [claimLineId], references: [id], onDelete: Restrict)
+  claimDiagnosis ClaimDiagnosis @relation(fields: [claimDiagnosisId], references: [id], onDelete: Restrict)
+  createdBy      User           @relation("ClaimLineDiagnosisPointerCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([claimLineId, removedAt])
+  @@index([claimDiagnosisId, removedAt])
+  @@map("claim_line_diagnosis_pointers")
 }

@@ -571,6 +571,87 @@ async function main() {
       claimColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : unexpectedClaimColumns.join(', '),
     )
 
+    // A6.2 — the Claim's draft line and diagnosis structure. Positions, contracts and roles are held by
+    // the database; sources must be of the Claim's Encounter and in its bound handoff reference set; a
+    // pointer joins an active line and an active diagnosis of the same Claim; history is one-way and
+    // nothing is deleted. Exactly four tables, none carrying a copied source fact, price or payload.
+    for (const trigger of [
+      'claim_lines_insert_guard_trg',
+      'claim_lines_source_required_trg',
+      'claim_lines_history_guard_trg',
+      'claim_line_source_activities_insert_guard_trg',
+      'claim_line_source_activities_append_only_trg',
+      'claim_diagnoses_insert_guard_trg',
+      'claim_diagnoses_history_guard_trg',
+      'claim_line_diagnosis_pointers_insert_guard_trg',
+      'claim_line_diagnosis_pointers_history_guard_trg',
+    ]) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'claim_lines_pkey',
+      'claim_lines_sequence_chk',
+      'claim_lines_contract_version_chk',
+      'claim_lines_claim_id_fkey',
+      'claim_lines_created_by_user_id_fkey',
+      'claim_line_source_activities_pkey',
+      'claim_line_source_activities_claim_line_id_fkey',
+      'claim_line_source_activities_encounter_activity_id_fkey',
+      'claim_diagnoses_pkey',
+      'claim_diagnoses_sequence_chk',
+      'claim_diagnoses_contract_version_chk',
+      'claim_diagnoses_role_code_chk',
+      'claim_diagnoses_claim_id_fkey',
+      'claim_diagnoses_encounter_diagnosis_id_fkey',
+      'claim_diagnoses_created_by_user_id_fkey',
+      'claim_line_diagnosis_pointers_pkey',
+      'claim_line_diagnosis_pointers_claim_line_id_fkey',
+      'claim_line_diagnosis_pointers_claim_diagnosis_id_fkey',
+      'claim_line_diagnosis_pointers_created_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const lineContract = replay.constraints.find((line) => line.includes('claim_lines_contract_version_chk')) ?? ''
+    const diagnosisContract = replay.constraints.find((line) => line.includes('claim_diagnoses_contract_version_chk')) ?? ''
+    const roleCheck = replay.constraints.find((line) => line.includes('claim_diagnoses_role_code_chk')) ?? ''
+    check(
+      'the A6.2 CHECKs pin A6-LINE-1, A6-DX-1 and exactly PRIMARY, SECONDARY and ADMITTING after a clean replay',
+      lineContract.includes("'A6-LINE-1'") && diagnosisContract.includes("'A6-DX-1'") && ['PRIMARY', 'SECONDARY', 'ADMITTING'].every((role) => roleCheck.includes(`'${role}'`)),
+      `${lineContract.slice(0, 80)} | ${diagnosisContract.slice(0, 80)} | ${roleCheck.slice(0, 120)}`,
+    )
+    for (const [name, columns] of [
+      ['claim_lines_active_sequence_uidx', '(claim_id, sequence)'],
+      ['claim_diagnoses_active_sequence_uidx', '(claim_id, sequence)'],
+      ['claim_diagnoses_active_source_uidx', '(claim_id, encounter_diagnosis_id)'],
+      ['claim_line_diagnosis_pointers_active_uidx', '(claim_line_id, claim_diagnosis_id)'],
+    ] as const) {
+      const line = replay.indexes.find((candidate) => candidate.startsWith(`${name}:`)) ?? ''
+      check(`${name} is a partial unique index on ${columns} over active rows after a clean replay`, /UNIQUE/i.test(line) && line.includes(columns) && /WHERE \(removed_at IS NULL\)/.test(line), line.slice(0, 200))
+    }
+    const a62Tables = {
+      claim_lines: ['id', 'claim_id', 'sequence', 'claim_line_contract_version', 'removed_at', 'created_by_user_id', 'created_at', 'updated_at'],
+      claim_line_source_activities: ['id', 'claim_line_id', 'encounter_activity_id', 'created_at'],
+      claim_diagnoses: ['id', 'claim_id', 'encounter_diagnosis_id', 'sequence', 'role_code', 'claim_diagnosis_contract_version', 'removed_at', 'created_by_user_id', 'created_at', 'updated_at'],
+      claim_line_diagnosis_pointers: ['id', 'claim_line_id', 'claim_diagnosis_id', 'removed_at', 'created_by_user_id', 'created_at', 'updated_at'],
+    }
+    for (const [table, allowed] of Object.entries(a62Tables)) {
+      const columns = replay.columns.filter((line) => line.startsWith(`${table}.`)).map((line) => line.slice(table.length + 1).split(':')[0])
+      const unexpected = columns.filter((column) => !allowed.includes(column))
+      check(
+        `${table} carries exactly its ${allowed.length} A6.2 columns after a clean replay`,
+        columns.length === allowed.length && unexpected.length === 0,
+        columns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : unexpected.join(', '),
+      )
+    }
+    // No other claim-line, claim-diagnosis, pricing, lifecycle, payload or submission table exists.
+    const claimTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table)))].sort()
+    check(
+      'the claim tables are exactly claims plus the four A6.2 tables after a clean replay',
+      JSON.stringify(claimTables) === JSON.stringify(['claim_diagnoses', 'claim_line_diagnosis_pointers', 'claim_line_source_activities', 'claim_lines', 'claims']),
+      claimTables.join(', '),
+    )
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration

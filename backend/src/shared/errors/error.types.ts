@@ -36,6 +36,22 @@ export const apiErrorCodes = [
   // A6.1: the assessment's own Encounter chain does not agree with the Claim being created; the whole
   // transaction is rolled back and nothing is written.
   'CLAIM_BINDING_INTEGRITY_CONFLICT',
+  // A6.2: the requested EncounterActivity or EncounterDiagnosis is not in the exact reference set of the
+  // Claim's bound PreClaimA6HandoffV1, so it cannot enter the Claim draft.
+  'CLAIM_SOURCE_NOT_IN_HANDOFF',
+  // A6.2: the requested source row belongs to another Encounter than the Claim's own.
+  'CLAIM_SOURCE_ENCOUNTER_MISMATCH',
+  // A6.2: another active line of this Claim already carries the same EncounterActivity.
+  'CLAIM_LINE_SOURCE_ALREADY_ACTIVE',
+  // A6.2: the same EncounterDiagnosis is already active on this Claim.
+  'CLAIM_DIAGNOSIS_ALREADY_ACTIVE',
+  // A6.2: the target line, diagnosis or pointer has been removed; removed history is never changed.
+  'CLAIM_STRUCTURE_INACTIVE',
+  // A6.2: a line diagnosis pointer names a ClaimDiagnosis of a different Claim.
+  'CLAIM_DIAGNOSIS_POINTER_MISMATCH',
+  // A6.2: concurrent changes to the same Claim's structure kept conflicting after bounded retries;
+  // nothing was written and the request can be repeated.
+  'CLAIM_STRUCTURE_WRITE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]
