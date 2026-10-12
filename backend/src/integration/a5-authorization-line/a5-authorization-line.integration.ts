@@ -1296,12 +1296,14 @@ async function main() {
     productionCode.files.length > 0 && lineColumns.length > 0 && !/readiness|readyForClaim|isSatisfied|RESTRICT'|BLOCK'/.test(productionCode.code) && columnsMatching(/ready|restrict|block|satisf/i).length === 0,
     'the line module decides and stores no ready, restrict or block state — A5.9 owns readiness',
   )
-  const claimTables = tables.filter((name) => /(^claims?$|claim_lines?|claim_submissions?|remittance)/i.test(name))
+  // Phase-boundary correction: A6 legitimately creates the claims tables, so whether one exists no
+  // longer says anything about A5.4. What A5.4 must never do is read or write one, and that is judged
+  // on its committed production code.
   check(
     'T111',
     'No Claim',
-    claimTables.length === 0 && !/prisma\.(claim|claimLine|claimSubmission)\b|tx\.(claim|claimLine|claimSubmission)\b/.test(productionCode.code),
-    claimTables.length === 0 ? 'no Claim, ClaimLine or ClaimSubmission table exists and none is read — A6 owns them' : `found: ${claimTables.join(', ')}`,
+    productionCode.files.length > 0 && !/prisma\.(claim|claimLine|claimSubmission)\b|tx\.(claim|claimLine|claimSubmission)\b/.test(productionCode.code),
+    'the line module neither reads nor writes a Claim, ClaimLine or ClaimSubmission — A6 owns them',
   )
   const integration = productionCode.code.match(/\b(fetch|axios|http\.request|https\.request|soap|dhpo|eclaimlink|apiKey|clientSecret|Authorization:)\b/i)
   check(
