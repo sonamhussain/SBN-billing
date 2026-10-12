@@ -174,6 +174,11 @@ export const permissionCodes = [
   'preClaimReadiness.evaluate',
   'preClaimReadiness.read',
   'preClaimA6Handoff.read',
+  // A6.1 - creating one stable Claim identity from an exact READY_FOR_REVIEW readiness assessment (Admin
+  // only) and reading Claims. There is no update, delete, approve or submit permission: the binding is
+  // immutable, and approval and submission belong to later A6 owners.
+  'claim.create',
+  'claim.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

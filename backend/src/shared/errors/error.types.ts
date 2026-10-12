@@ -26,6 +26,16 @@ export const apiErrorCodes = [
   // A5.9: another run of the same Encounter has the identical evaluation and creation timestamps, so
   // recency cannot be decided; the system refuses rather than choosing a winner by identifier.
   'VALIDATION_RUN_RECENCY_AMBIGUOUS',
+  // A6.1: the readiness assessment is RESTRICTED or BLOCKED, so it cannot establish a Claim.
+  'PRECLAIM_NOT_READY_FOR_CLAIM',
+  // A6.1: the assessment's readiness policy, validator version or handoff contract is not one the
+  // A6-CLAIM-1 contract accepts, so no Claim is created.
+  'CLAIM_HANDOFF_INCOMPATIBLE',
+  // A6.1: a Claim already exists for this readiness assessment; the original is left unchanged.
+  'CLAIM_ALREADY_EXISTS',
+  // A6.1: the assessment's own Encounter chain does not agree with the Claim being created; the whole
+  // transaction is rolled back and nothing is written.
+  'CLAIM_BINDING_INTEGRITY_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]
