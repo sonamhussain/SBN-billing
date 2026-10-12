@@ -913,8 +913,10 @@ async function main() {
   const failing = rows.filter((row) => row.verdict === 'FAIL').map((row) => row.id)
   const titleOf = (text: string) => text.slice('[A5.10] '.length).replace(/^\S+\s+/, '').split(' ..')[0].trim()
 
-  // The owner suites nested under A5.10 print their failing rows. Each obsolete guard below is named
-  // exactly; any other nested failure is substantive and keeps T094/T095/T085 failing.
+  // The owner suites nested under A5.10 print their failing rows. Since the A3.9 scope corrective (PR #72)
+  // and the phase-boundary guard corrective, no nested A5.9 or A5.8 check fails on A6.1: their No Claim
+  // and permission guards judge module behaviour, not the existence of the claims table. Any nested
+  // failure is therefore substantive and keeps T094/T095/T085 failing.
   const nestedFailures = (prefix: string) =>
     chain.output
       .split(/\r?\n/)
@@ -923,57 +925,29 @@ async function main() {
       .filter(Boolean)
   const a59Failures = [...new Set(nestedFailures('[A5.10]      [A5.9] '))]
   const a58Failures = [...new Set(nestedFailures('[A5.10]      [A5.9]      [A5.8] '))]
-  const a59Obsolete: Record<string, string> = {
-    T06: "A5.9 'Permissions' asserts that no claim.* permission exists; A6.1 adds exactly claim.create and claim.read",
-    T79: "A5.9 'No Claim IDs' asserts that no claims table exists; A6.1 creates exactly that table",
-  }
-  const a58Obsolete: Record<string, string> = {
-    T121: "A5.8 'No Claim' asserts that no claims table exists; A6.1 creates exactly that table",
-    T130: "A5.8 'A3 regressions' tolerates exactly one A3.9 scope failure; the scope suite is judged directly by T085",
-  }
-  // A3: the A3.9 scope suite is run directly. Its only permitted failures are the A3-era table guard
-  // (which now also lists the A5 and A6 tables that legitimately exist) and the frontend provenance
-  // guard that FE-04's read-only display of the A5.8 ruleProvenance trips on main (reported to the
-  // auditor). Beyond its own repository-state guards, the A3.10 chain may differ only by T65 (that same
-  // scope suite) and T67 (the A3-era "no A5+ runtime table" guard, obsolete since A5.2).
+  // A3: the A3.9 scope suite is run directly and must have no failure at all, and the governance chain
+  // nested under A4 must report its substantive checks PASS with no unexpected A3.10 failure.
   const scope = run('npm run test:a3:scope')
   const scopeFails = scope.output.split(/\r?\n/).filter((l) => /^\s*FAIL\s/.test(l))
-  const tableGuardOk = (line: string) => {
-    const listed = (line.split('workflow table')[1] ?? '').split(',').map((t) => t.trim()).filter(Boolean)
-    return listed.length > 0 && listed.every((t) => ['eligibility_verifications', 'pre_claim_readiness_assessments', 'claims'].includes(t))
-  }
-  const provenanceGuardOk = (line: string) => {
-    const listed = (line.split('references provenance')[1] ?? '').split(',').map((t) => t.trim()).filter(Boolean)
-    return listed.length > 0 && listed.every((t) => ['frontend/src/features/validation/FindingList.tsx', 'frontend/src/features/validation/validation.types.ts'].includes(t))
-  }
-  const scopeOnlyKnown =
-    scopeFails.length >= 1 &&
-    scopeFails.every((line) => (/no decision \/ claim \/ eligibility/.test(line) && tableGuardOk(line)) || (/no frontend source references provenance/.test(line) && provenanceGuardOk(line)))
   const a310Unexpected = [...new Set([...chain.output.matchAll(/unexpected A3\.10 failures: ([T\d, ]+)/g)].flatMap((m) => m[1].split(',').map((id) => id.trim()).filter(Boolean)))]
-  const a3Ok = scope.output.includes('[a3.9-scope]') && scopeOnlyKnown && a310Unexpected.every((id) => ['T65', 'T67'].includes(id)) && /A3 substantive checks /.test(chain.output)
-  const a58Ok = a58Failures.every((id) => id in a58Obsolete) && (!a58Failures.includes('T130') || a3Ok) && !/\[A5\.8\] uncaught error|\[A5\.8\] RUN ABORTED/.test(chain.output)
-  const a59Ok =
-    a59Failures.every((id) => id in a59Obsolete || (id === 'T96' && a58Ok) || (id === 'T104' && a3Ok)) && !/\[A5\.9\] uncaught error|\[A5\.9\] RUN ABORTED/.test(chain.output)
+  const a3Ok = scope.output.includes('[a3.9-scope]') && /ALL CHECKS PASS/.test(scope.output) && scopeFails.length === 0 && a310Unexpected.length === 0 && /A3 substantive checks PASS/.test(chain.output)
+  const a58Ok = a58Failures.length === 0 && !/\[A5\.8\] uncaught error|\[A5\.8\] RUN ABORTED/.test(chain.output)
+  const a59Ok = a59Failures.length === 0 && !/\[A5\.9\] uncaught error|\[A5\.9\] RUN ABORTED/.test(chain.output)
 
-  // A5.10 asserts facts about its own branch, the paths it was allowed to change, and that nothing of
-  // A6 exists yet. On A6.1 those statements are obsolete by design. Its three owner-suite aggregates are
-  // accepted only when T094, T095 and T085 above prove every nested failure is an exact obsolete guard;
-  // every other A5.10 check is substantive and must PASS.
+  // A5.10 asserts facts about its own branch and the paths it was allowed to change. On A6.1 those
+  // statements are obsolete by design; every other A5.10 check, including its three owner-suite
+  // aggregates and its No Claim guard, is substantive and must PASS.
   const a510NonApplicable: Record<string, string> = {
     T001: "A5.10 'Start gate' requires the current branch to be the A5.10 feature branch; A6.1 is branched from the corrected main",
     T004: "A5.10 'No A5.10 schema' asserts schema.prisma is unchanged against main; A6.1 adds the Claim model",
     T005: "A5.10 'No A5.10 migration' asserts no migration against main; A6.1 adds exactly one",
     T006: "A5.10 'No new production route' asserts its diff touches no production file; A6.1 adds the Claim module and routes",
     T007: "A5.10 'No new permission' asserts no vocabulary is added; A6.1 adds claim.create/claim.read, claim.created and four Claim error codes",
-    T060: "A5.10 'No Claim' asserts that no claims table exists; A6.1 creates exactly that table",
     T110: "A5.10 'No global market switch' includes 'A5.10 changes no production file'; the market-switch scan itself is T070 here",
     T113: "A5.10 'No new UAE hard-code' includes 'A5.10 adds no production branch'; the hard-code scan itself is T073 here",
     T124: "A5.10 'No A5.10 DB drift' asserts no schema change; Prisma validate/generate/status are T004 here",
     T139: "A5.10 'Diff scope' lists the paths A5.10 was allowed to change; A6.1 legitimately changes different ones",
     T140: "A5.10 'Exact head evidence' requires the upstream to be the A5.10 feature branch, deleted when it merged",
-    ...(a59Ok ? { T126: `A5.10 'A5.9 owner suite' fails only on exact obsolete A5.9 guards (${a59Failures.join(', ')}); proven by T095` } : {}),
-    ...(a58Ok && a59Ok ? { T127: `A5.10 'A5.8 owner suite' fails only on exact obsolete A5.8 guards (${a58Failures.join(', ') || 'none'}); proven by T094` } : {}),
-    ...(a3Ok && a59Ok ? { T135: "A5.10 'A3/A2/A1 regressions' fails only through the A3.9 scope guards judged directly by T085" } : {}),
   }
   const undocumented = failing.filter((id) => !(id in a510NonApplicable))
   const counts = chain.output.match(/\[A5\.10\] automated summary: (\d+)\/(\d+) PASS/)
@@ -1011,9 +985,8 @@ async function main() {
     'T085',
     'A3 regression',
     a3Ok,
-    `A3.9 scope suite run directly: ${scopeFails.length} failure(s), only the A3-era table guard and the FE-04 provenance display guard; A3.10 differs only by ${a310Unexpected.join(', ') || 'none'} beyond its own repository-state guards; governance chain substantive checks reached`,
+    `A3.9 scope suite run directly: ${(scope.output.match(/\d+ passed, \d+ failed/) ?? ['no summary'])[0]}; nested A3 substantive checks ${/A3 substantive checks PASS/.test(chain.output) ? 'PASS' : 'not PASS'}; unexpected A3.10 failures: ${a310Unexpected.join(', ') || 'none'}`,
   )
-  for (const line of scopeFails) notApplicableCheck('T085/A3.9', 'A3.9 scope guard', `${line.trim().replace(/^FAIL\s+/, '').slice(0, 160)} — an A3-era phase guard`)
   check('T086', 'A4 regression', verdictOf('T134') === 'PASS', `A5.10 T134 (A4.10 and A4.9 to A1) ${verdictOf('T134')}`)
   check('T087', 'A5.1 regression', verdictOf('T133') === 'PASS' && verdictOf('T011') === 'PASS', `A5.10 T133 (A5.2/A5.1 owner suites) ${verdictOf('T133')}, T011 ${verdictOf('T011')}`)
   check('T088', 'A5.2 regression', verdictOf('T133') === 'PASS' && verdictOf('T012') === 'PASS', `A5.10 T133 ${verdictOf('T133')}, T012 ${verdictOf('T012')}`)
@@ -1027,16 +1000,14 @@ async function main() {
     'T094',
     'A5.8 regression',
     a58Ok && layerChecks(['T023', 'T024', 'T025', 'T026', 'T027', 'T028', 'T122']),
-    `nested A5.8 failures ${a58Failures.join(', ') || 'none'} are exact obsolete guards; A5.10 A5.8 checks T023-T028 and T122 ${['T023', 'T024', 'T025', 'T026', 'T027', 'T028', 'T122'].map(verdictOf).join('/')}`,
+    `nested A5.8 failures: ${a58Failures.join(', ') || 'none'}; A5.10 A5.8 checks T023-T028 and T122 ${['T023', 'T024', 'T025', 'T026', 'T027', 'T028', 'T122'].map(verdictOf).join('/')}`,
   )
-  for (const id of a58Failures.filter((id) => id in a58Obsolete)) notApplicableCheck(`T094/${id}`, `A5.8 ${id}`, a58Obsolete[id])
   check(
     'T095',
     'A5.9 regression',
     a59Ok && layerChecks(['T029', 'T030', 'T069', 'T070', 'T074', 'T080', 'T081', 'T123']),
-    `nested A5.9 failures ${a59Failures.join(', ') || 'none'} are exact obsolete guards or proven cascades; A5.10 readiness and handoff checks ${['T029', 'T030', 'T069', 'T070', 'T074', 'T080', 'T081', 'T123'].map(verdictOf).join('/')}`,
+    `nested A5.9 failures: ${a59Failures.join(', ') || 'none'}; A5.10 readiness and handoff checks ${['T029', 'T030', 'T069', 'T070', 'T074', 'T080', 'T081', 'T123'].map(verdictOf).join('/')}`,
   )
-  for (const id of a59Failures.filter((id) => id in a59Obsolete)) notApplicableCheck(`T095/${id}`, `A5.9 ${id}`, a59Obsolete[id])
   for (const text of chain.output.split(/\r?\n/).filter((l) => l.startsWith('[A5.10]      ') && / substantive checks /.test(l))) console.log(`[A6.1]      ${text.replace('[A5.10]', '').trim().slice(0, 190)}`)
 
   // ---------------------------------------------------------------- DB truth (T083)
