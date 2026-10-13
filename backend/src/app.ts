@@ -77,6 +77,8 @@ import { encounterValidationRunsRouter, validationFindingRouter, validationRunRo
 import { encounterPreClaimValidationRouter } from './modules/pre-claim-validation/pre-claim-validation.route.ts'
 import { encounterReadinessRouter, readinessAssessmentRouter, validationRunReadinessRouter } from './modules/pre-claim-readiness/pre-claim-readiness.route.ts'
 import { assessmentClaimRouter, claimRouter, encounterClaimRouter } from './modules/claim/claim.route.ts'
+import { claimLineRouter, claimLinesRouter } from './modules/claim-line/claim-line.route.ts'
+import { claimDiagnosesRouter, claimDiagnosisRouter } from './modules/claim-diagnosis/claim-diagnosis.route.ts'
 
 export const app = express()
 
@@ -290,6 +292,14 @@ app.use('/api/pre-claim-readiness-assessments', readinessAssessmentRouter)
 app.use('/api/pre-claim-readiness-assessments', assessmentClaimRouter)
 app.use('/api/claims', claimRouter)
 app.use('/api/encounters', encounterClaimRouter)
+
+// A6.2 - the draft line and diagnosis structure of a Claim, built only from its bound handoff's exact
+// sources: create, list, reorder, one-way remove and exact-set line diagnosis pointers. No DELETE, price,
+// approve, submit or transmit route.
+app.use('/api/claims', claimLinesRouter)
+app.use('/api/claims', claimDiagnosesRouter)
+app.use('/api/claim-lines', claimLineRouter)
+app.use('/api/claim-diagnoses', claimDiagnosisRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
