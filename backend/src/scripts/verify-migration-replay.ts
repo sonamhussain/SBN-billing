@@ -644,12 +644,100 @@ async function main() {
         columns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : unexpected.join(', '),
       )
     }
-    // No other claim-line, claim-diagnosis, pricing, lifecycle, payload or submission table exists.
-    const claimTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table)))].sort()
+    // No other claim-line, claim-diagnosis, lifecycle, payload or submission table exists. The two A6.3
+    // pricing tables are owned and verified by the A6.3 block below, so they are set aside here.
+    const claimTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table) && !/^claim_pricing_/.test(table)))].sort()
     check(
       'the claim tables are exactly claims plus the four A6.2 tables after a clean replay',
       JSON.stringify(claimTables) === JSON.stringify(['claim_diagnoses', 'claim_line_diagnosis_pointers', 'claim_line_source_activities', 'claim_lines', 'claims']),
       claimTables.join(', '),
+    )
+
+    // A6.3 — governed tariff rates and immutable draft pricing runs. Selector, currency, amount, unit and
+    // contract are held by the database; an active rate identity is unique (NULLS NOT DISTINCT); rates are
+    // written and retired only under an UNVERIFIED version and never deleted; a run prices exactly the
+    // Claim's bound commercial lineage, is complete at commit and is append-only with its line results.
+    for (const trigger of [
+      'tariff_rates_insert_guard_trg',
+      'tariff_rates_history_guard_trg',
+      'claim_pricing_runs_insert_guard_trg',
+      'claim_pricing_runs_append_only_trg',
+      'claim_pricing_runs_complete_trg',
+      'claim_pricing_line_results_insert_guard_trg',
+      'claim_pricing_line_results_append_only_trg',
+    ]) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'tariff_rates_pkey',
+      'tariff_rates_selector_chk',
+      'tariff_rates_currency_chk',
+      'tariff_rates_amount_chk',
+      'tariff_rates_unit_code_chk',
+      'tariff_rates_contract_version_chk',
+      'tariff_rates_tariff_schedule_version_id_fkey',
+      'tariff_rates_service_id_fkey',
+      'tariff_rates_procedure_code_id_fkey',
+      'tariff_rates_created_by_user_id_fkey',
+      'claim_pricing_runs_pkey',
+      'claim_pricing_runs_contract_version_chk',
+      'claim_pricing_runs_counts_chk',
+      'claim_pricing_runs_result_chk',
+      'claim_pricing_runs_fingerprint_chk',
+      'claim_pricing_runs_claim_id_fkey',
+      'claim_pricing_runs_tariff_schedule_version_id_fkey',
+      'claim_pricing_runs_provider_contract_id_fkey',
+      'claim_pricing_runs_tariff_schedule_id_fkey',
+      'claim_pricing_runs_created_by_user_id_fkey',
+      'claim_pricing_line_results_pkey',
+      'claim_pricing_line_results_outcome_chk',
+      'claim_pricing_line_results_quantity_chk',
+      'claim_pricing_line_results_sequence_chk',
+      'claim_pricing_line_results_fingerprint_chk',
+      'claim_pricing_line_results_pricing_run_id_fkey',
+      'claim_pricing_line_results_claim_line_id_fkey',
+      'claim_pricing_line_results_encounter_activity_id_fkey',
+      'claim_pricing_line_results_tariff_rate_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const rateContract = replay.constraints.find((line) => line.includes('tariff_rates_contract_version_chk')) ?? ''
+    const pricingContract = replay.constraints.find((line) => line.includes('claim_pricing_runs_contract_version_chk')) ?? ''
+    check(
+      'the A6.3 CHECKs pin A6-RATE-1 and A6-PRICE-1 after a clean replay',
+      rateContract.includes("'A6-RATE-1'") && pricingContract.includes("'A6-PRICE-1'"),
+      `${rateContract.slice(0, 100)} | ${pricingContract.slice(0, 100)}`,
+    )
+    const rateIdentityIndex = replay.indexes.find((line) => line.startsWith('tariff_rates_active_identity_uidx:')) ?? ''
+    check(
+      'tariff_rates_active_identity_uidx is a partial NULLS NOT DISTINCT unique index over active rates after a clean replay',
+      /UNIQUE/i.test(rateIdentityIndex) && /NULLS NOT DISTINCT/i.test(rateIdentityIndex) && /WHERE \(removed_at IS NULL\)/.test(rateIdentityIndex),
+      rateIdentityIndex.slice(0, 220),
+    )
+    check(
+      'one result per line per pricing run is unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('claim_pricing_line_results_pricing_run_id_claim_line_id_key:') && /UNIQUE/i.test(line)),
+    )
+    const a63Tables = {
+      tariff_rates: ['id', 'tariff_schedule_version_id', 'selector_kind', 'service_id', 'procedure_code_id', 'unit_code_key', 'modifier_signature', 'currency_code', 'unit_tariff_amount', 'rate_contract_version', 'removed_at', 'created_by_user_id', 'created_at'],
+      claim_pricing_runs: ['id', 'claim_id', 'pricing_contract_version', 'tariff_schedule_version_id', 'provider_contract_id', 'tariff_schedule_id', 'evaluated_at', 'created_by_user_id', 'input_structure_fingerprint', 'overall_result', 'line_count', 'priced_count', 'currency_code', 'total_extended_amount', 'created_at'],
+      claim_pricing_line_results: ['id', 'pricing_run_id', 'claim_line_id', 'encounter_activity_id', 'tariff_rate_id', 'line_sequence_at_evaluation', 'outcome', 'unit_tariff_amount', 'quantity_at_evaluation', 'extended_amount', 'currency_code', 'input_fingerprint', 'created_at'],
+    }
+    for (const [table, allowed] of Object.entries(a63Tables)) {
+      const columns = replay.columns.filter((line) => line.startsWith(`${table}.`)).map((line) => line.slice(table.length + 1).split(':')[0])
+      const unexpected = columns.filter((column) => !allowed.includes(column))
+      check(
+        `${table} carries exactly its ${allowed.length} A6.3 columns after a clean replay`,
+        columns.length === allowed.length && unexpected.length === 0,
+        columns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : unexpected.join(', '),
+      )
+    }
+    const pricingTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim_pricing_|^tariff_rate/.test(table)))].sort()
+    check(
+      'the A6.3 tables are exactly tariff_rates, claim_pricing_runs and claim_pricing_line_results after a clean replay',
+      JSON.stringify(pricingTables) === JSON.stringify(['claim_pricing_line_results', 'claim_pricing_runs', 'tariff_rates']),
+      pricingTables.join(', '),
     )
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.

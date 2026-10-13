@@ -46,6 +46,8 @@ import PreClaimReadinessCheck from '../modules/pre-claim-readiness/PreClaimReadi
 import ClaimFoundationCheck from '../modules/claim/ClaimFoundationCheck.tsx'
 import ClaimLineCheck from '../modules/claim-line/ClaimLineCheck.tsx'
 import ClaimDiagnosisCheck from '../modules/claim-diagnosis/ClaimDiagnosisCheck.tsx'
+import TariffRateCheck from '../modules/tariff-rate/TariffRateCheck.tsx'
+import ClaimPricingCheck from '../modules/claim-pricing/ClaimPricingCheck.tsx'
 
 // FE-01 — every existing engineering check, moved unchanged from the former Development Check page.
 // Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4 -> A5. A new backend *Check is registered
@@ -105,4 +107,6 @@ export const developerChecks: DeveloperCheck[] = [
   { key: 'claim-foundation', label: 'Claim foundation', Component: ClaimFoundationCheck },
   { key: 'claim-line', label: 'Claim lines', Component: ClaimLineCheck },
   { key: 'claim-diagnosis', label: 'Claim diagnoses', Component: ClaimDiagnosisCheck },
+  { key: 'tariff-rate', label: 'Tariff rates', Component: TariffRateCheck },
+  { key: 'claim-pricing', label: 'Claim pricing', Component: ClaimPricingCheck },
 ]

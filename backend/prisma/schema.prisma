@@ -215,6 +215,7 @@ model EncounterActivity {
   observations    EncounterObservation[]
   validationFindings ValidationFinding[]
   claimLineSources   ClaimLineSourceActivity[]
+  pricingLineResults ClaimPricingLineResult[]
 
   @@index([encounterId])
   @@index([serviceId])
@@ -456,6 +457,7 @@ model Service {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
+  tariffRates TariffRate[]
   encounterActivities EncounterActivity[]
   authorizationLines AuthorizationLine[]
 
@@ -478,6 +480,7 @@ model ProcedureCode {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   externalIdentifiers ExternalIdentifier[]
   ruleApplicabilities RuleApplicability[]
+  tariffRates TariffRate[]
   encounterActivities EncounterActivity[]
   authorizationLines AuthorizationLine[]
 
@@ -854,6 +857,7 @@ model ProviderContract {
   ruleSourceScopes   RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
   validationRuns ValidationRun[]
+  claimPricingRuns ClaimPricingRun[]
 
   @@unique([organizationId, contractKey])
   @@index([organizationId])
@@ -892,6 +896,7 @@ model TariffSchedule {
   ruleSourceScopes RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
   validationRuns ValidationRun[]
+  claimPricingRuns ClaimPricingRun[]
 
   @@unique([providerContractId, tariffKey])
   @@index([providerContractId])
@@ -913,6 +918,8 @@ model TariffScheduleVersion {
   ruleSourceScopes RuleSourceScope[]
   ruleApplicabilities RuleApplicability[]
   validationRuns ValidationRun[]
+  tariffRates      TariffRate[]
+  claimPricingRuns ClaimPricingRun[]
 
   @@unique([tariffScheduleId, version])
   @@index([tariffScheduleId])
@@ -1060,6 +1067,8 @@ model User {
   claimLinesCreated ClaimLine[] @relation("ClaimLineCreatedBy")
   claimDiagnosesCreated ClaimDiagnosis[] @relation("ClaimDiagnosisCreatedBy")
   claimLineDiagnosisPointersCreated ClaimLineDiagnosisPointer[] @relation("ClaimLineDiagnosisPointerCreatedBy")
+  tariffRatesCreated TariffRate[] @relation("TariffRateCreatedBy")
+  claimPricingRunsCreated ClaimPricingRun[] @relation("ClaimPricingRunCreatedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1829,6 +1838,7 @@ model Claim {
   preClaimReadinessAssessment PreClaimReadinessAssessment @relation(fields: [preClaimReadinessAssessmentId], references: [id], onDelete: Restrict)
   createdBy                   User                        @relation("ClaimCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   lines                       ClaimLine[]
+  pricingRuns                 ClaimPricingRun[]
   diagnoses                   ClaimDiagnosis[]
 
   @@index([encounterId, createdAt])
@@ -1854,6 +1864,7 @@ model ClaimLine {
   createdBy         User                        @relation("ClaimLineCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   sources           ClaimLineSourceActivity[]
   diagnosisPointers ClaimLineDiagnosisPointer[]
+  pricingLineResults ClaimPricingLineResult[]
 
   @@index([claimId, removedAt])
   @@map("claim_lines")
@@ -1919,4 +1930,97 @@ model ClaimLineDiagnosisPointer {
   @@index([claimLineId, removedAt])
   @@index([claimDiagnosisId, removedAt])
   @@map("claim_line_diagnosis_pointers")
+}
+
+// A6.3 — one governed tariff rate (A6-RATE-1) owned by one exact TariffScheduleVersion. A rate matches
+// exactly one source identity (SERVICE or PROCEDURE_CODE), one exact unit (null means "no unit", never a
+// wildcard) and one canonical sorted modifier set (the empty set is a real signature). Rates are written
+// and retired only while the parent version is UNVERIFIED; once verified they never change. A corrected
+// price is a new governed tariff version. The amount is a tariff amount, never payer Net or patient share.
+model TariffRate {
+  id                      String    @id @default(uuid()) @db.Uuid
+  tariffScheduleVersionId String    @map("tariff_schedule_version_id") @db.Uuid
+  selectorKind            String    @map("selector_kind") @db.Text
+  serviceId               String?   @map("service_id") @db.Uuid
+  procedureCodeId         String?   @map("procedure_code_id") @db.Uuid
+  unitCodeKey             String?   @map("unit_code_key") @db.Text
+  modifierSignature       String[]  @map("modifier_signature") @db.Text
+  currencyCode            String    @map("currency_code") @db.Text
+  unitTariffAmount        Decimal   @map("unit_tariff_amount") @db.Decimal(18, 4)
+  rateContractVersion     String    @map("rate_contract_version") @db.Text
+  removedAt               DateTime? @map("removed_at") @db.Timestamptz(6)
+  createdByUserId         String    @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tariffScheduleVersion TariffScheduleVersion    @relation(fields: [tariffScheduleVersionId], references: [id], onDelete: Restrict)
+  service               Service?                 @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  procedureCode         ProcedureCode?           @relation(fields: [procedureCodeId], references: [id], onDelete: Restrict)
+  createdBy             User                     @relation("TariffRateCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  pricingLineResults    ClaimPricingLineResult[]
+
+  @@index([tariffScheduleVersionId, removedAt])
+  @@index([serviceId])
+  @@index([procedureCodeId])
+  @@map("tariff_rates")
+}
+
+// A6.3 — one immutable draft pricing evaluation (A6-PRICE-1) of one Claim against the exact commercial
+// lineage of its bound ValidationRun. PRICED only when every active line resolved to exactly one rate in
+// one currency; otherwise INCOMPLETE with no total. It never approves, submits or becomes "current".
+model ClaimPricingRun {
+  id                        String   @id @default(uuid()) @db.Uuid
+  claimId                   String   @map("claim_id") @db.Uuid
+  pricingContractVersion    String   @map("pricing_contract_version") @db.Text
+  tariffScheduleVersionId   String   @map("tariff_schedule_version_id") @db.Uuid
+  providerContractId        String   @map("provider_contract_id") @db.Uuid
+  tariffScheduleId          String   @map("tariff_schedule_id") @db.Uuid
+  evaluatedAt               DateTime @map("evaluated_at") @db.Timestamptz(6)
+  createdByUserId           String   @map("created_by_user_id") @db.Uuid
+  inputStructureFingerprint String   @map("input_structure_fingerprint") @db.Text
+  overallResult             String   @map("overall_result") @db.Text
+  lineCount                 Int      @map("line_count")
+  pricedCount               Int      @map("priced_count")
+  currencyCode              String?  @map("currency_code") @db.Text
+  totalExtendedAmount       Decimal? @map("total_extended_amount") @db.Decimal(18, 4)
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  claim                 Claim                    @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  tariffScheduleVersion TariffScheduleVersion    @relation(fields: [tariffScheduleVersionId], references: [id], onDelete: Restrict)
+  providerContract      ProviderContract         @relation(fields: [providerContractId], references: [id], onDelete: Restrict)
+  tariffSchedule        TariffSchedule           @relation(fields: [tariffScheduleId], references: [id], onDelete: Restrict)
+  createdBy             User                     @relation("ClaimPricingRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  lineResults           ClaimPricingLineResult[]
+
+  @@index([claimId, evaluatedAt])
+  @@index([tariffScheduleVersionId])
+  @@map("claim_pricing_runs")
+}
+
+// A6.3 — the immutable result of one ClaimLine inside one pricing run: the exact source activity and rate
+// it used, the bounded calculation inputs and the outcome. An unpriced line carries its reason and no
+// amount; nothing is invented.
+model ClaimPricingLineResult {
+  id                       String   @id @default(uuid()) @db.Uuid
+  pricingRunId             String   @map("pricing_run_id") @db.Uuid
+  claimLineId              String   @map("claim_line_id") @db.Uuid
+  encounterActivityId      String   @map("encounter_activity_id") @db.Uuid
+  tariffRateId             String?  @map("tariff_rate_id") @db.Uuid
+  lineSequenceAtEvaluation Int      @map("line_sequence_at_evaluation")
+  outcome                  String   @db.Text
+  unitTariffAmount         Decimal? @map("unit_tariff_amount") @db.Decimal(18, 4)
+  quantityAtEvaluation     Decimal  @map("quantity_at_evaluation") @db.Decimal(18, 4)
+  extendedAmount           Decimal? @map("extended_amount") @db.Decimal(18, 4)
+  currencyCode             String?  @map("currency_code") @db.Text
+  inputFingerprint         String   @map("input_fingerprint") @db.Text
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  pricingRun        ClaimPricingRun   @relation(fields: [pricingRunId], references: [id], onDelete: Restrict)
+  claimLine         ClaimLine         @relation(fields: [claimLineId], references: [id], onDelete: Restrict)
+  encounterActivity EncounterActivity @relation(fields: [encounterActivityId], references: [id], onDelete: Restrict)
+  tariffRate        TariffRate?       @relation(fields: [tariffRateId], references: [id], onDelete: Restrict)
+
+  @@unique([pricingRunId, claimLineId])
+  @@index([claimLineId])
+  @@index([tariffRateId])
+  @@map("claim_pricing_line_results")
 }

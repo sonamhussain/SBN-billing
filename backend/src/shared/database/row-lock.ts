@@ -76,3 +76,15 @@ export async function lockRowForUpdate(db: DbClient, table: LockableTable, id: s
   )
   return rows.length > 0
 }
+
+// A6.3 — the shared form of the same protocol. A reader whose decision must not be overtaken by a writer of
+// a governed row (a pricing run reading a tariff version and its rates) holds FOR SHARE: readers do not
+// block each other, while every writer of that row (rate create/retire, REF-01 verification, all FOR
+// UPDATE) waits until the reader commits. Only the same fixed table names can be locked.
+export async function lockRowForShare(db: DbClient, table: LockableTable, id: string): Promise<boolean> {
+  if (!lockableTableSet.has(table)) throw new Error(`lockRowForShare: table ${String(table)} is not lockable`)
+  const rows = await db.$queryRaw<{ id: string }[]>(
+    Prisma.sql`SELECT id FROM ${Prisma.raw(`"${table}"`)} WHERE id = ${id}::uuid FOR SHARE`,
+  )
+  return rows.length > 0
+}
