@@ -196,6 +196,11 @@ export const permissionCodes = [
   'tariffRate.update',
   'claimPricing.create',
   'claimPricing.read',
+  // A6.4 - recording one immutable claim draft assessment against an exact pricing run (Admin) and reading
+  // assessments (Admin, Viewer). The read-only draft preview uses claim.read. There is no approve, sign,
+  // submit or transmit permission: A6.5 and later owners hold those.
+  'claimDraft.assess',
+  'claimDraft.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

@@ -645,8 +645,9 @@ async function main() {
       )
     }
     // No other claim-line, claim-diagnosis, lifecycle, payload or submission table exists. The two A6.3
-    // pricing tables are owned and verified by the A6.3 block below, so they are set aside here.
-    const claimTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table) && !/^claim_pricing_/.test(table)))].sort()
+    // pricing tables and the two A6.4 draft tables are owned and verified by their own blocks below, so
+    // they are set aside here.
+    const claimTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table) && !/^claim_(pricing|draft)_/.test(table)))].sort()
     check(
       'the claim tables are exactly claims plus the four A6.2 tables after a clean replay',
       JSON.stringify(claimTables) === JSON.stringify(['claim_diagnoses', 'claim_line_diagnosis_pointers', 'claim_line_source_activities', 'claim_lines', 'claims']),
@@ -738,6 +739,73 @@ async function main() {
       'the A6.3 tables are exactly tariff_rates, claim_pricing_runs and claim_pricing_line_results after a clean replay',
       JSON.stringify(pricingTables) === JSON.stringify(['claim_pricing_line_results', 'claim_pricing_runs', 'tariff_rates']),
       pricingTables.join(', '),
+    )
+
+    // A6.4 — immutable claim draft assessments and their structured findings. The contract, the four
+    // outcomes, the fingerprints, the finding vocabulary and the 1..N ordinals are held by the database; an
+    // assessment judges only a pricing run of its own Claim under that Claim's bound readiness assessment,
+    // a finding is written with its own assessment about that Claim's rows, both are append-only, and an
+    // assessment is complete at commit with REVIEWABLE exactly when no finding is a blocker.
+    for (const trigger of [
+      'claim_draft_assessments_insert_guard_trg',
+      'claim_draft_assessments_append_only_trg',
+      'claim_draft_assessments_complete_trg',
+      'claim_draft_findings_insert_guard_trg',
+      'claim_draft_findings_append_only_trg',
+    ]) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'claim_draft_assessments_pkey',
+      'claim_draft_assessments_contract_version_chk',
+      'claim_draft_assessments_outcome_chk',
+      'claim_draft_assessments_fingerprint_chk',
+      'claim_draft_assessments_counts_chk',
+      'claim_draft_assessments_claim_id_fkey',
+      'claim_draft_assessments_pricing_run_id_fkey',
+      'claim_draft_assessments_handoff_assessment_id_fkey',
+      'claim_draft_assessments_created_by_user_id_fkey',
+      'claim_draft_findings_pkey',
+      'claim_draft_findings_ordinal_chk',
+      'claim_draft_findings_code_chk',
+      'claim_draft_findings_severity_chk',
+      'claim_draft_findings_owner_scope_chk',
+      'claim_draft_findings_draft_assessment_id_fkey',
+      'claim_draft_findings_related_claim_line_id_fkey',
+      'claim_draft_findings_related_claim_diagnosis_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const draftContract = replay.constraints.find((line) => line.includes('claim_draft_assessments_contract_version_chk')) ?? ''
+    const draftOutcome = replay.constraints.find((line) => line.includes('claim_draft_assessments_outcome_chk')) ?? ''
+    check(
+      'the A6.4 CHECKs pin A6-DRAFT-1 and exactly REVIEWABLE, INCOMPLETE, STALE and INVALID after a clean replay',
+      draftContract.includes("'A6-DRAFT-1'") && ['REVIEWABLE', 'INCOMPLETE', 'STALE', 'INVALID'].every((outcome) => draftOutcome.includes(`'${outcome}'`)) && !/APPROV|SUBMIT/i.test(draftOutcome),
+      `${draftContract.slice(0, 100)} | ${draftOutcome.slice(0, 160)}`,
+    )
+    check(
+      'one finding per ordinal per assessment is unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('claim_draft_findings_draft_assessment_id_ordinal_key:') && /UNIQUE/i.test(line)),
+    )
+    const a64Tables = {
+      claim_draft_assessments: ['id', 'claim_id', 'pricing_run_id', 'draft_contract_version', 'handoff_assessment_id', 'outcome', 'assembly_fingerprint', 'pricing_input_fingerprint', 'active_line_count', 'active_diagnosis_count', 'finding_count', 'evaluated_at', 'created_by_user_id', 'created_at'],
+      claim_draft_findings: ['id', 'draft_assessment_id', 'ordinal', 'finding_code', 'severity', 'owner_scope', 'related_claim_line_id', 'related_claim_diagnosis_id', 'created_at'],
+    }
+    for (const [table, allowed] of Object.entries(a64Tables)) {
+      const columns = replay.columns.filter((line) => line.startsWith(`${table}.`)).map((line) => line.slice(table.length + 1).split(':')[0])
+      const unexpected = columns.filter((column) => !allowed.includes(column))
+      check(
+        `${table} carries exactly its ${allowed.length} A6.4 columns after a clean replay`,
+        columns.length === allowed.length && unexpected.length === 0,
+        columns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : unexpected.join(', '),
+      )
+    }
+    const draftTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim_draft_/.test(table)))].sort()
+    check(
+      'the A6.4 tables are exactly claim_draft_assessments and claim_draft_findings after a clean replay',
+      JSON.stringify(draftTables) === JSON.stringify(['claim_draft_assessments', 'claim_draft_findings']),
+      draftTables.join(', '),
     )
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.

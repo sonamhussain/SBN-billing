@@ -1069,6 +1069,7 @@ model User {
   claimLineDiagnosisPointersCreated ClaimLineDiagnosisPointer[] @relation("ClaimLineDiagnosisPointerCreatedBy")
   tariffRatesCreated TariffRate[] @relation("TariffRateCreatedBy")
   claimPricingRunsCreated ClaimPricingRun[] @relation("ClaimPricingRunCreatedBy")
+  claimDraftAssessmentsCreated ClaimDraftAssessment[] @relation("ClaimDraftAssessmentCreatedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1812,6 +1813,7 @@ model PreClaimReadinessAssessment {
   validationRun ValidationRun @relation(fields: [validationRunId], references: [id], onDelete: Restrict)
   createdBy     User          @relation("PreClaimReadinessAssessmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   claim         Claim?
+  claimDraftAssessments ClaimDraftAssessment[]
 
   @@unique([validationRunId, readinessPolicyVersion])
   @@index([validationRunId])
@@ -1839,6 +1841,7 @@ model Claim {
   createdBy                   User                        @relation("ClaimCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   lines                       ClaimLine[]
   pricingRuns                 ClaimPricingRun[]
+  draftAssessments            ClaimDraftAssessment[]
   diagnoses                   ClaimDiagnosis[]
 
   @@index([encounterId, createdAt])
@@ -1865,6 +1868,7 @@ model ClaimLine {
   sources           ClaimLineSourceActivity[]
   diagnosisPointers ClaimLineDiagnosisPointer[]
   pricingLineResults ClaimPricingLineResult[]
+  draftFindings      ClaimDraftFinding[]
 
   @@index([claimId, removedAt])
   @@map("claim_lines")
@@ -1906,6 +1910,7 @@ model ClaimDiagnosis {
   encounterDiagnosis EncounterDiagnosis          @relation(fields: [encounterDiagnosisId], references: [id], onDelete: Restrict)
   createdBy          User                        @relation("ClaimDiagnosisCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   linePointers       ClaimLineDiagnosisPointer[]
+  draftFindings      ClaimDraftFinding[]
 
   @@index([claimId, removedAt])
   @@index([encounterDiagnosisId])
@@ -1990,6 +1995,7 @@ model ClaimPricingRun {
   tariffSchedule        TariffSchedule           @relation(fields: [tariffScheduleId], references: [id], onDelete: Restrict)
   createdBy             User                     @relation("ClaimPricingRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   lineResults           ClaimPricingLineResult[]
+  draftAssessments      ClaimDraftAssessment[]
 
   @@index([claimId, evaluatedAt])
   @@index([tariffScheduleVersionId])
@@ -2023,4 +2029,58 @@ model ClaimPricingLineResult {
   @@index([claimLineId])
   @@index([tariffRateId])
   @@map("claim_pricing_line_results")
+}
+
+// A6.4 — one immutable claim draft assessment: the exact Claim, the exact pricing run the caller named,
+// the bound readiness assessment, the reduced outcome and the A6-DRAFT-1 assembly fingerprint. It is a
+// candidate-for-review record, never approval, sign-off or submission state; a re-evaluation is a new row.
+model ClaimDraftAssessment {
+  id                      String   @id @default(uuid()) @db.Uuid
+  claimId                 String   @map("claim_id") @db.Uuid
+  pricingRunId            String   @map("pricing_run_id") @db.Uuid
+  draftContractVersion    String   @map("draft_contract_version") @db.Text
+  handoffAssessmentId     String   @map("handoff_assessment_id") @db.Uuid
+  outcome                 String   @db.Text
+  assemblyFingerprint     String   @map("assembly_fingerprint") @db.Text
+  pricingInputFingerprint String   @map("pricing_input_fingerprint") @db.Text
+  activeLineCount         Int      @map("active_line_count")
+  activeDiagnosisCount    Int      @map("active_diagnosis_count")
+  findingCount            Int      @map("finding_count")
+  evaluatedAt             DateTime @map("evaluated_at") @db.Timestamptz(6)
+  createdByUserId         String   @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  claim             Claim                       @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  pricingRun        ClaimPricingRun             @relation(fields: [pricingRunId], references: [id], onDelete: Restrict)
+  handoffAssessment PreClaimReadinessAssessment @relation(fields: [handoffAssessmentId], references: [id], onDelete: Restrict)
+  createdBy         User                        @relation("ClaimDraftAssessmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  findings          ClaimDraftFinding[]
+
+  @@index([claimId, evaluatedAt])
+  @@index([pricingRunId])
+  @@index([handoffAssessmentId])
+  @@map("claim_draft_assessments")
+}
+
+// A6.4 — one structured finding of an assessment: a catalogue code, its severity and owner scope, and the
+// exact line or diagnosis it is about. No free text, PHI or copied evidence. Append-only.
+model ClaimDraftFinding {
+  id                      String   @id @default(uuid()) @db.Uuid
+  draftAssessmentId       String   @map("draft_assessment_id") @db.Uuid
+  ordinal                 Int
+  findingCode             String   @map("finding_code") @db.Text
+  severity                String   @db.Text
+  ownerScope              String   @map("owner_scope") @db.Text
+  relatedClaimLineId      String?  @map("related_claim_line_id") @db.Uuid
+  relatedClaimDiagnosisId String?  @map("related_claim_diagnosis_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  draftAssessment       ClaimDraftAssessment @relation(fields: [draftAssessmentId], references: [id], onDelete: Restrict)
+  relatedClaimLine      ClaimLine?           @relation(fields: [relatedClaimLineId], references: [id], onDelete: Restrict)
+  relatedClaimDiagnosis ClaimDiagnosis?      @relation(fields: [relatedClaimDiagnosisId], references: [id], onDelete: Restrict)
+
+  @@unique([draftAssessmentId, ordinal])
+  @@index([relatedClaimLineId])
+  @@index([relatedClaimDiagnosisId])
+  @@map("claim_draft_findings")
 }

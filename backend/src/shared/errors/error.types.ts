@@ -65,6 +65,12 @@ export const apiErrorCodes = [
   'PRICING_SOURCE_INTEGRITY',
   // A6.3: concurrent writes kept conflicting after bounded retries; nothing was written.
   'PRICING_CONFLICT',
+  // A6.4: the database refused a claim draft assessment as incoherent (another Claim's pricing run, a
+  // different handoff basis or a finding outside the Claim); nothing was written.
+  'CLAIM_DRAFT_INTEGRITY_CONFLICT',
+  // A6.4: concurrent changes to the Claim kept conflicting with the assessment after bounded retries;
+  // nothing was written and the request can be repeated.
+  'CLAIM_DRAFT_WRITE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]
