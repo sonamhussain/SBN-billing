@@ -188,6 +188,14 @@ export const permissionCodes = [
   'claimDiagnosis.create',
   'claimDiagnosis.read',
   'claimDiagnosis.update',
+  // A6.3 - governed tariff rates under an UNVERIFIED tariff version (create/retire Admin, read Admin and
+  // Viewer) and immutable draft pricing runs of a Claim (create Admin, read Admin and Viewer). There is no
+  // approve, submit, patient-share or payment permission.
+  'tariffRate.create',
+  'tariffRate.read',
+  'tariffRate.update',
+  'claimPricing.create',
+  'claimPricing.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

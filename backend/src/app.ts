@@ -79,6 +79,8 @@ import { encounterReadinessRouter, readinessAssessmentRouter, validationRunReadi
 import { assessmentClaimRouter, claimRouter, encounterClaimRouter } from './modules/claim/claim.route.ts'
 import { claimLineRouter, claimLinesRouter } from './modules/claim-line/claim-line.route.ts'
 import { claimDiagnosesRouter, claimDiagnosisRouter } from './modules/claim-diagnosis/claim-diagnosis.route.ts'
+import { tariffRateRouter, tariffVersionRatesRouter } from './modules/tariff-rate/tariff-rate.route.ts'
+import { claimPricingRunsRouter, pricingRunRouter } from './modules/claim-pricing/claim-pricing.route.ts'
 
 export const app = express()
 
@@ -300,6 +302,14 @@ app.use('/api/claims', claimLinesRouter)
 app.use('/api/claims', claimDiagnosesRouter)
 app.use('/api/claim-lines', claimLineRouter)
 app.use('/api/claim-diagnoses', claimDiagnosisRouter)
+
+// A6.3 - governed tariff rates of an UNVERIFIED tariff version (create, list, retire) and immutable draft
+// pricing runs of a Claim against its bound tariff version (create, list, read). No DELETE, edit, approve,
+// submit or current-price route.
+app.use('/api/tariff-schedule-versions', tariffVersionRatesRouter)
+app.use('/api/tariff-rates', tariffRateRouter)
+app.use('/api/claims', claimPricingRunsRouter)
+app.use('/api/claim-pricing-runs', pricingRunRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

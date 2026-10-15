@@ -52,6 +52,19 @@ export const apiErrorCodes = [
   // A6.2: concurrent changes to the same Claim's structure kept conflicting after bounded retries;
   // nothing was written and the request can be repeated.
   'CLAIM_STRUCTURE_WRITE_CONFLICT',
+  // A6.3: a tariff rate can be created or retired only while its tariff version is UNVERIFIED.
+  'RATE_VERSION_LOCKED',
+  // A6.3: an active rate with the exact same identity already exists in this tariff version.
+  'RATE_DUPLICATE',
+  // A6.3: the tariff rate has already been retired; a retirement is never repeated or undone.
+  'RATE_ALREADY_RETIRED',
+  // A6.3: the Claim's bound validation run has no coherent, VERIFIED, provably effective commercial
+  // lineage (contract, schedule and version), so nothing can be priced; no current tariff is chosen.
+  'PRICING_COMMERCIAL_CONTEXT_UNRESOLVED',
+  // A6.3: the Claim's active line structure or a source row is missing, inactive or corrupt.
+  'PRICING_SOURCE_INTEGRITY',
+  // A6.3: concurrent writes kept conflicting after bounded retries; nothing was written.
+  'PRICING_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]
