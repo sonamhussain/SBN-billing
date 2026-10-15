@@ -223,12 +223,28 @@ async function main() {
     where: { permission: { code: 'preClaimCommercialContext.read' } },
     select: { role: { select: { code: true } } },
   })
-  const invented = allPermissionCodes.filter((code) => /^preClaimCommercialContext\.(create|update|delete|resolve|select)|pricing|price\.|tariff_rate|reimburse/i.test(code))
+  // Phase-boundary correction: A6.3 is the accepted owner of draft claim pricing and legitimately adds
+  // claimPricing.create and claimPricing.read, so their existence no longer says anything about A5.5. What
+  // A5.5 must never do is own, add or require a mutation or pricing permission: its family stays exactly the
+  // one read, its routes require nothing else, and any other pricing permission is still refused.
+  const laterPricingOwner = new Set(['claimPricing.create', 'claimPricing.read'])
+  const invented = allPermissionCodes.filter((code) => /^preClaimCommercialContext\.(create|update|delete|resolve|select)|pricing|price\.|tariff_rate|reimburse/i.test(code) && !laterPricingOwner.has(code))
+  const contextRoutePermissions = [
+    ...committedProductionCodeOf('backend/src/modules/pre-claim-commercial-context').code.matchAll(/requireOrganizationPermission\([^,]+,\s*'([^']+)'\)/g),
+  ].map((match) => match[1])
   check(
     'T06',
     'Permissions',
-    contextPermissions.join(',') === 'preClaimCommercialContext.read' && grants.map((g) => g.role.code).sort().join(',') === 'ORG_ADMIN,ORG_VIEWER' && invented.length === 0,
-    invented.length === 0 ? 'exactly the aggregate read permission, granted to Admin and Viewer; no mutation or pricing permission' : `unexpected: ${invented.join(', ')}`,
+    contextPermissions.join(',') === 'preClaimCommercialContext.read' &&
+      grants.map((g) => g.role.code).sort().join(',') === 'ORG_ADMIN,ORG_VIEWER' &&
+      invented.length === 0 &&
+      contextRoutePermissions.length > 0 &&
+      contextRoutePermissions.every((code) => code === 'preClaimCommercialContext.read'),
+    invented.length > 0
+      ? `unexpected: ${invented.join(', ')}`
+      : contextRoutePermissions.length === 0 || !contextRoutePermissions.every((code) => code === 'preClaimCommercialContext.read')
+        ? `the commercial-context routes require: ${contextRoutePermissions.join(', ') || 'nothing that could be read'}`
+        : 'exactly the aggregate read permission, granted to Admin and Viewer and the only one its routes require; no mutation or pricing permission of its own',
   )
 
   // ---------------------------------------------------------------- fixtures
