@@ -90,7 +90,15 @@ export type CandidateContext = {
 // regulatory profile dimension is not used to narrow at all, which only widens the set. One indexed
 // statement replaces one full A3.8 evaluation per unrelated rule. A3.8 still decides everything for
 // the definitions returned here: specificity, conflicts, supersession and provenance are untouched.
-export async function findPossiblyApplicableRuleDefinitionIds(ruleDefinitionIds: string[], businessDate: string, context: CandidateContext, db: DbClient) {
+//
+// Returns null — "do not narrow" — when the business date or any context value is not in the exact
+// shape the query compares (a calendar date, UUIDs): every definition then goes through A3.8 exactly as
+// before, so a malformed value is refused by A3.8 itself and never turns into a database error here.
+const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const dateShape = /^\d{4}-\d{2}-\d{2}$/
+
+export async function findPossiblyApplicableRuleDefinitionIds(ruleDefinitionIds: string[], businessDate: string, context: CandidateContext, db: DbClient): Promise<Set<string> | null> {
+  if (!dateShape.test(businessDate) || Object.values(context).some((value) => value !== null && !(typeof value === 'string' && uuidShape.test(value)))) return null
   if (ruleDefinitionIds.length === 0) return new Set<string>()
   const dimension = (column: string, value: string | null) => Prisma.sql`(${Prisma.raw(`a."${column}"`)} IS NULL OR ${Prisma.raw(`a."${column}"`)} = ${value}::uuid)`
   const rows = await db.$queryRaw<{ id: string }[]>`

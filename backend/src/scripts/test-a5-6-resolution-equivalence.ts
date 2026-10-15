@@ -36,8 +36,12 @@ import { a38Fixtures, d } from './support/a3-8-fixtures.ts'
 // answer NO_MATCH for — the only allowed difference is a profile-scoped row, which the filter
 // deliberately never narrows on.
 //
+// Part 4 (refusals): the pre-corrective and corrective loops give the same refusal, block or resolution
+// for missing, foreign, malformed and conflicting context, a facility without a regulatory profile,
+// with and without any candidate, and for an organization with no documentation rule.
+//
 // Parts 1 and 2 are read-only (REPEATABLE READ transactions that are rolled back); Part 3 adds its own
-// synthetic organization and rules, nothing else.
+// synthetic organizations and rules, nothing else.
 //
 //   node --env-file=.env src/scripts/test-a5-6-resolution-equivalence.ts [rowContexts] [encounters]
 
@@ -104,7 +108,7 @@ async function soundness(label: string, businessDate: string, context: Candidate
   await inSnapshot(async (tx) => {
     const clock = (await tx.$queryRaw<{ now: Date }[]>`SELECT transaction_timestamp() AS now`)[0].now
     const definitionIds = await findDocumentationRuleDefinitionIds(organizationId, DOCUMENTATION_EFFECT, tx)
-    const kept = await findPossiblyApplicableRuleDefinitionIds(definitionIds, businessDate, context, tx)
+    const kept = (await findPossiblyApplicableRuleDefinitionIds(definitionIds, businessDate, context, tx)) ?? new Set(definitionIds)
     const outcomes: Outcome[] = []
     for (const id of definitionIds) outcomes.push(await resolveOne(id, businessDate, context, clock, tx))
     for (const outcome of outcomes) count(outcome.kind === 'error' ? 'context-wide refusal' : outcome.status)
@@ -248,7 +252,7 @@ async function syntheticMatrix() {
     await inSnapshot(async (tx) => {
       const clock = (await tx.$queryRaw<{ now: Date }[]>`SELECT transaction_timestamp() AS now`)[0].now
       const definitionIds = await findDocumentationRuleDefinitionIds(org, DOCUMENTATION_EFFECT, tx)
-      const kept = await findPossiblyApplicableRuleDefinitionIds(definitionIds, date, context, tx)
+      const kept = (await findPossiblyApplicableRuleDefinitionIds(definitionIds, date, context, tx)) ?? new Set(definitionIds)
       const statuses = new Map<string, Outcome>()
       for (const id of definitionIds) {
         const bundle = await evaluateRuleResolutionBundle(id, date, { ...context }, { db: tx, clock: () => clock })
@@ -277,6 +281,91 @@ async function syntheticMatrix() {
             : summary,
       )
     })
+  }
+}
+
+// Part 4 — refusals. The A5.6 loop is run twice over the same definitions and snapshot: once over every
+// definition (pre-corrective) and once exactly as the corrective does (the candidate set plus the first
+// definition, or every definition when the candidate set is "do not narrow"). Both must give the same
+// refusal, the same blocking status or the same resolved versions — for missing, foreign, malformed and
+// conflicting context, a facility without a regulatory profile, with and without any candidate, and for
+// an organization with no documentation rule at all.
+type LoopOutcome = { kind: 'refusal'; text: string } | { kind: 'blocked'; status: string } | { kind: 'resolved'; ruleVersionIds: string[] }
+async function loopOutcome(definitionIds: string[], evaluate: (id: string) => boolean, date: string, context: Record<string, string | null>, clock: Date, tx: DbClient) {
+  let evaluated = 0
+  const ruleVersionIds: string[] = []
+  for (const [index, id] of definitionIds.entries()) {
+    if (!evaluate(id) && index > 0) continue
+    evaluated += 1
+    const bundle = await evaluateRuleResolutionBundle(id, date, { ...context }, { db: tx, clock: () => clock })
+    if (!bundle.ok) return { outcome: { kind: 'refusal', text: `${bundle.code}: ${bundle.message}` } as LoopOutcome, evaluated }
+    const status = bundle.value.resolution.resolutionStatus
+    if (status === 'NO_MATCH' || status === 'REFERENCE_ONLY') continue
+    if (status !== 'RESOLVED' || !bundle.value.resolution.ruleVersionId) return { outcome: { kind: 'blocked', status } as LoopOutcome, evaluated }
+    ruleVersionIds.push(bundle.value.resolution.ruleVersionId)
+  }
+  return { outcome: { kind: 'resolved', ruleVersionIds } as LoopOutcome, evaluated }
+}
+
+async function refusalEquivalence() {
+  const tag = `A56RF-${Date.now()}`
+  const org = (await prisma.organization.create({ data: { name: `${tag} synthetic organization` } })).id
+  const fx = a38Fixtures(org, tag)
+  const F = await fx.facility('F')
+  await fx.profile(F.id, '2020-01-01', null)
+  const withoutProfile = await fx.facility('no-profile')
+  const X = await prisma.payer.create({ data: { organizationId: org, displayName: `${tag} payer X` } })
+  const contract = await prisma.providerContract.create({ data: { organizationId: org, payerId: X.id, contractKey: `${tag}-C`, displayName: 'Synthetic contract', effectiveFrom: d('2020-01-01') } })
+  const schedule1 = await prisma.tariffSchedule.create({ data: { providerContractId: contract.id, tariffKey: `${tag}-S1`, displayName: 'Synthetic schedule 1' } })
+  const schedule2 = await prisma.tariffSchedule.create({ data: { providerContractId: contract.id, tariffKey: `${tag}-S2`, displayName: 'Synthetic schedule 2' } })
+  const versionOf1 = await prisma.tariffScheduleVersion.create({ data: { tariffScheduleId: schedule1.id, version: `${tag}-V1`, effectiveFrom: d('2020-01-01') } })
+  const foreignPayer = await prisma.payer.findFirstOrThrow({ where: { organizationId: organizationId }, select: { id: true } })
+  // Documentation definitions of every outcome kind: resolved (wildcard and payer-specific), a
+  // specificity tie (conflicting rule versions) and an expired one.
+  const define = async (name: string, rowsPerVersion: Record<string, string>[][], opts: { from?: string; to?: string } = {}) => {
+    const rule = await fx.makeRule(name)
+    for (const [index, rows] of rowsPerVersion.entries()) {
+      const version = await fx.makeRuleVersion(rule.id, String(index + 1), { effectType: DOCUMENTATION_EFFECT, effectiveFrom: d(opts.from ?? '2020-01-01'), effectiveTo: opts.to ? d(opts.to) : null })
+      for (const row of rows) await fx.makeApplicability(version.id, row)
+      await fx.attachSource(version.id, `${name}-${index}`)
+    }
+  }
+  await define('wildcard', [[{}]])
+  await define('payer-X', [[{ payerId: X.id }]])
+  await define('conflicting-tie', [[{ payerId: X.id }], [{ payerId: X.id }]])
+  await define('expired', [[{}]], { from: '2020-01-01', to: '2021-12-31' })
+  const emptyOrg = (await prisma.organization.create({ data: { name: `${tag} organization without documentation rules` } })).id
+
+  const missing = '22222222-2222-4222-8222-222222222222'
+  const cases: { label: string; org: string; context: Record<string, string | null>; expect: 'refusal' | 'any' }[] = [
+    { label: 'missing facility', org, context: { facilityId: missing }, expect: 'refusal' },
+    { label: 'foreign payer', org, context: { payerId: foreignPayer.id }, expect: 'refusal' },
+    { label: 'malformed payer id', org, context: { payerId: 'not-a-uuid' }, expect: 'refusal' },
+    { label: 'conflicting schedule and version', org, context: { tariffScheduleId: schedule2.id, tariffScheduleVersionId: versionOf1.id }, expect: 'refusal' },
+    { label: 'facility without a regulatory profile', org, context: { facilityId: withoutProfile.id }, expect: 'refusal' },
+    { label: 'valid facility and payer (resolves and conflicts)', org, context: { facilityId: F.id, payerId: X.id }, expect: 'any' },
+    { label: 'valid empty context', org, context: {}, expect: 'any' },
+    { label: 'organization without documentation rules', org: emptyOrg, context: { payerId: X.id }, expect: 'any' },
+  ]
+  for (const date of ['2026-06-15', '2019-06-15']) {
+    for (const testCase of cases) {
+      await inSnapshot(async (tx) => {
+        const clock = (await tx.$queryRaw<{ now: Date }[]>`SELECT transaction_timestamp() AS now`)[0].now
+        const definitionIds = await findDocumentationRuleDefinitionIds(testCase.org, DOCUMENTATION_EFFECT, tx)
+        const candidateContext = { ...emptyContext(), ...testCase.context } as CandidateContext
+        const candidates = await findPossiblyApplicableRuleDefinitionIds(definitionIds, date, candidateContext, tx)
+        const before = await loopOutcome(definitionIds, () => true, date, testCase.context, clock, tx)
+        const after = await loopOutcome(definitionIds, (id) => candidates === null || candidates.has(id), date, testCase.context, clock, tx)
+        const same = JSON.stringify(before.outcome) === JSON.stringify(after.outcome)
+        const expected = testCase.expect === 'any' || before.outcome.kind === 'refusal'
+        const shown = before.outcome.kind === 'refusal' ? `refusal ${before.outcome.text.slice(0, 90)}` : before.outcome.kind === 'blocked' ? `blocked ${before.outcome.status}` : `resolved ${before.outcome.ruleVersionIds.length}`
+        check(
+          `refusal equivalence ${testCase.label} @ ${date}`,
+          same && expected,
+          `${shown}; ${definitionIds.length} definition(s): ${before.evaluated} evaluated before, ${after.evaluated} after${candidates === null ? ' (not narrowed)' : `, ${candidates.size} candidate(s)`}${same ? '' : ` — DIFFERENT: ${JSON.stringify(after.outcome).slice(0, 160)}`}`,
+        )
+      })
+    }
   }
 }
 
@@ -334,6 +423,7 @@ async function main() {
   }
 
   await syntheticMatrix()
+  await refusalEquivalence()
 
   console.log(`[a5.6-equivalence] A3.8 outcomes exercised across all contexts: ${[...histogram.entries()].map(([k, v]) => `${k} ${v}`).join(', ')}`)
   console.log(`[a5.6-equivalence] ${passed} passed, ${failed} failed`)
