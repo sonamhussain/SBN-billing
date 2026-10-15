@@ -900,7 +900,9 @@ async function main() {
     'ids, contract label and timestamps only; no fee amount, currency or rated identity',
   )
   const pricingAudits = await prisma.auditEvent.findMany({ where: { actionCode: 'claim_pricing_run.created', occurredAt: { gte: runStartedAt } } })
-  const pricingAuditText = JSON.stringify(pricingAudits.map((row) => row.afterState))
+  // Identifiers are replaced before the money/currency scan: a random UUID can contain the hex letters
+  // "aed", which a case-insensitive currency match would otherwise report as a leaked currency.
+  const pricingAuditText = JSON.stringify(pricingAudits.map((row) => row.afterState)).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<id>')
   check(
     'T087',
     'Pricing audit minimal',
