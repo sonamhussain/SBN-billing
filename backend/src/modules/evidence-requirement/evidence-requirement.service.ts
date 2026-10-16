@@ -37,6 +37,7 @@ import {
   findDocumentationRuleDefinitionIds,
   findEncounterEvidencePoolIds,
   findEvidenceFacts,
+  findPossiblyApplicableRuleDefinitionIds,
   findRequirementByRuleVersion,
   findResolvedRuleVersion,
   findRuleVersionForRequirement,
@@ -168,8 +169,19 @@ export async function evaluateEvidenceCompleteness(
     }
 
     // §11 — every own-organization documentation RuleDefinition, each through A3.8 then A3.9.
+    //
+    // Performance corrective: a definition with no VERIFIED version effective on this date and matching
+    // this context can only be NO_MATCH, which is skipped below anyway, so it is not sent through a full
+    // A3.8 evaluation. Every other definition is, in the same order, with A3.8 deciding exactly as
+    // before. The first definition is always evaluated: context-wide refusals (coherence, tenancy, a
+    // facility without exactly one regulatory profile) depend only on the context, so they surface
+    // exactly as they did when every definition was evaluated. A null candidate set means "do not
+    // narrow": every definition is evaluated.
     const resolved: Array<{ ruleDefinitionId: string; ruleVersionId: string; provenance: RequirementCompletenessDto['provenance'] }> = []
-    for (const ruleDefinitionId of await findDocumentationRuleDefinitionIds(context.organizationId, DOCUMENTATION_EFFECT, tx)) {
+    const definitionIds = await findDocumentationRuleDefinitionIds(context.organizationId, DOCUMENTATION_EFFECT, tx)
+    const possiblyApplicable = await findPossiblyApplicableRuleDefinitionIds(definitionIds, context.serviceDate, contextInputs, tx)
+    for (const [index, ruleDefinitionId] of definitionIds.entries()) {
+      if (index > 0 && possiblyApplicable !== null && !possiblyApplicable.has(ruleDefinitionId)) continue
       // A3.8 is given this evaluation's own transaction instant as its clock, so the provenance
       // evaluationTimestamp it issues is the same database instant as evaluatedAt — never the
       // application clock.
