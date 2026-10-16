@@ -82,6 +82,7 @@ import { claimDiagnosesRouter, claimDiagnosisRouter } from './modules/claim-diag
 import { tariffRateRouter, tariffVersionRatesRouter } from './modules/tariff-rate/tariff-rate.route.ts'
 import { claimPricingRunsRouter, pricingRunRouter } from './modules/claim-pricing/claim-pricing.route.ts'
 import { claimDraftRouter, draftAssessmentRouter } from './modules/claim-draft/claim-draft.route.ts'
+import { claimReviewRouter, reviewDecisionRouter } from './modules/claim-review/claim-review.route.ts'
 
 export const app = express()
 
@@ -317,6 +318,12 @@ app.use('/api/claim-pricing-runs', pricingRunRouter)
 // DELETE route.
 app.use('/api/claims', claimDraftRouter)
 app.use('/api/claim-draft-assessments', draftAssessmentRouter)
+
+// A6.5 - immutable human review decisions on an exact A6.4 draft assessment (append, history, read) and
+// the read-only derived review authority. No PATCH, PUT or DELETE, and no submit, payload or transport
+// route.
+app.use('/api/claims', claimReviewRouter)
+app.use('/api/claim-review-decisions', reviewDecisionRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

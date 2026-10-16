@@ -71,6 +71,15 @@ export const apiErrorCodes = [
   // A6.4: concurrent changes to the Claim kept conflicting with the assessment after bounded retries;
   // nothing was written and the request can be repeated.
   'CLAIM_DRAFT_WRITE_CONFLICT',
+  // A6.5: the requested draft assessment is not REVIEWABLE, so it cannot be approved.
+  'CLAIM_REVIEW_NOT_REVIEWABLE',
+  // A6.5: the request fingerprint is not the assessment's own, or the reviewed draft is no longer current.
+  'CLAIM_REVIEW_STALE',
+  // A6.5: the reviewer created the Claim or the draft assessment; a separate authorized reviewer must decide.
+  'CLAIM_REVIEW_SEPARATION_REQUIRED',
+  // A6.5: a second current approval, a return or rejection over a current approval, an invalid revoke target,
+  // or concurrent changes that kept conflicting; nothing was written.
+  'CLAIM_REVIEW_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

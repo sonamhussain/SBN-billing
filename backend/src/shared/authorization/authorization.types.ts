@@ -201,6 +201,12 @@ export const permissionCodes = [
   // submit or transmit permission: A6.5 and later owners hold those.
   'claimDraft.assess',
   'claimDraft.read',
+  // A6.5 - reading review history and the derived review authority (Admin, Viewer), recording an approve,
+  // return or reject decision (Admin), and revoking the latest approval (Admin). None of them submits,
+  // serializes or transmits anything: A6.6 onward own those.
+  'claimReview.read',
+  'claimReview.decide',
+  'claimReview.revoke',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

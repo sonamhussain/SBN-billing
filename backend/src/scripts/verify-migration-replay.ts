@@ -645,9 +645,9 @@ async function main() {
       )
     }
     // No other claim-line, claim-diagnosis, lifecycle, payload or submission table exists. The two A6.3
-    // pricing tables and the two A6.4 draft tables are owned and verified by their own blocks below, so
-    // they are set aside here.
-    const claimTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table) && !/^claim_(pricing|draft)_/.test(table)))].sort()
+    // pricing tables, the two A6.4 draft tables and the A6.5 review decision table are owned and verified by
+    // their own blocks below, so they are set aside here.
+    const claimTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table) && !/^claim_(pricing|draft|review)_/.test(table)))].sort()
     check(
       'the claim tables are exactly claims plus the four A6.2 tables after a clean replay',
       JSON.stringify(claimTables) === JSON.stringify(['claim_diagnoses', 'claim_line_diagnosis_pointers', 'claim_line_source_activities', 'claim_lines', 'claims']),
@@ -806,6 +806,55 @@ async function main() {
       'the A6.4 tables are exactly claim_draft_assessments and claim_draft_findings after a clean replay',
       JSON.stringify(draftTables) === JSON.stringify(['claim_draft_assessments', 'claim_draft_findings']),
       draftTables.join(', '),
+    )
+
+    // A6.5 — immutable human review decisions. The contract, the four decision codes, the controlled reason
+    // vocabulary, the per-decision shape and the positive sequence are held by the database; a decision is
+    // about an assessment of its own Claim at exactly the next Claim-local sequence and at the database's
+    // own time, an APPROVE names a REVIEWABLE assessment with its own fingerprint and a separate reviewer, a
+    // REVOKE withdraws exactly the latest approval, and the table is append-only.
+    for (const trigger of ['claim_review_events_insert_guard_trg', 'claim_review_events_append_only_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'claim_review_events_pkey',
+      'claim_review_events_contract_version_chk',
+      'claim_review_events_decision_chk',
+      'claim_review_events_sequence_chk',
+      'claim_review_events_reason_chk',
+      'claim_review_events_shape_chk',
+      'claim_review_events_claim_id_fkey',
+      'claim_review_events_draft_assessment_id_fkey',
+      'claim_review_events_reviewer_user_id_fkey',
+      'claim_review_events_referenced_approval_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const reviewContract = replay.constraints.find((line) => line.includes('claim_review_events_contract_version_chk')) ?? ''
+    const reviewDecision = replay.constraints.find((line) => line.includes('claim_review_events_decision_chk')) ?? ''
+    check(
+      'the A6.5 CHECKs pin A6-REVIEW-1 and exactly APPROVE, RETURN, REJECT and REVOKE after a clean replay',
+      reviewContract.includes("'A6-REVIEW-1'") && ['APPROVE', 'RETURN', 'REJECT', 'REVOKE'].every((code) => reviewDecision.includes(`'${code}'`)) && !/SUBMIT|APPROVED/i.test(reviewDecision),
+      `${reviewContract.slice(0, 100)} | ${reviewDecision.slice(0, 160)}`,
+    )
+    check(
+      'one decision per sequence per claim and one revocation per approval are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('claim_review_events_claim_id_sequence_key:') && /UNIQUE/i.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('claim_review_events_referenced_approval_id_key:') && /UNIQUE/i.test(line)),
+    )
+    const a65Columns = ['id', 'claim_id', 'draft_assessment_id', 'reviewer_user_id', 'decision_code', 'sequence', 'approval_fingerprint', 'reason_code', 'referenced_approval_id', 'reviewed_at', 'review_contract_version', 'created_at']
+    const reviewColumns = replay.columns.filter((line) => line.startsWith('claim_review_events.')).map((line) => line.slice('claim_review_events.'.length).split(':')[0])
+    check(
+      `claim_review_events carries exactly its ${a65Columns.length} A6.5 columns after a clean replay`,
+      reviewColumns.length === a65Columns.length && reviewColumns.every((column) => a65Columns.includes(column)),
+      reviewColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : reviewColumns.filter((column) => !a65Columns.includes(column)).join(', '),
+    )
+    const reviewTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim_review_/.test(table)))].sort()
+    check(
+      'the A6.5 tables are exactly claim_review_events after a clean replay',
+      JSON.stringify(reviewTables) === JSON.stringify(['claim_review_events']),
+      reviewTables.join(', '),
     )
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.

@@ -30,6 +30,7 @@ import {
   type DraftAssessmentListDto,
   type DraftAssessmentSummaryDto,
   type DraftFinding,
+  type DraftOutcome,
   type FindingCode,
   type FindingSeverity,
   type OwnerScope,
@@ -189,6 +190,31 @@ async function assemble(claimId: string, pricingRunId: string | null, tx: DbClie
 }
 
 const transactionTime = async (tx: DbClient) => (await tx.$queryRaw<{ now: Date }[]>`SELECT now() AS now`)[0].now
+
+// ---- the owner's currentness composer (consumed by A6.5) -------------------------------------------
+
+export type CurrentDraft = { organizationId: string; outcome: DraftOutcome; assemblyFingerprint: string; handoffRefusal: string | null }
+
+// The exact draft of a Claim against an exact pricing run, assembled and reduced by this owner on the
+// CALLER's transaction, so a consumer judges currentness on the same snapshot as its own reads and writes.
+// It is the same assembly, reduction and fingerprint an assessment records; it writes nothing.
+export async function composeCurrentDraft(claimId: string, pricingRunId: string, tx: DbClient): Promise<ClaimDraftResult<CurrentDraft>> {
+  try {
+    const assembled = await assemble(claimId, pricingRunId, tx)
+    return {
+      ok: true,
+      value: {
+        organizationId: assembled.organizationId,
+        outcome: evaluateDraft(assembled.snapshot).outcome,
+        assemblyFingerprint: assemblyFingerprint(assembled.snapshot),
+        handoffRefusal: assembled.handoffRefusal,
+      },
+    }
+  } catch (error) {
+    if (error instanceof DraftRefusal) return { ok: false, code: error.code, message: error.message }
+    throw error
+  }
+}
 
 // ---- DTOs --------------------------------------------------------------------------------------------
 

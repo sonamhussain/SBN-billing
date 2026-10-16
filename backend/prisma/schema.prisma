@@ -1070,6 +1070,7 @@ model User {
   tariffRatesCreated TariffRate[] @relation("TariffRateCreatedBy")
   claimPricingRunsCreated ClaimPricingRun[] @relation("ClaimPricingRunCreatedBy")
   claimDraftAssessmentsCreated ClaimDraftAssessment[] @relation("ClaimDraftAssessmentCreatedBy")
+  claimReviewDecisionsMade ClaimReviewDecision[] @relation("ClaimReviewDecisionReviewer")
   @@unique([email])
   @@map("user")
 }
@@ -1843,6 +1844,7 @@ model Claim {
   pricingRuns                 ClaimPricingRun[]
   draftAssessments            ClaimDraftAssessment[]
   diagnoses                   ClaimDiagnosis[]
+  reviewDecisions             ClaimReviewDecision[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -2055,6 +2057,7 @@ model ClaimDraftAssessment {
   handoffAssessment PreClaimReadinessAssessment @relation(fields: [handoffAssessmentId], references: [id], onDelete: Restrict)
   createdBy         User                        @relation("ClaimDraftAssessmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   findings          ClaimDraftFinding[]
+  reviewDecisions   ClaimReviewDecision[]
 
   @@index([claimId, evaluatedAt])
   @@index([pricingRunId])
@@ -2083,4 +2086,35 @@ model ClaimDraftFinding {
   @@index([relatedClaimLineId])
   @@index([relatedClaimDiagnosisId])
   @@map("claim_draft_findings")
+}
+
+// A6.5 — one immutable human review decision (A6-REVIEW-1) about one exact A6.4 draft assessment of a
+// Claim: APPROVE, RETURN, REJECT or REVOKE, at a Claim-local sequence, by the authenticated reviewer, at the
+// database's own time. Current approval authority is DERIVED from the latest decision by sequence plus a
+// fresh A6.4 currentness check; there is no approval state on the Claim and no latest-approval pointer. An
+// APPROVE is a human authorization record only, never a submission, payload or transport. Append-only.
+model ClaimReviewDecision {
+  id                    String   @id @default(uuid()) @db.Uuid
+  claimId               String   @map("claim_id") @db.Uuid
+  draftAssessmentId     String   @map("draft_assessment_id") @db.Uuid
+  reviewerUserId        String   @map("reviewer_user_id") @db.Uuid
+  decisionCode          String   @map("decision_code") @db.Text
+  sequence              Int
+  approvalFingerprint   String?  @map("approval_fingerprint") @db.Text
+  reasonCode            String?  @map("reason_code") @db.Text
+  referencedApprovalId  String?  @unique @map("referenced_approval_id") @db.Uuid
+  reviewedAt            DateTime @default(now()) @map("reviewed_at") @db.Timestamptz(6)
+  reviewContractVersion String   @map("review_contract_version") @db.Text
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  claim              Claim                @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  draftAssessment    ClaimDraftAssessment @relation(fields: [draftAssessmentId], references: [id], onDelete: Restrict)
+  reviewer           User                 @relation("ClaimReviewDecisionReviewer", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+  referencedApproval ClaimReviewDecision? @relation("ClaimReviewRevocation", fields: [referencedApprovalId], references: [id], onDelete: Restrict)
+  revocation         ClaimReviewDecision? @relation("ClaimReviewRevocation")
+
+  @@unique([claimId, sequence])
+  @@index([draftAssessmentId])
+  @@index([reviewerUserId])
+  @@map("claim_review_events")
 }
