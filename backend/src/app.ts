@@ -81,6 +81,7 @@ import { claimLineRouter, claimLinesRouter } from './modules/claim-line/claim-li
 import { claimDiagnosesRouter, claimDiagnosisRouter } from './modules/claim-diagnosis/claim-diagnosis.route.ts'
 import { tariffRateRouter, tariffVersionRatesRouter } from './modules/tariff-rate/tariff-rate.route.ts'
 import { claimPricingRunsRouter, pricingRunRouter } from './modules/claim-pricing/claim-pricing.route.ts'
+import { claimDraftRouter, draftAssessmentRouter } from './modules/claim-draft/claim-draft.route.ts'
 
 export const app = express()
 
@@ -310,6 +311,12 @@ app.use('/api/tariff-schedule-versions', tariffVersionRatesRouter)
 app.use('/api/tariff-rates', tariffRateRouter)
 app.use('/api/claims', claimPricingRunsRouter)
 app.use('/api/claim-pricing-runs', pricingRunRouter)
+
+// A6.4 - the read-only draft preview of a Claim against an exact pricing run, immutable claim draft
+// assessments (record, list, read) and nothing else. No approve, sign, submit, current-draft, PATCH or
+// DELETE route.
+app.use('/api/claims', claimDraftRouter)
+app.use('/api/claim-draft-assessments', draftAssessmentRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

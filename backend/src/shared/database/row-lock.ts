@@ -88,3 +88,19 @@ export async function lockRowForShare(db: DbClient, table: LockableTable, id: st
   )
   return rows.length > 0
 }
+
+// A6.4 — the non-waiting form of FOR UPDATE, for a writer whose REPEATABLE READ or SERIALIZABLE snapshot
+// must not predate the lock. Postgres fixes such a snapshot when the FIRST statement starts; a FOR UPDATE
+// that waits would therefore read the state from before the writer it waited for. With NOWAIT the
+// statement either takes the free lock immediately or fails with lock_not_available (55P03); the caller
+// then waits outside its transaction and starts again on a fresh snapshot. Same fixed table names only.
+export async function lockRowForUpdateNowait(db: DbClient, table: LockableTable, id: string): Promise<boolean> {
+  if (!lockableTableSet.has(table)) throw new Error(`lockRowForUpdateNowait: table ${String(table)} is not lockable`)
+  const rows = await db.$queryRaw<{ id: string }[]>(
+    Prisma.sql`SELECT id FROM ${Prisma.raw(`"${table}"`)} WHERE id = ${id}::uuid FOR UPDATE NOWAIT`,
+  )
+  return rows.length > 0
+}
+
+// A lock_not_available refusal from lockRowForUpdateNowait, as Postgres or the driver reports it.
+export const isLockUnavailable = (error: unknown) => error instanceof Error && /could not obtain lock on row|55P03|lock_not_available/.test(error.message)
