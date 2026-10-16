@@ -20,7 +20,7 @@ export async function findAssessmentForReview(id: string, db: DbClient) {
 
 // The Claim's latest decision by its Claim-local sequence — never by time or identifier.
 export async function findLatestDecision(claimId: string, db: DbClient) {
-  return db.claimReviewDecision.findFirst({
+  return db.claimReviewEvent.findFirst({
     where: { claimId },
     orderBy: { sequence: 'desc' },
     select: { id: true, decisionCode: true, draftAssessmentId: true, approvalFingerprint: true, sequence: true },
@@ -47,20 +47,20 @@ export async function createDecisionRecord(data: NewDecision, db: DbClient) {
     INSERT INTO "claim_review_events" ("id", "claim_id", "draft_assessment_id", "reviewer_user_id", "decision_code", "sequence", "approval_fingerprint", "reason_code", "referenced_approval_id", "review_contract_version")
     VALUES (gen_random_uuid(), ${data.claimId}::uuid, ${data.draftAssessmentId}::uuid, ${data.reviewerUserId}::uuid, ${data.decisionCode}, ${data.sequence}::int, ${data.approvalFingerprint}, ${data.reasonCode}, ${data.referencedApprovalId}::uuid, ${data.reviewContractVersion})
     RETURNING "id"::text AS "id"`)
-  return db.claimReviewDecision.findUniqueOrThrow({ where: { id: inserted.id } })
+  return db.claimReviewEvent.findUniqueOrThrow({ where: { id: inserted.id } })
 }
 
 export async function findDecisionById(id: string, db: DbClient = prisma) {
-  return db.claimReviewDecision.findUnique({ where: { id } })
+  return db.claimReviewEvent.findUnique({ where: { id } })
 }
 
 // The Claim's history in ascending sequence: the order the decisions were made, never a recency guess.
 export async function findDecisionsOfClaim(claimId: string, db: DbClient = prisma) {
-  return db.claimReviewDecision.findMany({ where: { claimId }, orderBy: { sequence: 'asc' } })
+  return db.claimReviewEvent.findMany({ where: { claimId }, orderBy: { sequence: 'asc' } })
 }
 
 // The owning organization of a decision, through its Claim.
 export async function findDecisionOwnership(id: string, db: DbClient = prisma) {
-  const row = await db.claimReviewDecision.findUnique({ where: { id }, select: { claim: { select: { encounter: { select: { patient: { select: { organizationId: true } } } } } } } })
+  const row = await db.claimReviewEvent.findUnique({ where: { id }, select: { claim: { select: { encounter: { select: { patient: { select: { organizationId: true } } } } } } } })
   return row ? { organizationId: row.claim.encounter.patient.organizationId } : null
 }

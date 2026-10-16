@@ -242,7 +242,7 @@ async function main() {
     if (!(await waitFor(async () => (await ready()) === 200, 60_000)))
       throw new RunAborted(`the API at ${baseUrl} is not ready before ${what}; start it with \`npm start\``)
   }
-  const priorDecisionsAtStart = JSON.stringify(await prisma.claimReviewDecision.findMany({ where: { createdAt: { lt: runStartedAt } }, orderBy: { id: 'asc' } }))
+  const priorDecisionsAtStart = JSON.stringify(await prisma.claimReviewEvent.findMany({ where: { createdAt: { lt: runStartedAt } }, orderBy: { id: 'asc' } }))
 
   // ---------------------------------------------------------------- gates (T001–T009)
   section('Start gate, migration, contracts, permissions and wiring')
@@ -284,7 +284,7 @@ async function main() {
       same(createdColumns, A65_COLUMNS) && !createdColumns.some((column) => /status|lifecycle|payload|xml|x12|npi|submission|patient_share|net_amount|copay|remark|comment|note|nabidh|malaffi|riayati|^(latest|current)_/i.test(column)),
       'the table does not carry exactly its 12 columns, or a lifecycle, payload, submission, remark, pointer, patient-share or HIE column appears',
     ],
-    [schemaRemoved.length === 0 && same(schemaAddedModels, ['ClaimReviewDecision']), 'the schema diff is not exactly the one model and its back-relations'],
+    [schemaRemoved.length === 0 && same(schemaAddedModels, ['ClaimReviewEvent']), 'the schema diff is not exactly the one model and its back-relations'],
   ]
     .filter(([ok]) => !ok)
     .map(([, reason]) => reason as string)
@@ -547,7 +547,7 @@ async function main() {
   const returnBody = (a: Assessed, reasonCode = 'REVIEW_DOCUMENTATION_REQUIRED') => ({ draftAssessmentId: a.id, assemblyFingerprint: a.assemblyFingerprint, decisionCode: 'RETURN', reasonCode })
   const rejectBody = (a: Assessed, reasonCode = 'REVIEW_INTEGRITY_CONCERN') => ({ draftAssessmentId: a.id, assemblyFingerprint: a.assemblyFingerprint, decisionCode: 'REJECT', reasonCode })
   const revokeBody = (a: Assessed, referencedApprovalId: string, extra: Record<string, unknown> = {}) => ({ draftAssessmentId: a.id, assemblyFingerprint: a.assemblyFingerprint, decisionCode: 'REVOKE', referencedApprovalId, ...extra })
-  const decisionsOf = (claimId: string) => prisma.claimReviewDecision.count({ where: { claimId } })
+  const decisionsOf = (claimId: string) => prisma.claimReviewEvent.count({ where: { claimId } })
   const reviewAudits = () => prisma.auditEvent.count({ where: { actionCode: { in: REVIEW_ACTIONS } } })
   const stateOf = async (claimId: string) => (await authority(claimId)).body?.state as string | undefined
   const stripTime = (body: any) => JSON.stringify({ ...body, evaluatedAt: '' })
@@ -684,7 +684,7 @@ async function main() {
   )
   const backdated = await attemptRolledBack((tx) => insertDecision(tx, { claimId: W.claimId, assessmentId: W.assessment.id, sequence: 2, reviewedAt: '2020-01-01T00:00:00Z' }))
   const forwardDated = await attemptRolledBack((tx) => insertDecision(tx, { claimId: W.claimId, assessmentId: W.assessment.id, sequence: 2, reviewedAt: '2099-01-01T00:00:00Z' }))
-  const storedW = await prisma.claimReviewDecision.findUniqueOrThrow({ where: { id: approvalW } })
+  const storedW = await prisma.claimReviewEvent.findUniqueOrThrow({ where: { id: approvalW } })
   check(
     'T020',
     'No backdating',
@@ -928,9 +928,9 @@ async function main() {
   )
   const unrelated = await stateOf(W.claimId)
   const afterReturnState = await stateOf(Rt.claimId)
-  check('T056', 'No accidental approval', afterReturnState === 'NOT_APPROVED' && unrelated === 'APPROVED_CURRENT' && (await prisma.claimReviewDecision.count({ where: { claimId: Rt.claimId, decisionCode: 'APPROVE' } })) === 0, 'a RETURN grants nothing and leaves every other Claim\'s authority as it was')
+  check('T056', 'No accidental approval', afterReturnState === 'NOT_APPROVED' && unrelated === 'APPROVED_CURRENT' && (await prisma.claimReviewEvent.count({ where: { claimId: Rt.claimId, decisionCode: 'APPROVE' } })) === 0, 'a RETURN grants nothing and leaves every other Claim\'s authority as it was')
   const historyW = await history(W.claimId)
-  const historyRows = await prisma.claimReviewDecision.findMany({ where: { createdAt: { gte: runStartedAt } }, orderBy: [{ claimId: 'asc' }, { sequence: 'asc' }] })
+  const historyRows = await prisma.claimReviewEvent.findMany({ where: { createdAt: { gte: runStartedAt } }, orderBy: [{ claimId: 'asc' }, { sequence: 'asc' }] })
   const contiguous = Object.values(historyRows.reduce<Record<string, number[]>>((acc, row) => ({ ...acc, [row.claimId]: [...(acc[row.claimId] ?? []), row.sequence] }), {})).every((sequences) => sequences.every((s, i) => s === i + 1))
   check(
     'T057',
@@ -956,7 +956,7 @@ async function main() {
 
   // ---------------------------------------------------------------- REVOKE (T061–T070)
   section('REVOKE: target authority, duplicate revocation, historical retention and later fresh review')
-  const approvalBeforeRevoke = JSON.stringify(await prisma.claimReviewDecision.findUniqueOrThrow({ where: { id: approvalW } }))
+  const approvalBeforeRevoke = JSON.stringify(await prisma.claimReviewEvent.findUniqueOrThrow({ where: { id: approvalW } }))
   const revokedW = await decide(W.claimId, revokeBody(W.assessment, approvalW, { reasonCode: 'REVIEW_INTEGRITY_CONCERN' }), C.who)
   const historyW2 = await history(W.claimId)
   check(
@@ -982,12 +982,12 @@ async function main() {
   const latestApprovalL = reapproveL.body?.decision?.id as string
   const revokeMismatch = await decide(L.claimId, revokeBody(L.assessment, latestApprovalL), C.who)
   check('T065', 'Same assessment', revokeMismatch.status === 409 && errorCode(revokeMismatch.body) === 'CLAIM_REVIEW_CONFLICT' && (await decisionsOf(L.claimId)) === 2, 'a revocation naming another assessment than the approval it withdraws: 409')
-  const revokeStale = await decide(So.claimId, revokeBody(So.assessment, (await prisma.claimReviewDecision.findFirstOrThrow({ where: { claimId: So.claimId } })).id), C.who)
+  const revokeStale = await decide(So.claimId, revokeBody(So.assessment, (await prisma.claimReviewEvent.findFirstOrThrow({ where: { claimId: So.claimId } })).id), C.who)
   check('T066', 'A stale approval can be revoked', revokeStale.status === 201 && revokeStale.body?.authority?.state === 'NOT_APPROVED', 'a stale approval that is still the latest decision is withdrawn explicitly (201); history becomes unambiguous')
   const revokeForeignTarget = await decide(L.claimId, revokeBody(reassessedL, approvalW), C.who)
   const revokeForeignTargetDb = await attemptRolledBack((tx) => insertDecision(tx, { claimId: L.claimId, assessmentId: reassessedL.id, decision: 'REVOKE', reviewer: C.id, sequence: 3, target: approvalW }))
   check('T067', 'Another Claim\'s approval', revokeForeignTarget.status === 409 && /a revocation must withdraw this claim's latest approval/.test(revokeForeignTargetDb) && (await decisionsOf(L.claimId)) === 2, "another Claim's approval named as the target is refused by the service and the database")
-  const approvalAfterRevoke = JSON.stringify(await prisma.claimReviewDecision.findUniqueOrThrow({ where: { id: approvalW } }))
+  const approvalAfterRevoke = JSON.stringify(await prisma.claimReviewEvent.findUniqueOrThrow({ where: { id: approvalW } }))
   check('T068', 'Historical retention', approvalAfterRevoke === approvalBeforeRevoke && (await readDecision(approvalW)).status === 200, 'the revoked approval row is byte-for-byte unchanged and still readable')
   const freshAfterRevoke = await decide(W.claimId, approveBody(reassessedW), C.who)
   check(
@@ -1039,7 +1039,7 @@ async function main() {
   check(
     'T073',
     'Simultaneous approvals',
-    same(statuses, [201, 409]) && errorCode(loser?.body) === 'CLAIM_REVIEW_CONFLICT' && (await prisma.claimReviewDecision.count({ where: { claimId: K3.claimId, decisionCode: 'APPROVE' } })) === 1,
+    same(statuses, [201, 409]) && errorCode(loser?.body) === 'CLAIM_REVIEW_CONFLICT' && (await prisma.claimReviewEvent.count({ where: { claimId: K3.claimId, decisionCode: 'APPROVE' } })) === 1,
     'two reviewers approving the same draft at once: exactly one 201 and one deterministic 409 CLAIM_REVIEW_CONFLICT; never two authorities',
   )
   const K4 = await reviewable('race pricing')
@@ -1109,7 +1109,7 @@ async function main() {
   const conflicting = await attemptAdversarial(() =>
     prisma.$transaction(
       async (tx) => {
-        await tx.claimReviewDecision.count({ where: { claimId: K8.claimId } })
+        await tx.claimReviewEvent.count({ where: { claimId: K8.claimId } })
         await tx.$executeRawUnsafe('UPDATE encounter_activities SET quantity = 4 WHERE id = $1::uuid', K8.activityIds[0])
       },
       { isolationLevel: 'Serializable' },
@@ -1158,7 +1158,7 @@ async function main() {
   const pointerColumns = (await prisma.$queryRaw<{ table_name: string; column_name: string }[]>`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name ~* '(latest_?approv|current_?approv|approval_?state|approved_?at|approved_?by|review_?status)'`)
   check('T088', 'No lifecycle state or pointer', pointerColumns.length === 0 && claimColumns.length === 7, 'no approval state, approvedAt/By, review status or latest/current-approval pointer anywhere')
   const runAudits = await prisma.auditEvent.findMany({ where: { actionCode: { in: REVIEW_ACTIONS }, occurredAt: { gte: runStartedAt } } })
-  const runDecisions = await prisma.claimReviewDecision.findMany({ where: { createdAt: { gte: runStartedAt } } })
+  const runDecisions = await prisma.claimReviewEvent.findMany({ where: { createdAt: { gte: runStartedAt } } })
   const auditByEntity = new Map(runAudits.map((row) => [row.entityId, row]))
   const actionFor: Record<string, string> = { APPROVE: 'claim_review.approved', RETURN: 'claim_review.returned', REJECT: 'claim_review.rejected', REVOKE: 'claim_review.revoked' }
   const ownDecisions = runDecisions.filter((row) => row.claimId !== foreign!.claimId)
@@ -1245,12 +1245,12 @@ async function main() {
   section('Recomputed current authority, pricing and pointer changes, reproducible fingerprints and stable order')
   const Ra = await reviewable('recompute', { roles: ['PRIMARY', 'SECONDARY'] })
   const approvedRa = await decide(Ra.claimId, approveBody(Ra.assessment))
-  const rowsBeforeRead = await prisma.claimReviewDecision.count()
+  const rowsBeforeRead = await prisma.claimReviewEvent.count()
   const readsRa = [await authority(Ra.claimId), await authority(Ra.claimId)]
   check(
     'T101',
     'Authority is recomputed',
-    approvedRa.status === 201 && readsRa.every((res) => res.body?.state === 'APPROVED_CURRENT') && (await prisma.claimReviewDecision.count()) === rowsBeforeRead,
+    approvedRa.status === 201 && readsRa.every((res) => res.body?.state === 'APPROVED_CURRENT') && (await prisma.claimReviewEvent.count()) === rowsBeforeRead,
     'every authority read recomposes the A6.4 draft on one snapshot; nothing is stored or refreshed',
   )
   check('T102', 'Pricing change', (await stateOf(Q.claimId)) === 'APPROVAL_STALE' && (await stateOf(K4.claimId)) === 'APPROVED_CURRENT', 'a priced-source change stales the approval; a newer pricing run of the unchanged structure does not')
@@ -1269,12 +1269,12 @@ async function main() {
   const repeated = [await authority(W.claimId), await authority(W.claimId)]
   check('T106', 'Deterministic authority', stripTime(repeated[0].body) === stripTime(repeated[1].body), 'repeated authority reads are identical apart from the evaluation instant')
   const auditsBefore107 = await reviewAudits()
-  const rowsBefore107 = await prisma.claimReviewDecision.count()
+  const rowsBefore107 = await prisma.claimReviewEvent.count()
   await history(W.claimId)
   await authority(W.claimId)
   await readDecision(approvalW)
   await authority(Ra.claimId, asViewer)
-  check('T107', 'Reads write nothing', (await reviewAudits()) === auditsBefore107 && (await prisma.claimReviewDecision.count()) === rowsBefore107, 'history, authority and decision reads write no decision and no audit')
+  check('T107', 'Reads write nothing', (await reviewAudits()) === auditsBefore107 && (await prisma.claimReviewEvent.count()) === rowsBefore107, 'history, authority and decision reads write no decision and no audit')
   const Rb = await reviewable('read during edit')
   await decide(Rb.claimId, approveBody(Rb.assessment))
   const hold8b = holdAt('claimLine.removed')
@@ -1416,7 +1416,7 @@ async function main() {
   ]
     .filter(([ok]) => !ok)
     .map(([, reason]) => reason as string)
-  const priorDecisionsNow = JSON.stringify(await prisma.claimReviewDecision.findMany({ where: { createdAt: { lt: runStartedAt } }, orderBy: { id: 'asc' } }))
+  const priorDecisionsNow = JSON.stringify(await prisma.claimReviewEvent.findMany({ where: { createdAt: { lt: runStartedAt } }, orderBy: { id: 'asc' } }))
   const headSha = git('rev-parse HEAD')
   const tracking = git('status -sb').split(/\r?\n/)[0]
   check(
