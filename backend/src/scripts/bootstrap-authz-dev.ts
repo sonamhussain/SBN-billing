@@ -148,6 +148,7 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'claimReview.read', name: 'Read Claim Review Decisions' },
   { code: 'claimReview.decide', name: 'Record Claim Review Decisions' },
   { code: 'claimReview.revoke', name: 'Revoke Claim Review Approvals' },
+  { code: 'claimCanonical.read', name: 'Preview Canonical Claim Payloads' },
 ]
 
 const roleCatalogue = [
@@ -300,6 +301,7 @@ const roleCatalogue = [
       'claimReview.read',
       'claimReview.decide',
       'claimReview.revoke',
+      'claimCanonical.read',
     ],
   },
   {

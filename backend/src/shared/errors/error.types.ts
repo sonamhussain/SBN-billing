@@ -80,6 +80,14 @@ export const apiErrorCodes = [
   // A6.5: a second current approval, a return or rejection over a current approval, an invalid revoke target,
   // or concurrent changes that kept conflicting; nothing was written.
   'CLAIM_REVIEW_CONFLICT',
+  // A6.6: the canonical payload needs the current human approval of exactly this assessment.
+  'CLAIM_PAYLOAD_NOT_AUTHORIZED',
+  // A6.6: the handoff, reviewed draft or approval is no longer current; nothing was composed.
+  'CLAIM_PAYLOAD_STALE',
+  // A6.6: a required field of the canonical payload is absent or not frozen; nothing was composed.
+  'CLAIM_PAYLOAD_INCOMPLETE',
+  // A6.6: a required interpretation (such as a currency scale) is not defined; nothing was composed.
+  'CLAIM_PAYLOAD_UNSUPPORTED',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

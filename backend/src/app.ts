@@ -83,6 +83,7 @@ import { tariffRateRouter, tariffVersionRatesRouter } from './modules/tariff-rat
 import { claimPricingRunsRouter, pricingRunRouter } from './modules/claim-pricing/claim-pricing.route.ts'
 import { claimDraftRouter, draftAssessmentRouter } from './modules/claim-draft/claim-draft.route.ts'
 import { claimReviewRouter, reviewDecisionRouter } from './modules/claim-review/claim-review.route.ts'
+import { claimPayloadRouter } from './modules/claim-payload/claim-payload.route.ts'
 
 export const app = express()
 
@@ -324,6 +325,10 @@ app.use('/api/claim-draft-assessments', draftAssessmentRouter)
 // route.
 app.use('/api/claims', claimReviewRouter)
 app.use('/api/claim-review-decisions', reviewDecisionRouter)
+
+// A6.6 - the read-only canonical payload preview of an exact Claim, draft assessment and approval. No
+// create, update, delete, submit, send or payload-persistence route.
+app.use('/api/claims', claimPayloadRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
