@@ -88,6 +88,16 @@ export const apiErrorCodes = [
   'CLAIM_PAYLOAD_INCOMPLETE',
   // A6.6: a required interpretation (such as a currency scale) is not defined; nothing was composed.
   'CLAIM_PAYLOAD_UNSUPPORTED',
+  // A6.7: no exact current human APPROVE of this assessment (returned, rejected, revoked or superseded).
+  'CLAIM_SUBMISSION_NOT_APPROVED',
+  // A6.7: the Claim, pricing, sources, readiness, draft or fingerprint changed since the approval.
+  'CLAIM_SUBMISSION_STALE',
+  // A6.7: an exact required historical evidence or provenance reference cannot be referenced; nothing frozen.
+  'CLAIM_SUBMISSION_EVIDENCE_INCOMPLETE',
+  // A6.7: the approval was reused inconsistently, concurrency kept conflicting, or an integrity contradiction.
+  'CLAIM_SUBMISSION_CONFLICT',
+  // A6.7: a required schema or interpretation is not implemented; nothing was frozen.
+  'CLAIM_SUBMISSION_UNSUPPORTED',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

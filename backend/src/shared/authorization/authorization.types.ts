@@ -210,6 +210,12 @@ export const permissionCodes = [
   // A6.6 - previewing the read-only canonical payload of an exact Claim, draft assessment and approval
   // (Admin only). It submits, persists and transmits nothing: A6.7 onward own those.
   'claimCanonical.read',
+  // A6.7 - freezing one approved, current canonical payload with its evidence package (Admin), reading
+  // frozen metadata (Admin, Viewer) and reading the typed evidence manifest (Admin only). None of them
+  // sends anything: later owners hold lifecycle and external connectivity.
+  'claimFreeze.create',
+  'claimFreeze.read',
+  'claimFreezeEvidence.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
