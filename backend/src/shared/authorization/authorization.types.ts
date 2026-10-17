@@ -207,6 +207,9 @@ export const permissionCodes = [
   'claimReview.read',
   'claimReview.decide',
   'claimReview.revoke',
+  // A6.6 - previewing the read-only canonical payload of an exact Claim, draft assessment and approval
+  // (Admin only). It submits, persists and transmits nothing: A6.7 onward own those.
+  'claimCanonical.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
