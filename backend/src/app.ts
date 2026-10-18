@@ -85,6 +85,7 @@ import { claimDraftRouter, draftAssessmentRouter } from './modules/claim-draft/c
 import { claimReviewRouter, reviewDecisionRouter } from './modules/claim-review/claim-review.route.ts'
 import { claimPayloadRouter } from './modules/claim-payload/claim-payload.route.ts'
 import { claimSubmissionRouter, frozenSubmissionRouter } from './modules/claim-submission/claim-submission.route.ts'
+import { claimLifecycleRouter } from './modules/claim-lifecycle/claim-lifecycle.route.ts'
 
 export const app = express()
 
@@ -336,6 +337,10 @@ app.use('/api/claims', claimPayloadRouter)
 // send, retry, status or acknowledgement route.
 app.use('/api/claims', claimSubmissionRouter)
 app.use('/api/claim-submissions', frozenSubmissionRouter)
+
+// A6.8 - internal lifecycle of a frozen submission: append one explicit event, read its history and its
+// derived disposition. No status PATCH/PUT, no DELETE and no send, queue or acknowledgement route.
+app.use('/api/claim-submissions', claimLifecycleRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

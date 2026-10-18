@@ -98,6 +98,12 @@ export const apiErrorCodes = [
   'CLAIM_SUBMISSION_CONFLICT',
   // A6.7: a required schema or interpretation is not implemented; nothing was frozen.
   'CLAIM_SUBMISSION_UNSUPPORTED',
+  // A6.8: the lifecycle event is not an allowed A6-LIFECYCLE-1 edge from the current internal disposition
+  // (including a duplicate and anything after WITHDRAWN_INTERNAL); nothing was recorded.
+  'CLAIM_LIFECYCLE_TRANSITION_NOT_ALLOWED',
+  // A6.8: concurrent decisions kept conflicting, the history cannot be trusted, the database refused the
+  // event, or the outcome could not be established; nothing (further) was recorded.
+  'CLAIM_LIFECYCLE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]
