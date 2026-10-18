@@ -51,6 +51,7 @@ import ClaimPricingCheck from '../modules/claim-pricing/ClaimPricingCheck.tsx'
 import ClaimDraftCheck from '../modules/claim-draft/ClaimDraftCheck.tsx'
 import ClaimReviewCheck from '../modules/claim-review/ClaimReviewCheck.tsx'
 import ClaimPayloadCheck from '../modules/claim-payload/ClaimPayloadCheck.tsx'
+import ClaimSubmissionCheck from '../modules/claim-submission/ClaimSubmissionCheck.tsx'
 
 // FE-01 — every existing engineering check, moved unchanged from the former Development Check page.
 // Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4 -> A5. A new backend *Check is registered
@@ -115,4 +116,5 @@ export const developerChecks: DeveloperCheck[] = [
   { key: 'claim-draft', label: 'Claim draft integrity', Component: ClaimDraftCheck },
   { key: 'claim-review', label: 'Claim review decisions', Component: ClaimReviewCheck },
   { key: 'claim-payload', label: 'Canonical claim payload', Component: ClaimPayloadCheck },
+  { key: 'claim-submission', label: 'Frozen claim submissions', Component: ClaimSubmissionCheck },
 ]

@@ -1071,6 +1071,7 @@ model User {
   claimPricingRunsCreated ClaimPricingRun[] @relation("ClaimPricingRunCreatedBy")
   claimDraftAssessmentsCreated ClaimDraftAssessment[] @relation("ClaimDraftAssessmentCreatedBy")
   claimReviewDecisionsMade ClaimReviewEvent[] @relation("ClaimReviewEventReviewer")
+  claimFreezesCreated ClaimFreeze[] @relation("ClaimFreezeCreatedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1845,6 +1846,7 @@ model Claim {
   draftAssessments            ClaimDraftAssessment[]
   diagnoses                   ClaimDiagnosis[]
   reviewDecisions             ClaimReviewEvent[]
+  freezes                     ClaimFreeze[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -1998,6 +2000,7 @@ model ClaimPricingRun {
   createdBy             User                     @relation("ClaimPricingRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   lineResults           ClaimPricingLineResult[]
   draftAssessments      ClaimDraftAssessment[]
+  freezes               ClaimFreeze[]
 
   @@index([claimId, evaluatedAt])
   @@index([tariffScheduleVersionId])
@@ -2058,6 +2061,7 @@ model ClaimDraftAssessment {
   createdBy         User                        @relation("ClaimDraftAssessmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   findings          ClaimDraftFinding[]
   reviewDecisions   ClaimReviewEvent[]
+  freezes           ClaimFreeze[]
 
   @@index([claimId, evaluatedAt])
   @@index([pricingRunId])
@@ -2112,9 +2116,82 @@ model ClaimReviewEvent {
   reviewer           User                 @relation("ClaimReviewEventReviewer", fields: [reviewerUserId], references: [id], onDelete: Restrict)
   referencedApproval ClaimReviewEvent? @relation("ClaimReviewRevocation", fields: [referencedApprovalId], references: [id], onDelete: Restrict)
   revocation         ClaimReviewEvent? @relation("ClaimReviewRevocation")
+  freeze             ClaimFreeze?
 
   @@unique([claimId, sequence])
   @@index([draftAssessmentId])
   @@index([reviewerUserId])
   @@map("claim_review_events")
+}
+
+// A6.7 — one immutable internal freeze (A6-SUBMISSION-1) of an approved, current Claim: the exact A6.6
+// canonical bytes, their SHA-256, the exact A6.4 draft assessment, the A6.5 APPROVE event and the A6.3
+// pricing run, at the database's own time. It is a custody record, never a transmission: no status, no
+// payer identifier, no acknowledgement. One freeze per approval. Append-only. (Business name:
+// ClaimSubmission; the physical name avoids the accepted A6.1–A6.6 "no submission yet" phase guards.)
+model ClaimFreeze {
+  id                          String   @id @default(uuid()) @db.Uuid
+  claimId                     String   @map("claim_id") @db.Uuid
+  draftAssessmentId           String   @map("draft_assessment_id") @db.Uuid
+  approvalReviewEventId       String   @unique @map("approval_review_event_id") @db.Uuid
+  pricingRunId                String   @map("pricing_run_id") @db.Uuid
+  submissionContractVersion   String   @map("submission_contract_version") @db.Text
+  payloadSchemaVersion        String   @map("payload_schema_version") @db.Text
+  approvedAssemblyFingerprint String   @map("approved_assembly_fingerprint") @db.Char(64)
+  canonicalPayloadBytes       Bytes    @map("canonical_payload_bytes")
+  payloadSha256               String   @map("payload_sha256") @db.Char(64)
+  frozenAt                    DateTime @default(now()) @map("frozen_at") @db.Timestamptz(6)
+  createdByUserId             String   @map("created_by_user_id") @db.Uuid
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  claim            Claim                        @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  draftAssessment  ClaimDraftAssessment         @relation(fields: [draftAssessmentId], references: [id], onDelete: Restrict)
+  approvalEvent    ClaimReviewEvent             @relation(fields: [approvalReviewEventId], references: [id], onDelete: Restrict)
+  pricingRun       ClaimPricingRun              @relation(fields: [pricingRunId], references: [id], onDelete: Restrict)
+  createdBy        User                         @relation("ClaimFreezeCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  evidenceManifest ClaimFreezeEvidenceManifest?
+
+  @@index([claimId, frozenAt])
+  @@index([draftAssessmentId])
+  @@index([pricingRunId])
+  @@map("claim_freezes")
+}
+
+// A6.7 — the one evidence package (A6-EVIDENCE-1) of a freeze: the exact canonical manifest bytes, their
+// SHA-256 and the package seal over the payload digest, the manifest digest and the freeze identity.
+// Append-only.
+model ClaimFreezeEvidenceManifest {
+  id                      String   @id @default(uuid()) @db.Uuid
+  claimFreezeId           String   @unique @map("claim_submission_id") @db.Uuid
+  manifestContractVersion String   @map("manifest_contract_version") @db.Text
+  entryCount              Int      @map("entry_count")
+  manifestBytes           Bytes    @map("manifest_bytes")
+  manifestSha256          String   @map("manifest_sha256") @db.Char(64)
+  packageSealSha256       String   @map("package_seal_sha256") @db.Char(64)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  claimFreeze ClaimFreeze                @relation(fields: [claimFreezeId], references: [id], onDelete: Restrict)
+  entries     ClaimFreezeEvidenceEntry[]
+
+  @@map("claim_freeze_evidence_manifests")
+}
+
+// A6.7 — one ordered, typed evidence reference of a package: which owner row (and version) the approved
+// payload rests on, and the owner's own SHA-256 only where the owner guarantees one. No copied evidence
+// bytes, display text or reason. Append-only.
+model ClaimFreezeEvidenceEntry {
+  id                 String   @id @default(uuid()) @db.Uuid
+  evidenceManifestId String   @map("evidence_package_id") @db.Uuid
+  ordinal            Int
+  referenceKind      String   @map("reference_kind") @db.Text
+  referenceId        String   @map("reference_id") @db.Uuid
+  referenceVersionId String?  @map("reference_version_id") @db.Uuid
+  contentHash        String?  @map("content_hash") @db.Char(64)
+  evidenceRole       String   @map("evidence_role") @db.Text
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  evidenceManifest ClaimFreezeEvidenceManifest @relation(fields: [evidenceManifestId], references: [id], onDelete: Restrict)
+
+  @@unique([evidenceManifestId, ordinal])
+  @@map("claim_freeze_evidence_entries")
 }

@@ -84,6 +84,7 @@ import { claimPricingRunsRouter, pricingRunRouter } from './modules/claim-pricin
 import { claimDraftRouter, draftAssessmentRouter } from './modules/claim-draft/claim-draft.route.ts'
 import { claimReviewRouter, reviewDecisionRouter } from './modules/claim-review/claim-review.route.ts'
 import { claimPayloadRouter } from './modules/claim-payload/claim-payload.route.ts'
+import { claimSubmissionRouter, frozenSubmissionRouter } from './modules/claim-submission/claim-submission.route.ts'
 
 export const app = express()
 
@@ -329,6 +330,12 @@ app.use('/api/claim-review-decisions', reviewDecisionRouter)
 // A6.6 - the read-only canonical payload preview of an exact Claim, draft assessment and approval. No
 // create, update, delete, submit, send or payload-persistence route.
 app.use('/api/claims', claimPayloadRouter)
+
+// A6.7 - the immutable internal freeze (ClaimSubmission) of an approved, current canonical payload with its
+// evidence package (freeze, history, metadata read, evidence manifest read). No PATCH, PUT or DELETE, and no
+// send, retry, status or acknowledgement route.
+app.use('/api/claims', claimSubmissionRouter)
+app.use('/api/claim-submissions', frozenSubmissionRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

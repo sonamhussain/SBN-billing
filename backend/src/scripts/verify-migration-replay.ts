@@ -645,9 +645,11 @@ async function main() {
       )
     }
     // No other claim-line, claim-diagnosis, lifecycle, payload or submission table exists. The two A6.3
-    // pricing tables, the two A6.4 draft tables and the A6.5 review decision table are owned and verified by
-    // their own blocks below, so they are set aside here.
-    const claimTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table) && !/^claim_(pricing|draft|review)_/.test(table)))].sort()
+    // pricing tables, the two A6.4 draft tables, the A6.5 review decision table and the three A6.7 freeze
+    // tables are owned and verified by their own blocks below, so they are set aside here.
+    const claimTables = [
+      ...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table) && !/^claim_(pricing|draft|review)_/.test(table) && !/^claim_freeze/.test(table))),
+    ].sort()
     check(
       'the claim tables are exactly claims plus the four A6.2 tables after a clean replay',
       JSON.stringify(claimTables) === JSON.stringify(['claim_diagnoses', 'claim_line_diagnosis_pointers', 'claim_line_source_activities', 'claim_lines', 'claims']),
@@ -855,6 +857,94 @@ async function main() {
       'the A6.5 tables are exactly claim_review_events after a clean replay',
       JSON.stringify(reviewTables) === JSON.stringify(['claim_review_events']),
       reviewTables.join(', '),
+    )
+
+    // A6.7 — the immutable claim freeze (ClaimSubmission), its evidence package and ordered entries. The
+    // contracts, digest shapes, kind/role vocabulary, version and content-hash rules are held by the
+    // database; the insert guards recompute the payload digest, manifest digest and seal and refuse any
+    // reference outside the freeze's own lineage; completeness is checked at commit; all three tables are
+    // append-only. One freeze per approval, one package per freeze, one entry per ordinal.
+    for (const trigger of [
+      'claim_freezes_insert_guard_trg',
+      'claim_freezes_require_evidence_package_trg',
+      'claim_freezes_append_only_trg',
+      'claim_freeze_evidence_manifests_insert_guard_trg',
+      'claim_freeze_evidence_manifests_append_only_trg',
+      'claim_freeze_evidence_entries_insert_guard_trg',
+      'claim_freeze_evidence_entries_append_only_trg',
+    ]) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'claim_freezes_pkey',
+      'claim_freezes_contract_version_chk',
+      'claim_freezes_payload_schema_version_chk',
+      'claim_freezes_digest_shape_chk',
+      'claim_freezes_claim_id_fkey',
+      'claim_freezes_draft_assessment_id_fkey',
+      'claim_freezes_approval_review_event_id_fkey',
+      'claim_freezes_pricing_run_id_fkey',
+      'claim_freezes_created_by_user_id_fkey',
+      'claim_freeze_evidence_manifests_pkey',
+      'claim_freeze_evidence_manifests_contract_version_chk',
+      'claim_freeze_evidence_manifests_shape_chk',
+      'claim_freeze_evidence_manifests_claim_submission_id_fkey',
+      'claim_freeze_evidence_entries_pkey',
+      'claim_freeze_evidence_entries_ordinal_chk',
+      'claim_freeze_evidence_entries_kind_chk',
+      'claim_freeze_evidence_entries_role_chk',
+      'claim_freeze_evidence_entries_version_chk',
+      'claim_freeze_evidence_entries_content_hash_chk',
+      'claim_freeze_evidence_entries_evidence_package_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const freezeContract = replay.constraints.find((line) => line.includes('claim_freezes_contract_version_chk')) ?? ''
+    const manifestContract = replay.constraints.find((line) => line.includes('claim_freeze_evidence_manifests_contract_version_chk')) ?? ''
+    check(
+      'the A6.7 CHECKs pin A6-SUBMISSION-1 and A6-EVIDENCE-1 after a clean replay',
+      freezeContract.includes("'A6-SUBMISSION-1'") && manifestContract.includes("'A6-EVIDENCE-1'"),
+      `${freezeContract.slice(0, 100)} | ${manifestContract.slice(0, 100)}`,
+    )
+    check(
+      'one freeze per approval, one package per freeze and one entry per ordinal are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('claim_freezes_approval_review_event_id_key:') && /UNIQUE/i.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('claim_freeze_evidence_manifests_claim_submission_id_key:') && /UNIQUE/i.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('claim_freeze_evidence_entries_evidence_package_id_ordinal_key:') && /UNIQUE/i.test(line)),
+    )
+    const a67Columns: Record<string, string[]> = {
+      claim_freezes: [
+        'id',
+        'claim_id',
+        'draft_assessment_id',
+        'approval_review_event_id',
+        'pricing_run_id',
+        'submission_contract_version',
+        'payload_schema_version',
+        'approved_assembly_fingerprint',
+        'canonical_payload_bytes',
+        'payload_sha256',
+        'frozen_at',
+        'created_by_user_id',
+        'created_at',
+      ],
+      claim_freeze_evidence_manifests: ['id', 'claim_submission_id', 'manifest_contract_version', 'entry_count', 'manifest_bytes', 'manifest_sha256', 'package_seal_sha256', 'created_at'],
+      claim_freeze_evidence_entries: ['id', 'evidence_package_id', 'ordinal', 'reference_kind', 'reference_id', 'reference_version_id', 'content_hash', 'evidence_role', 'created_at'],
+    }
+    for (const [table, allowed] of Object.entries(a67Columns)) {
+      const columns = replay.columns.filter((line) => line.startsWith(`${table}.`)).map((line) => line.slice(table.length + 1).split(':')[0])
+      check(
+        `${table} carries exactly its ${allowed.length} A6.7 columns after a clean replay`,
+        columns.length === allowed.length && columns.every((column) => allowed.includes(column)),
+        columns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : columns.filter((column) => !allowed.includes(column)).join(', '),
+      )
+    }
+    const freezeTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim_freeze/.test(table)))].sort()
+    check(
+      'the A6.7 tables are exactly claim_freezes and its evidence manifest and entry tables after a clean replay',
+      JSON.stringify(freezeTables) === JSON.stringify(['claim_freeze_evidence_entries', 'claim_freeze_evidence_manifests', 'claim_freezes']),
+      freezeTables.join(', '),
     )
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
