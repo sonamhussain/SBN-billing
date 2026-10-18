@@ -30,13 +30,12 @@ export async function readOwnerVersionFacts(
   db: DbClient,
 ): Promise<OwnerVersionFacts> {
   const byIds = (list: string[]) => ({ id: { in: list } })
-  const [authorizations, artifacts, rules, sources, datasets] = await Promise.all([
-    ids.priorAuthorizationVersionIds.length > 0 ? db.priorAuthorizationVersion.findMany({ where: byIds(ids.priorAuthorizationVersionIds), select: { id: true, priorAuthorizationId: true } }) : [],
-    ids.evidenceArtifactVersionIds.length > 0 ? db.evidenceArtifactVersion.findMany({ where: byIds(ids.evidenceArtifactVersionIds), select: { id: true, evidenceArtifactId: true, contentHash: true } }) : [],
-    ids.ruleVersionIds.length > 0 ? db.ruleVersion.findMany({ where: byIds(ids.ruleVersionIds), select: { id: true, ruleId: true } }) : [],
-    ids.governingSourceVersionIds.length > 0 ? db.ruleSourceVersion.findMany({ where: byIds(ids.governingSourceVersionIds), select: { id: true, sourceId: true } }) : [],
-    ids.referenceDatasetVersionIds.length > 0 ? db.referenceDatasetVersion.findMany({ where: byIds(ids.referenceDatasetVersionIds), select: { id: true, datasetId: true } }) : [],
-  ])
+  // One query at a time: they all run on the caller's single transaction connection.
+  const authorizations = ids.priorAuthorizationVersionIds.length > 0 ? await db.priorAuthorizationVersion.findMany({ where: byIds(ids.priorAuthorizationVersionIds), select: { id: true, priorAuthorizationId: true } }) : []
+  const artifacts = ids.evidenceArtifactVersionIds.length > 0 ? await db.evidenceArtifactVersion.findMany({ where: byIds(ids.evidenceArtifactVersionIds), select: { id: true, evidenceArtifactId: true, contentHash: true } }) : []
+  const rules = ids.ruleVersionIds.length > 0 ? await db.ruleVersion.findMany({ where: byIds(ids.ruleVersionIds), select: { id: true, ruleId: true } }) : []
+  const sources = ids.governingSourceVersionIds.length > 0 ? await db.ruleSourceVersion.findMany({ where: byIds(ids.governingSourceVersionIds), select: { id: true, sourceId: true } }) : []
+  const datasets = ids.referenceDatasetVersionIds.length > 0 ? await db.referenceDatasetVersion.findMany({ where: byIds(ids.referenceDatasetVersionIds), select: { id: true, datasetId: true } }) : []
   return {
     priorAuthorizationOfVersion: new Map(authorizations.map((row) => [row.id, row.priorAuthorizationId])),
     evidenceArtifactOfVersion: new Map(artifacts.map((row) => [row.id, { evidenceArtifactId: row.evidenceArtifactId, contentHash: row.contentHash }])),

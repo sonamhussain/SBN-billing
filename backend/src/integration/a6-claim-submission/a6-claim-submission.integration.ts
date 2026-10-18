@@ -569,7 +569,10 @@ async function main() {
       UNION ALL SELECT 'entries', count(*) FROM claim_freeze_evidence_entries UNION ALL SELECT 'audits', count(*) FROM audit_events WHERE action_code = 'claim_submission.frozen'
       UNION ALL SELECT 'all_audits', count(*) FROM audit_events UNION ALL SELECT 'decisions', count(*) FROM claim_review_events UNION ALL SELECT 'claims', count(*) FROM claims
       UNION ALL SELECT 'lines', count(*) FROM claim_lines UNION ALL SELECT 'runs', count(*) FROM claim_pricing_runs UNION ALL SELECT 'assessments', count(*) FROM claim_draft_assessments`
-    return Object.fromEntries(rows.map((row) => [row.t, Number(row.n)])) as Record<string, number>
+    // PostgreSQL may run the UNION ALL as a Parallel Append, so the row order is not guaranteed: the
+    // object is always built in this fixed key order, so equal counts always compare equal.
+    const byName = new Map(rows.map((row) => [row.t, Number(row.n)]))
+    return Object.fromEntries(['freezes', 'packages', 'entries', 'audits', 'all_audits', 'decisions', 'claims', 'lines', 'runs', 'assessments'].map((name) => [name, byName.get(name) as number])) as Record<string, number>
   }
   const delta = (before: Record<string, number>, after: Record<string, number>) => Object.fromEntries(Object.keys(after).map((name) => [name, after[name] - before[name]]))
   const NOT_REFUSED = 'ROLLED_BACK'
@@ -711,7 +714,7 @@ async function main() {
   const W = await approved('worked example')
   const X = await approved('second example', { roles: ['PRIMARY', 'SECONDARY'] })
   const P = await approved('pending direct')
-  console.log('[A6.7]      fixtures ready: patient, AE-DU/DHA facility profile, clinician, masters, a verified AED tariff world, a synthetic reviewer Admin, the worked, second, pending and rich-evidence examples, and another tenant\'s approved Claim')
+  console.log('[A6.7]      fixtures ready: patient, AE-DU/DHA facility profile, clinician, masters, a verified AED tariff world, a synthetic reviewer Admin, the worked, second, pending and rich-evidence examples, and another tenant\'s reviewed Claim')
 
   // ---------------------------------------------------------------- request, authentication, ownership (T011–T020)
   section('Contracts, strict body, UUIDs, authentication and organization ownership')
