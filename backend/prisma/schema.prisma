@@ -1072,6 +1072,7 @@ model User {
   claimDraftAssessmentsCreated ClaimDraftAssessment[] @relation("ClaimDraftAssessmentCreatedBy")
   claimReviewDecisionsMade ClaimReviewEvent[] @relation("ClaimReviewEventReviewer")
   claimFreezesCreated ClaimFreeze[] @relation("ClaimFreezeCreatedBy")
+  claimFreezeLifecycleEventsRecorded ClaimFreezeLifecycleEvent[] @relation("ClaimFreezeLifecycleEventActor")
   @@unique([email])
   @@map("user")
 }
@@ -2150,6 +2151,7 @@ model ClaimFreeze {
   pricingRun       ClaimPricingRun              @relation(fields: [pricingRunId], references: [id], onDelete: Restrict)
   createdBy        User                         @relation("ClaimFreezeCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   evidenceManifest ClaimFreezeEvidenceManifest?
+  lifecycleEvents  ClaimFreezeLifecycleEvent[]
 
   @@index([claimId, frozenAt])
   @@index([draftAssessmentId])
@@ -2194,4 +2196,28 @@ model ClaimFreezeEvidenceEntry {
 
   @@unique([evidenceManifestId, ordinal])
   @@map("claim_freeze_evidence_entries")
+}
+
+// A6.8 — one append-only internal lifecycle event (A6-LIFECYCLE-1) of a frozen ClaimSubmission: an explicit,
+// typed PLACE_HOLD, RELEASE_HOLD, AUTHORIZE_RELEASE or WITHDRAW_INTERNAL decision at the next
+// submission-local sequence, by an authenticated person, at the database's own time. The current
+// disposition is derived from these events, never stored; an untouched freeze is FROZEN without a row.
+// Internal only: no send, payer status, acknowledgement or payment.
+model ClaimFreezeLifecycleEvent {
+  id                       String   @id @default(uuid()) @db.Uuid
+  claimFreezeId            String   @map("claim_submission_id") @db.Uuid
+  sequence                 Int
+  eventCode                String   @map("event_code") @db.Text
+  reasonCode               String?  @map("reason_code") @db.Text
+  actorUserId              String   @map("actor_user_id") @db.Uuid
+  occurredAt               DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  lifecycleContractVersion String   @map("lifecycle_contract_version") @db.Text
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  claimFreeze ClaimFreeze @relation(fields: [claimFreezeId], references: [id], onDelete: Restrict)
+  actor       User        @relation("ClaimFreezeLifecycleEventActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([claimFreezeId, sequence])
+  @@index([actorUserId])
+  @@map("claim_freeze_lifecycle_events")
 }

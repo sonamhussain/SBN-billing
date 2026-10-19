@@ -216,6 +216,11 @@ export const permissionCodes = [
   'claimFreeze.create',
   'claimFreeze.read',
   'claimFreezeEvidence.read',
+  // A6.8 - appending an internal lifecycle event (hold, release hold, authorize release, withdraw) to a
+  // frozen submission (Admin), and reading its history and derived disposition (Admin, Viewer). None of them
+  // sends anything or sets a payer state: A9 owns delivery.
+  'claimLifecycle.record',
+  'claimLifecycle.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

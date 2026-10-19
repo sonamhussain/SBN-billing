@@ -940,11 +940,56 @@ async function main() {
         columns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : columns.filter((column) => !allowed.includes(column)).join(', '),
       )
     }
-    const freezeTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim_freeze/.test(table)))].sort()
+    // The A6.8 lifecycle table belongs to claim_freezes but is owned and verified by its own block below.
+    const freezeTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim_freeze/.test(table) && !/^claim_freeze_lifecycle/.test(table)))].sort()
     check(
       'the A6.7 tables are exactly claim_freezes and its evidence manifest and entry tables after a clean replay',
       JSON.stringify(freezeTables) === JSON.stringify(['claim_freeze_evidence_entries', 'claim_freeze_evidence_manifests', 'claim_freezes']),
       freezeTables.join(', '),
+    )
+
+    // A6.8 — the append-only internal lifecycle events of a frozen submission. The contract, the four event
+    // codes, the positive sequence and the event/reason shape are held by the database; an event is recorded
+    // at the database's own time, at exactly the next submission-local sequence and only as a legal
+    // A6-LIFECYCLE-1 edge from the current disposition; the table is append-only and stores no state.
+    for (const trigger of ['claim_freeze_lifecycle_events_insert_guard_trg', 'claim_freeze_lifecycle_events_append_only_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'claim_freeze_lifecycle_events_pkey',
+      'claim_freeze_lifecycle_events_contract_version_chk',
+      'claim_freeze_lifecycle_events_event_code_chk',
+      'claim_freeze_lifecycle_events_sequence_chk',
+      'claim_freeze_lifecycle_events_reason_chk',
+      'claim_freeze_lifecycle_events_claim_submission_id_fkey',
+      'claim_freeze_lifecycle_events_actor_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const lifecycleContract = replay.constraints.find((line) => line.includes('claim_freeze_lifecycle_events_contract_version_chk')) ?? ''
+    const lifecycleEvents = replay.constraints.find((line) => line.includes('claim_freeze_lifecycle_events_event_code_chk')) ?? ''
+    check(
+      'the A6.8 CHECKs pin A6-LIFECYCLE-1 and exactly PLACE_HOLD, RELEASE_HOLD, AUTHORIZE_RELEASE and WITHDRAW_INTERNAL after a clean replay',
+      lifecycleContract.includes("'A6-LIFECYCLE-1'") && ['PLACE_HOLD', 'RELEASE_HOLD', 'AUTHORIZE_RELEASE', 'WITHDRAW_INTERNAL'].every((code) => lifecycleEvents.includes(`'${code}'`)) && !/SEND|SUBMIT|ACK|PAID/i.test(lifecycleEvents),
+      `${lifecycleContract.slice(0, 100)} | ${lifecycleEvents.slice(0, 160)}`,
+    )
+    check(
+      'one lifecycle event per sequence per frozen submission is unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('claim_freeze_lifecycle_events_claim_submission_id_sequence_key:') && /UNIQUE/i.test(line)),
+    )
+    const a68Columns = ['id', 'claim_submission_id', 'sequence', 'event_code', 'reason_code', 'actor_user_id', 'occurred_at', 'lifecycle_contract_version', 'created_at']
+    const lifecycleColumns = replay.columns.filter((line) => line.startsWith('claim_freeze_lifecycle_events.')).map((line) => line.slice('claim_freeze_lifecycle_events.'.length).split(':')[0])
+    check(
+      `claim_freeze_lifecycle_events carries exactly its ${a68Columns.length} A6.8 columns after a clean replay`,
+      lifecycleColumns.length === a68Columns.length && lifecycleColumns.every((column) => a68Columns.includes(column)),
+      lifecycleColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : lifecycleColumns.filter((column) => !a68Columns.includes(column)).join(', '),
+    )
+    const lifecycleTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /lifecycle/.test(table) && /^claim/.test(table)))].sort()
+    check(
+      'the A6.8 tables are exactly claim_freeze_lifecycle_events after a clean replay',
+      JSON.stringify(lifecycleTables) === JSON.stringify(['claim_freeze_lifecycle_events']),
+      lifecycleTables.join(', '),
     )
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
