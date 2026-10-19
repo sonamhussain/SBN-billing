@@ -645,10 +645,13 @@ async function main() {
       )
     }
     // No other claim-line, claim-diagnosis, lifecycle, payload or submission table exists. The two A6.3
-    // pricing tables, the two A6.4 draft tables, the A6.5 review decision table and the three A6.7 freeze
-    // tables are owned and verified by their own blocks below, so they are set aside here.
+    // pricing tables, the two A6.4 draft tables, the A6.5 review decision table, the A6.7/A6.8 freeze tables
+    // and the A6.9 correction link table are owned and verified by their own blocks below, so they are set
+    // aside here.
     const claimTables = [
-      ...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table) && !/^claim_(pricing|draft|review)_/.test(table) && !/^claim_freeze/.test(table))),
+      ...new Set(
+        replay.columns.map((line) => line.split('.')[0]).filter((table) => /^claim/.test(table) && !/^claim_(pricing|draft|review)_/.test(table) && !/^claim_freeze/.test(table) && !/^claim_correction/.test(table)),
+      ),
     ].sort()
     check(
       'the claim tables are exactly claims plus the four A6.2 tables after a clean replay',
@@ -990,6 +993,52 @@ async function main() {
       'the A6.8 tables are exactly claim_freeze_lifecycle_events after a clean replay',
       JSON.stringify(lifecycleTables) === JSON.stringify(['claim_freeze_lifecycle_events']),
       lifecycleTables.join(', '),
+    )
+
+    // A6.9 — append-only correction links between two freezes of one Claim. The contract, the controlled
+    // reason vocabulary and two distinct freezes are held by CHECKs; one prior and one correction per freeze
+    // by UNIQUE keys (no fork, no join); the insert guard holds database time, the same Claim, distinct draft
+    // assessments, strict chronology and growth at the chain's tail; the table is append-only.
+    for (const trigger of ['claim_correction_links_insert_guard_trg', 'claim_correction_links_append_only_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'claim_correction_links_pkey',
+      'claim_correction_links_contract_version_chk',
+      'claim_correction_links_reason_chk',
+      'claim_correction_links_distinct_chk',
+      'claim_correction_links_claim_id_fkey',
+      'claim_correction_links_prior_submission_id_fkey',
+      'claim_correction_links_corrected_submission_id_fkey',
+      'claim_correction_links_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const correctionContract = replay.constraints.find((line) => line.includes('claim_correction_links_contract_version_chk')) ?? ''
+    const correctionReasons = replay.constraints.find((line) => line.includes('claim_correction_links_reason_chk')) ?? ''
+    check(
+      'the A6.9 CHECKs pin A6-CORRECTION-1 and exactly the five controlled correction reasons after a clean replay',
+      correctionContract.includes("'A6-CORRECTION-1'") && ['CORRECTED_CODING', 'CORRECTED_SOURCE', 'CORRECTED_PRICING', 'CORRECTED_DOCUMENTATION', 'INTERNAL_OTHER'].every((code) => correctionReasons.includes(`'${code}'`)) && /IS NOT NULL/i.test(correctionReasons),
+      `${correctionContract.slice(0, 100)} | ${correctionReasons.slice(0, 160)}`,
+    )
+    check(
+      'one correction per prior freeze and one prior per corrected freeze are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('claim_correction_links_prior_submission_id_key:') && /UNIQUE/i.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('claim_correction_links_corrected_submission_id_key:') && /UNIQUE/i.test(line)),
+    )
+    const a69Columns = ['id', 'claim_id', 'prior_submission_id', 'corrected_submission_id', 'reason_code', 'recorded_by_user_id', 'recorded_at', 'contract_version', 'created_at']
+    const correctionColumns = replay.columns.filter((line) => line.startsWith('claim_correction_links.')).map((line) => line.slice('claim_correction_links.'.length).split(':')[0])
+    check(
+      `claim_correction_links carries exactly its ${a69Columns.length} A6.9 columns after a clean replay`,
+      correctionColumns.length === a69Columns.length && correctionColumns.every((column) => a69Columns.includes(column)),
+      correctionColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : correctionColumns.filter((column) => !a69Columns.includes(column)).join(', '),
+    )
+    const correctionTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /correction|successor|supersed|resubmi/.test(table)))].sort()
+    check(
+      'the A6.9 tables are exactly claim_correction_links after a clean replay',
+      JSON.stringify(correctionTables) === JSON.stringify(['claim_correction_links']),
+      correctionTables.join(', '),
     )
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
