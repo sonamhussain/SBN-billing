@@ -136,6 +136,10 @@ const HARNESS_DIR = 'backend/src/integration/a6-phase-closure'
 const HARNESS_FILE = `${HARNESS_DIR}/a6-phase-closure.integration.ts`
 const CLOSURE_DOC = 'docs/A6_Phase_Closure.md'
 const SCRIPT = 'node --env-file=.env src/integration/a6-phase-closure/a6-phase-closure.integration.ts'
+// The one owner-harness correction A6.10 carries: the A6.7/A6.8/A6.9 T006 replay count assumed the package's own
+// migration is never on main ("main + 1"), true only before its merge. A6.10 is the first package with no
+// migration, so it exposed it; each T006 now expects "main + 1" before its merge and "main" after it.
+const OWNER_HARNESS_CORRECTIONS = ['a6-claim-submission', 'a6-claim-lifecycle', 'a6-claim-correction'].map((name) => `backend/src/integration/${name}/${name}.integration.ts`)
 const A6_MODULES = ['claim', 'claim-line', 'claim-diagnosis', 'tariff-rate', 'claim-pricing', 'claim-draft', 'claim-review', 'claim-payload', 'claim-evidence', 'claim-submission', 'claim-lifecycle', 'claim-correction'].map((m) => `backend/src/modules/${m}`)
 const A6_OWNER_SCRIPTS = ['test:a6:claim-foundation', 'test:a6:claim-line-diagnosis', 'test:a6:claim-pricing', 'test:a6:claim-draft', 'test:a6:claim-review', 'test:a6:canonical-payload', 'test:a6:claim-submission', 'test:a6:claim-lifecycle', 'test:a6:claim-correction']
 // The A6 tables whose rows a refusal, a read or a rolled-back write must leave untouched. Always read in this
@@ -333,7 +337,7 @@ async function main() {
   const scripts = packageJson.scripts ?? {}
   const harnessCode = committedCode(HARNESS_FILE)
   const closureDoc = committedText(CLOSURE_DOC)
-  const a69Documented = ['T001', 'T004', 'T006', 'T010', 'T120', 'T130']
+  const a69Documented = ['T001', 'T004', 'T010', 'T120', 'T130']
   check(
     'T009',
     'Harness, owner suites and closure record',
@@ -1515,7 +1519,6 @@ async function main() {
   const a69NonApplicable: Record<string, string> = {
     T001: "A6.9 'Start gate' requires the A6.9 feature branch; A6.10 is branched from the main that contains the A6.9 merge (T001/T003 here)",
     T004: "A6.9 'Only the A6.9 migration' requires its branch to add its one migration; on A6.10 that migration is part of main and A6.10 adds none (T004 here)",
-    T006: "A6.9 'Migration replay' expects main's count plus its own one migration; on A6.10 its migration is already in main's count and the replay itself is clean (T126 here)",
     T010: "A6.9 'Diff scope' lists the paths A6.9 was allowed to change; A6.10 legitimately changes only its harness, script and closure record (T010 here)",
     T120: "A6.9 'Nested N/A causes proven' proves A6.8's causes against the A6.9 branch (its migration, diff and upstream); on A6.10 those proofs are re-done here (T120)",
     T130: "A6.9 'Exact head, repeatability, evidence' requires the upstream to be the A6.9 feature branch, deleted when it merged (exact head and repeatability are T130 here)",
@@ -1557,17 +1560,15 @@ async function main() {
   check('T119', 'A5.10 → A1 regression', verdictOf('T118') === 'PASS', `A6.9 T118 (A5.8–A5.10 and A1–A4) ${verdictOf('T118')}`)
   // Each documented A6.9 failure must fail for its branch-only reason, proved independently on this branch.
   const tracking = git('status -sb').split(/\r?\n/)[0]
-  const a610Allowed = (path: string) => path.startsWith(`${HARNESS_DIR}/`) || path === 'backend/package.json' || path === CLOSURE_DOC
+  const a610Allowed = (path: string) => path.startsWith(`${HARNESS_DIR}/`) || path === 'backend/package.json' || path === CLOSURE_DOC || OWNER_HARNESS_CORRECTIONS.includes(path)
   const outOfScope = changedPaths.filter((path) => !a610Allowed(path))
   const a69Unexpected = (lineOfRow('T010').match(/unexpected: (.*)$/) ?? ['', ''])[1].split(', ').filter(Boolean)
   const a69Migration = 'backend/prisma/migrations/20261019090000_a6_9_correction_resubmission_lineage/migration.sql'
-  const a69Applied = (lineOfRow('T006').match(/(\d+) migrations applied cleanly/) ?? [])[1]
   const unprovenA68 = (lineOfRow('T120').match(/cause not proven for: (.*)$/) ?? ['', ''])[1].split(', ').filter(Boolean)
   const replayOwn = run('npm run db:verify:replay')
   const causes: Record<string, boolean> = {
     T001: branch === a610Branch && a69Merge.length === 40 && gitOk(`merge-base --is-ancestor ${a69Merge} HEAD`) && laterCode.length === 0,
     T004: prismaChanged.length === 0 && headMigrations.some((dir) => a69Migration.startsWith(`${dir}/`)) && mainMigrations.some((dir) => a69Migration.startsWith(`${dir}/`)),
-    T006: replayOwn.ok && /ALL CHECKS PASS/.test(replayOwn.output) && Number(a69Applied) === mainMigrations.length && prismaChanged.length === 0,
     T010: a69Unexpected.length > 0 && a69Unexpected.every((path, index) => changedPaths.includes(path) || (index === a69Unexpected.length - 1 && changedPaths.some((p) => p.startsWith(path)))) && outOfScope.length === 0,
     // A6.9 re-proves A6.8's branch-only causes against the A6.9 branch; on A6.10 only those tied to the branch
     // (its migration, diff and upstream) can be unproven — re-proved here against this branch.
@@ -1655,11 +1656,14 @@ async function main() {
   const added = packageDiff.filter((line) => line.startsWith('+')).map((line) => line.slice(1).replace(/,$/, ''))
   const removed = packageDiff.filter((line) => line.startsWith('-')).map((line) => line.slice(1).replace(/,$/, ''))
   const packageOk = added.some((line) => line.trim() === `"test:a6:integration": "${SCRIPT}"`) && same(added.filter((line) => !line.includes('test:a6:integration')), removed)
+  // The owner-harness correction may touch only the T006 replay-count lines of those three suites.
+  const correctionLines = OWNER_HARNESS_CORRECTIONS.flatMap((path) => gitArgs(['diff', 'origin/main...HEAD', '--', `:/${path}`]).split(/\r?\n/).filter((line) => /^[+-][^+-]/.test(line)))
+  const correctionOk = correctionLines.every((line) => /mainMigrationDirs|mainMigrationCount|ownMigrationAdded|A6\.10 correction|Before its merge this branch adds|appliedCount === mainMigrationCount|migrations applied cleanly from empty/.test(line))
   check(
     'T010',
     'Diff scope',
-    changedPaths.length > 0 && outOfScope.length === 0 && productionChanged.length === 0 && packageOk,
-    outOfScope.length === 0 ? `${changedPaths.length} path(s): the A6.10 harness, one npm script and the closure record; no owner module, schema, route, permission or frontend file` : `unexpected: ${outOfScope.join(', ').slice(0, 220)}`,
+    changedPaths.length > 0 && outOfScope.length === 0 && productionChanged.length === 0 && packageOk && correctionOk,
+    !correctionOk ? `an owner harness changed beyond its T006 replay count: ${correctionLines.filter((line) => !/mainMigration|ownMigrationAdded|appliedCount|applied cleanly|A6\.10 correction|Before its merge/.test(line)).join(' | ').slice(0, 200)}` : outOfScope.length === 0 ? `${changedPaths.length} path(s): the A6.10 harness, one npm script, the closure record and the A6.7/A6.8/A6.9 T006 replay-count correction; no owner module, schema, route, permission or frontend file` : `unexpected: ${outOfScope.join(', ').slice(0, 220)}`,
   )
   const headSha = git('rev-parse HEAD')
   check(

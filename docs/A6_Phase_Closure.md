@@ -64,12 +64,22 @@ The A6.9 suite asserts facts about its own branch. On A6.10 these are obsolete b
 |---|---|
 | A6.9 T001 Start gate | requires the A6.9 feature branch |
 | A6.9 T004 Only the A6.9 migration | requires the branch to add its migration; it is now part of `main` |
-| A6.9 T006 Migration replay | expects main's count plus its own migration; that migration is now in main's count |
 | A6.9 T010 Diff scope | lists the paths A6.9 was allowed to change |
 | A6.9 T120 Nested N/A causes proven | proves A6.8's causes against the A6.9 branch |
 | A6.9 T130 Exact head | requires the deleted A6.9 upstream |
 
 Each owner suite keeps its own historical N/A list unchanged (A6.9 for A6.8, A6.8 for A6.7, and so on).
+
+## Owner-harness correction carried by A6.10
+
+The T006 "Migration replay" check of the A6.7, A6.8 and A6.9 suites asserted `applied = main + 1`: the package's
+own migration on top of main's. That holds only before the package merges. While the next package also added a
+migration the count matched by coincidence; A6.10 is the first package with no migration, so the first A6.10 run
+(127/130) showed A6.8 T006 and A6.7 T006 failing on every nested level and cascading into A6.9 T111/T112/T119.
+
+Each of the three T006 checks now expects `main + 1` while its migration is not yet on main and `main` once it
+is. Nothing else in those suites changed (A6.10 T010 verifies that only these lines differ); no product code,
+migration or other assertion changed. The replay itself was always clean.
 
 ## Migration checksum evidence
 
