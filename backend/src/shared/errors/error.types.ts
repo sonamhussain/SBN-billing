@@ -104,6 +104,12 @@ export const apiErrorCodes = [
   // A6.8: concurrent decisions kept conflicting, the history cannot be trusted, the database refused the
   // event, or the outcome could not be established; nothing (further) was recorded.
   'CLAIM_LIFECYCLE_CONFLICT',
+  // A6.9: the correction link is not allowed (fork, join, cycle, chronology, same draft assessment, a second
+  // chain, or a recorded pair with another reason); nothing was linked.
+  'CLAIM_CORRECTION_NOT_ALLOWED',
+  // A6.9: concurrent decisions kept conflicting, a history or freeze cannot be trusted, the database refused
+  // the link, or the outcome could not be established; nothing (further) was linked.
+  'CLAIM_CORRECTION_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

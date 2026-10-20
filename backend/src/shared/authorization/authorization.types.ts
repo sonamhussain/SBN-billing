@@ -221,6 +221,11 @@ export const permissionCodes = [
   // sends anything or sets a payer state: A9 owns delivery.
   'claimLifecycle.record',
   'claimLifecycle.read',
+  // A6.9 - recording an immutable correction link between two freezes of a Claim (Admin), and reading a
+  // Claim's correction history and one link (Admin, Viewer). None of them resubmits, sends or changes a
+  // freeze or its lifecycle.
+  'claimCorrection.link',
+  'claimCorrection.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

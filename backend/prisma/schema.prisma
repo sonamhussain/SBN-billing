@@ -1073,6 +1073,7 @@ model User {
   claimReviewDecisionsMade ClaimReviewEvent[] @relation("ClaimReviewEventReviewer")
   claimFreezesCreated ClaimFreeze[] @relation("ClaimFreezeCreatedBy")
   claimFreezeLifecycleEventsRecorded ClaimFreezeLifecycleEvent[] @relation("ClaimFreezeLifecycleEventActor")
+  claimCorrectionLinksRecorded ClaimCorrectionLink[] @relation("ClaimCorrectionRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1848,6 +1849,7 @@ model Claim {
   diagnoses                   ClaimDiagnosis[]
   reviewDecisions             ClaimReviewEvent[]
   freezes                     ClaimFreeze[]
+  correctionLinks             ClaimCorrectionLink[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -2152,6 +2154,8 @@ model ClaimFreeze {
   createdBy        User                         @relation("ClaimFreezeCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   evidenceManifest ClaimFreezeEvidenceManifest?
   lifecycleEvents  ClaimFreezeLifecycleEvent[]
+  correctedBy      ClaimCorrectionLink?        @relation("ClaimCorrectionPrior")
+  corrects         ClaimCorrectionLink?        @relation("ClaimCorrectionCorrected")
 
   @@index([claimId, frozenAt])
   @@index([draftAssessmentId])
@@ -2220,4 +2224,30 @@ model ClaimFreezeLifecycleEvent {
   @@unique([claimFreezeId, sequence])
   @@index([actorUserId])
   @@map("claim_freeze_lifecycle_events")
+}
+
+// A6.9 — one immutable correction link (A6-CORRECTION-1): an older A6.7 freeze of a Claim and the distinct,
+// later freeze of the same Claim that corrects it, with a controlled reason, the authenticated actor and the
+// database's own time. A traceability fact only: no edit, replacement, approval, resubmission or payer
+// event, and no change to either freeze or its A6.8 lifecycle. One linear chain per Claim: a freeze is the
+// prior of at most one link and the correction of at most one link. Append-only.
+model ClaimCorrectionLink {
+  id                    String   @id @default(uuid()) @db.Uuid
+  claimId               String   @map("claim_id") @db.Uuid
+  priorSubmissionId     String   @unique @map("prior_submission_id") @db.Uuid
+  correctedSubmissionId String   @unique @map("corrected_submission_id") @db.Uuid
+  reasonCode            String   @map("reason_code") @db.Text
+  recordedByUserId      String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt            DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  contractVersion       String   @map("contract_version") @db.Text
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  claim      Claim       @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  prior      ClaimFreeze @relation("ClaimCorrectionPrior", fields: [priorSubmissionId], references: [id], onDelete: Restrict)
+  corrected  ClaimFreeze @relation("ClaimCorrectionCorrected", fields: [correctedSubmissionId], references: [id], onDelete: Restrict)
+  recordedBy User        @relation("ClaimCorrectionRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([claimId])
+  @@index([recordedByUserId])
+  @@map("claim_correction_links")
 }
