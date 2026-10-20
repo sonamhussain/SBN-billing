@@ -72,7 +72,8 @@
     "test:a6:canonical-payload": "node --env-file=.env src/integration/a6-canonical-payload/a6-canonical-payload.integration.ts",
     "test:a6:claim-submission": "node --env-file=.env src/integration/a6-claim-submission/a6-claim-submission.integration.ts",
     "test:a6:claim-lifecycle": "node --env-file=.env src/integration/a6-claim-lifecycle/a6-claim-lifecycle.integration.ts",
-    "test:a6:claim-correction": "node --env-file=.env src/integration/a6-claim-correction/a6-claim-correction.integration.ts"
+    "test:a6:claim-correction": "node --env-file=.env src/integration/a6-claim-correction/a6-claim-correction.integration.ts",
+    "test:a6:integration": "node --env-file=.env src/integration/a6-phase-closure/a6-phase-closure.integration.ts"
   },
   "keywords": [],
   "author": "",
