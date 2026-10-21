@@ -77,9 +77,14 @@ own migration on top of main's. That holds only before the package merges. While
 migration the count matched by coincidence; A6.10 is the first package with no migration, so the first A6.10 run
 (127/130) showed A6.8 T006 and A6.7 T006 failing on every nested level and cascading into A6.9 T111/T112/T119.
 
-Each of the three T006 checks now expects `main + 1` while its migration is not yet on main and `main` once it
-is. Nothing else in those suites changed (A6.10 T010 verifies that only these lines differ); no product code,
-migration or other assertion changed. The replay itself was always clean.
+A6.10 first changed each T006 to expect `main + 1` before the package's merge and `main` after it (A6.10 T010
+verified that only these lines differed). That still assumed every later branch adds no migration: the first
+later package with a migration (A7.1) would replay `main + 1` and fail again.
+
+Corrective PR after A6.10: each of the three T006 checks now expects the replay to apply exactly every migration
+committed at HEAD, its own migration included. That is true on the package's own branch, after its merge, and on
+any later branch with or without a migration (A6.9's own head, A6.10 and current `main` each hold 53). No product
+code, migration or other assertion changed; the replay itself was always clean.
 
 ## Migration checksum evidence
 
