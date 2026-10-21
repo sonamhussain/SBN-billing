@@ -87,6 +87,7 @@ import { claimPayloadRouter } from './modules/claim-payload/claim-payload.route.
 import { claimSubmissionRouter, frozenSubmissionRouter } from './modules/claim-submission/claim-submission.route.ts'
 import { claimLifecycleRouter } from './modules/claim-lifecycle/claim-lifecycle.route.ts'
 import { claimCorrectionRouter, correctionLinkRouter } from './modules/claim-correction/claim-correction.route.ts'
+import { revenueEvidenceRouter, submissionRevenueEvidenceRouter } from './modules/revenue-evidence/revenue-evidence.route.ts'
 
 export const app = express()
 
@@ -347,6 +348,11 @@ app.use('/api/claim-submissions', claimLifecycleRouter)
 // PATCH or PUT, and no resubmit, send, transport or payer-response route.
 app.use('/api/claims', claimCorrectionRouter)
 app.use('/api/claim-correction-links', correctionLinkRouter)
+
+// A7.1 - immutable revenue source evidence for a frozen submission (register, history, read). No DELETE, PATCH
+// or PUT, and no payment, posting, remittance, denial, adjudication or send route.
+app.use('/api/claim-submissions', submissionRevenueEvidenceRouter)
+app.use('/api/revenue-source-evidence', revenueEvidenceRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

@@ -1041,6 +1041,52 @@ async function main() {
       correctionTables.join(', '),
     )
 
+    // A7.1 — append-only revenue source evidence for exact frozen submissions. The contract, the one accepted
+    // kind (INTERNAL_SYNTHETIC), the opaque reference shape and the absent digest are held by CHECKs; the stable
+    // identity by a UNIQUE index; the insert guard holds database time and the owning organization; the table is
+    // append-only. No amount, payer, status or remittance column or table exists.
+    for (const trigger of ['revenue_source_evidence_insert_guard_trg', 'revenue_source_evidence_append_only_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'revenue_source_evidence_pkey',
+      'revenue_source_evidence_version_chk',
+      'revenue_source_evidence_kind_chk',
+      'revenue_source_evidence_reference_chk',
+      'revenue_source_evidence_digest_chk',
+      'revenue_source_evidence_organization_id_fkey',
+      'revenue_source_evidence_claim_submission_id_fkey',
+      'revenue_source_evidence_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const revenueVersion = replay.constraints.find((line) => line.includes('revenue_source_evidence_version_chk')) ?? ''
+    const revenueKind = replay.constraints.find((line) => line.includes('revenue_source_evidence_kind_chk')) ?? ''
+    const revenueDigest = replay.constraints.find((line) => line.includes('revenue_source_evidence_digest_chk')) ?? ''
+    check(
+      'the A7.1 CHECKs pin A7-REVENUE-SOURCE-1, INTERNAL_SYNTHETIC only and no source digest after a clean replay',
+      revenueVersion.includes("'A7-REVENUE-SOURCE-1'") && revenueKind.includes("'INTERNAL_SYNTHETIC'") && !revenueKind.includes('EXTERNAL_VERIFIED') && /IS NOT NULL/i.test(revenueKind) && /source_digest_sha256 IS NULL/i.test(revenueDigest),
+      `${revenueVersion.slice(0, 100)} | ${revenueKind.slice(0, 100)} | ${revenueDigest.slice(0, 80)}`,
+    )
+    check(
+      'one registration per submission, kind, reference and contract is unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('revenue_source_evidence_identity_key:') && /UNIQUE/i.test(line) && /claim_submission_id, source_kind, source_reference, source_version/.test(line)),
+    )
+    const a71Columns = ['id', 'organization_id', 'claim_submission_id', 'source_kind', 'source_reference', 'source_version', 'source_digest_sha256', 'received_at', 'recorded_by_user_id', 'created_at']
+    const revenueColumns = replay.columns.filter((line) => line.startsWith('revenue_source_evidence.')).map((line) => line.slice('revenue_source_evidence.'.length).split(':')[0])
+    check(
+      `revenue_source_evidence carries exactly its ${a71Columns.length} A7.1 columns after a clean replay`,
+      revenueColumns.length === a71Columns.length && revenueColumns.every((column) => a71Columns.includes(column)),
+      revenueColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : revenueColumns.filter((column) => !a71Columns.includes(column)).join(', '),
+    )
+    const revenueTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /revenue|remittance|payment|receivable|adjudicat|denial|settlement|posting/.test(table)))].sort()
+    check(
+      'the A7.1 tables are exactly revenue_source_evidence after a clean replay',
+      JSON.stringify(revenueTables) === JSON.stringify(['revenue_source_evidence']),
+      revenueTables.join(', '),
+    )
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration
