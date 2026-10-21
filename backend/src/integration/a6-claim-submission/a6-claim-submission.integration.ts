@@ -309,12 +309,16 @@ async function main() {
     /PASS {2}the claim tables are exactly claims plus the four A6\.2 tables/,
   ]
   const appliedCount = Number((replay.output.match(/(\d+) migrations applied cleanly/) ?? [])[1] ?? -1)
-  const mainMigrationCount = git('ls-tree -d --name-only --full-tree origin/main backend/prisma/migrations/').split(/\r?\n/).filter((line) => /\/\d{14}_/.test(line)).length
+  const mainMigrationDirs = git('ls-tree -d --name-only --full-tree origin/main backend/prisma/migrations/').split(/\r?\n/).filter((line) => /\/\d{14}_/.test(line))
+  const mainMigrationCount = mainMigrationDirs.length
+  // Before its merge this branch adds the A6.7 migration to main's; after the merge it is part of main's count
+  // (A6.10 correction: a later package that adds no migration replays exactly main's).
+  const ownMigrationAdded = mainMigrationDirs.some((dir) => MIGRATION.startsWith(`${dir}/`)) ? 0 : 1
   check(
     'T006',
     'Migration replay',
-    replay.ok && /ALL CHECKS PASS/.test(replay.output) && replayExpected.every((pattern) => pattern.test(replay.output)) && appliedCount === mainMigrationCount + 1,
-    `${appliedCount} migrations applied cleanly from empty — main's ${mainMigrationCount} plus the one A6.7 migration; every A6.2–A6.7 table, constraint and guard survives`,
+    replay.ok && /ALL CHECKS PASS/.test(replay.output) && replayExpected.every((pattern) => pattern.test(replay.output)) && appliedCount === mainMigrationCount + ownMigrationAdded,
+    `${appliedCount} migrations applied cleanly from empty — main's ${mainMigrationCount}${ownMigrationAdded ? ' plus the one A6.7 migration' : ', which already holds the A6.7 migration'}; every A6.2–A6.7 table, constraint and guard survives`,
   )
   const allCodes = (await prisma.permission.findMany({ select: { code: true } })).map((row) => row.code)
   const grantsOf = async (code: string) => (await prisma.rolePermission.findMany({ where: { permission: { code } }, select: { role: { select: { code: true } } } })).map((g) => g.role.code).sort().join(',')
