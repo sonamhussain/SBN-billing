@@ -32,6 +32,7 @@ model Organization {
   providerContracts ProviderContract[]
   patients          Patient[]
   evidenceArtifacts EvidenceArtifact[]
+  revenueSourceEvidence RevenueSourceEvidence[]
 
   @@map("organizations")
 }
@@ -1074,6 +1075,7 @@ model User {
   claimFreezesCreated ClaimFreeze[] @relation("ClaimFreezeCreatedBy")
   claimFreezeLifecycleEventsRecorded ClaimFreezeLifecycleEvent[] @relation("ClaimFreezeLifecycleEventActor")
   claimCorrectionLinksRecorded ClaimCorrectionLink[] @relation("ClaimCorrectionRecordedBy")
+  revenueSourceEvidenceRecorded RevenueSourceEvidence[] @relation("RevenueSourceEvidenceRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -2156,6 +2158,7 @@ model ClaimFreeze {
   lifecycleEvents  ClaimFreezeLifecycleEvent[]
   correctedBy      ClaimCorrectionLink?        @relation("ClaimCorrectionPrior")
   corrects         ClaimCorrectionLink?        @relation("ClaimCorrectionCorrected")
+  revenueSourceEvidence RevenueSourceEvidence[]
 
   @@index([claimId, frozenAt])
   @@index([draftAssessmentId])
@@ -2250,4 +2253,32 @@ model ClaimCorrectionLink {
   @@index([claimId])
   @@index([recordedByUserId])
   @@map("claim_correction_links")
+}
+
+// A7.1 — one immutable revenue source evidence registration (A7-REVENUE-SOURCE-1): which source evidence was
+// registered for which exact A6.7 frozen submission, of which controlled kind and opaque reference, by whom
+// and when (database time). Provenance only: it asserts no amount, no payer adjudication, no receipt of cash
+// and no claim status, and it never changes the freeze, its lifecycle or its correction lineage. In A7.1 the
+// only kind is INTERNAL_SYNTHETIC and no source digest exists (no trusted source bytes exist yet). Identity:
+// (submission, kind, reference, contract version). Append-only.
+model RevenueSourceEvidence {
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @map("organization_id") @db.Uuid
+  claimSubmissionId  String   @map("claim_submission_id") @db.Uuid
+  sourceKind         String   @map("source_kind") @db.Text
+  sourceReference    String   @map("source_reference") @db.Text
+  sourceVersion      String   @map("source_version") @db.Text
+  sourceDigestSha256 String?  @map("source_digest_sha256") @db.Char(64)
+  receivedAt         DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  recordedByUserId   String   @map("recorded_by_user_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claimSubmission ClaimFreeze  @relation(fields: [claimSubmissionId], references: [id], onDelete: Restrict)
+  recordedBy      User         @relation("RevenueSourceEvidenceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([claimSubmissionId, sourceKind, sourceReference, sourceVersion], map: "revenue_source_evidence_identity_key")
+  @@index([organizationId])
+  @@index([recordedByUserId])
+  @@map("revenue_source_evidence")
 }

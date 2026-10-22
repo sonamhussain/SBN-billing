@@ -110,6 +110,9 @@ export const apiErrorCodes = [
   // A6.9: concurrent decisions kept conflicting, a history or freeze cannot be trusted, the database refused
   // the link, or the outcome could not be established; nothing (further) was linked.
   'CLAIM_CORRECTION_CONFLICT',
+  // A7.1: concurrent registrations kept conflicting, the frozen submission cannot be trusted, the database
+  // refused the registration, or the outcome could not be established; nothing (further) was registered.
+  'REVENUE_EVIDENCE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

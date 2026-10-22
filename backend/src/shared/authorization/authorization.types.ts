@@ -226,6 +226,11 @@ export const permissionCodes = [
   // freeze or its lifecycle.
   'claimCorrection.link',
   'claimCorrection.read',
+  // A7.1 - registering immutable revenue source evidence for a frozen submission (Admin), and reading a
+  // submission's registrations and one registration (Admin, Viewer). None of them asserts an amount, a payer
+  // verdict, a payment or a status, or changes a freeze, its lifecycle or its correction lineage.
+  'revenueEvidence.create',
+  'revenueEvidence.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
