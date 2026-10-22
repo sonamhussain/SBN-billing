@@ -103,7 +103,8 @@ CREATE TRIGGER revenue_source_evidence_insert_guard_trg
   BEFORE INSERT ON "revenue_source_evidence"
   FOR EACH ROW EXECUTE FUNCTION revenue_source_evidence_insert_guard();
 
--- §3/§4 — a registration is evidence: never updated (not even a no-op update) and never deleted.
+-- §3/§4 — a registration is evidence: never updated (not even a no-op update), never deleted and never wiped
+-- in bulk.
 CREATE OR REPLACE FUNCTION revenue_source_evidence_append_only()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -115,6 +116,12 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER revenue_source_evidence_append_only_trg
   BEFORE UPDATE OR DELETE ON "revenue_source_evidence"
   FOR EACH ROW EXECUTE FUNCTION revenue_source_evidence_append_only();
+
+-- TRUNCATE removes rows without firing row-level DELETE triggers, so it gets its own statement-level refusal
+-- (this also stops a TRUNCATE ... CASCADE from a referenced table from wiping the evidence).
+CREATE TRIGGER revenue_source_evidence_no_truncate_trg
+  BEFORE TRUNCATE ON "revenue_source_evidence"
+  FOR EACH STATEMENT EXECUTE FUNCTION revenue_source_evidence_append_only();
 
 -- There is deliberately no status, verified flag, amount, currency, payer, denial, remittance, external time,
 -- current or latest pointer, and no new column on claim_freezes.

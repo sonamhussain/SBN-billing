@@ -264,6 +264,7 @@ async function main() {
     /PASS {2}the A7\.1 tables are exactly revenue_source_evidence/,
     /PASS {2}revenue_source_evidence_insert_guard_trg is present after a clean replay/,
     /PASS {2}revenue_source_evidence_append_only_trg is present after a clean replay/,
+    /PASS {2}revenue_source_evidence_no_truncate_trg is present after a clean replay/,
     /PASS {2}the A7\.1 CHECKs pin A7-REVENUE-SOURCE-1, INTERNAL_SYNTHETIC only and no source digest/,
     /PASS {2}one registration per submission, kind, reference and contract is unique/,
     /PASS {2}the A6\.9 tables are exactly claim_correction_links/,
@@ -765,11 +766,31 @@ async function main() {
     await attemptAdversarial(() => prisma.$executeRawUnsafe(`DELETE FROM ${TABLE} WHERE id = $1::uuid`, rowR1.id)),
   ]
   check('T059', 'No update or delete', updates.every((message) => /is append-only/.test(message)), 'UPDATE (even a no-op) and DELETE are refused')
+  // TRUNCATE removes rows without firing row-level triggers; it has its own statement-level guard. The whole
+  // table is hashed before and after, so "refused" also means "nothing changed".
+  const tableHash = async () => {
+    const row = (await prisma.$queryRaw<{ n: bigint; h: string }[]>`SELECT count(*) AS n, encode(sha256(convert_to(coalesce(string_agg(row_to_json(r)::text, '|' ORDER BY r.id), ''), 'UTF8')), 'hex') AS h FROM revenue_source_evidence r`)[0]
+    return { n: Number(row.n), h: row.h }
+  }
+  const truncateTrigger = (await prisma.$queryRaw<{ def: string }[]>`SELECT pg_get_triggerdef(oid) AS def FROM pg_trigger WHERE tgrelid = 'revenue_source_evidence'::regclass AND tgname = 'revenue_source_evidence_no_truncate_trg'`)[0]?.def ?? ''
+  const beforeTruncate = await tableHash()
   const truncate = await attemptAdversarial(() => prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`TRUNCATE ${TABLE}`)
     throw new Error(NOT_REFUSED)
   }))
-  check('T060', 'No bulk wipe', refusedBy(truncate, /is append-only/) && (await prisma.revenueSourceEvidence.count({ where: { id: rowR1.id } })) === 1, 'TRUNCATE (which bypasses row triggers) is refused by its own statement guard')
+  const truncateCascade = await attemptAdversarial(() => prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`TRUNCATE ${TABLE} CASCADE`)
+    throw new Error(NOT_REFUSED)
+  }))
+  const afterTruncate = await tableHash()
+  check(
+    'T060',
+    'No bulk wipe',
+    refusedBy(truncate, /revenue_source_evidence is append-only: TRUNCATE is not permitted/) && refusedBy(truncateCascade, /is append-only: TRUNCATE/) &&
+      /^CREATE TRIGGER revenue_source_evidence_no_truncate_trg BEFORE TRUNCATE ON public\.revenue_source_evidence FOR EACH STATEMENT EXECUTE FUNCTION revenue_source_evidence_append_only\(\)$/.test(truncateTrigger) &&
+      beforeTruncate.n > 0 && same(afterTruncate, beforeTruncate),
+    `TRUNCATE and TRUNCATE … CASCADE (which bypass row triggers) are refused by the statement-level BEFORE TRUNCATE guard; all ${beforeTruncate.n} rows are byte-identical afterwards`,
+  )
 
   // ---------------------------------------------------------------- atomicity (T061–T070)
   section('Atomicity: one row and one audit, crash after row, crash after audit, retry, confirmed replay')

@@ -1045,7 +1045,7 @@ async function main() {
     // kind (INTERNAL_SYNTHETIC), the opaque reference shape and the absent digest are held by CHECKs; the stable
     // identity by a UNIQUE index; the insert guard holds database time and the owning organization; the table is
     // append-only. No amount, payer, status or remittance column or table exists.
-    for (const trigger of ['revenue_source_evidence_insert_guard_trg', 'revenue_source_evidence_append_only_trg']) {
+    for (const trigger of ['revenue_source_evidence_insert_guard_trg', 'revenue_source_evidence_append_only_trg', 'revenue_source_evidence_no_truncate_trg']) {
       check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
     }
     for (const name of [
