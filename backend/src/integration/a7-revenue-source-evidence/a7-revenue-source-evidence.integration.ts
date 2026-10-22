@@ -727,7 +727,7 @@ async function main() {
   const before48 = await counts()
   const five = await Promise.all([1, 2, 3, 4, 5].map(() => register(Q.freezes[0], ref('RACE-5'))))
   const d48 = delta(before48, await counts())
-  check('T048', 'Five at once', five.filter((r) => r.status === 201).length === 1 && five.filter((r) => r.status === 200).length === 4 && five.every((r) => same(r.body, five[0].body)) && d48.revenue_source_evidence === 1 && d48.audit_events === 1, `five simultaneous identical registrations: one 201, four 200, one record and one audit`)
+  check('T048', 'Five at once', five.filter((r) => r.status === 201).length === 1 && five.filter((r) => r.status === 200).length === 4 && five.every((r) => same(r.body, five[0].body)) && d48.revenue_source_evidence === 1 && d48.audit_events === 1, `five simultaneous identical registrations: ${five.map((r) => (r.status >= 300 ? `${r.status} ${errorCode(r.body) ?? ''}`.trim() : r.status)).join('/')}; ${d48.revenue_source_evidence} record and ${d48.audit_events} audit`)
   const hold49 = holdAt('revenueEvidence.inserted')
   const first49 = registerRevenueSourceEvidence(Q.freezes[1], { sourceKind: SYNTHETIC, sourceReference: ref('HELD') }, creatorId)
   await Promise.race([hold49.arrived, first49])
@@ -882,8 +882,8 @@ async function main() {
   check(
     'T076',
     'Bounded retry',
-    /const MAX_REGISTRATION_ATTEMPTS = 3/.test(serviceCode) && /const MAX_LOCK_WAITS = 5/.test(serviceCode) && /P2034/.test(serviceCode) && /40001/.test(serviceCode) && /isUniqueViolation\(error\)/.test(serviceCode),
-    'serialization, deadlock and unique races retry at most three times on a fresh transaction (re-reading the replay); a busy Claim is waited for at most five times',
+    /const MAX_REGISTRATION_ATTEMPTS = 3/.test(serviceCode) && /const LOCK_WAIT_BUDGET_MS = 30_000/.test(serviceCode) && /await pauseAfterLockWait\(\)/.test(serviceCode) && /P2034/.test(serviceCode) && /40001/.test(serviceCode) && /isUniqueViolation\(error\)/.test(serviceCode),
+    'serialization, deadlock and unique races retry at most three times on a fresh transaction (re-reading the replay); a busy Claim is waited for within a 30-second budget, with a short random pause so released waiters do not starve each other',
   )
   check(
     'T077',

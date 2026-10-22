@@ -57,8 +57,12 @@ function refuse(code: RevenueEvidenceErrorCode, message: string): never {
 const invalid = (message: string): RevenueEvidenceResult<never> => ({ ok: false, code: 'VALIDATION_ERROR', message })
 
 const MAX_REGISTRATION_ATTEMPTS = 3
-// Waiting for a busy Claim is not a conflict: the request starts again once the writer has finished.
-const MAX_LOCK_WAITS = 5
+// Waiting for a busy Claim is not a conflict: the request starts again once the writer has finished. The waits
+// are bounded by time, not by a small count: several identical requests released together would otherwise keep
+// taking the lock from one another and give up within milliseconds although the Claim was never really busy. A
+// short random pause after each wait breaks that lock-step; it changes timing only, never an outcome.
+const LOCK_WAIT_BUDGET_MS = 30_000
+const pauseAfterLockWait = () => new Promise((resolve) => setTimeout(resolve, 5 + Math.floor(Math.random() * 20)))
 
 // Postgres reports a serialization failure (40001) when this transaction's snapshot was overtaken by a
 // competing writer (Prisma: P2034); a deadlock is retried the same way, on a fresh transaction.
@@ -167,7 +171,7 @@ export async function registerRevenueSourceEvidence(submissionId: string, body: 
   const owner = await findSubmissionForRevenueEvidence(id, prisma)
   if (!owner) return { ok: false, code: 'NOT_FOUND', message: 'claim submission not found' }
 
-  let lockWaits = 0
+  const waitingSince = Date.now()
   for (let attempt = 1; ; ) {
     try {
       const value = await prisma.$transaction((tx) => registerOnTransaction(owner, id, validated.value, actorUserId, tx), {
@@ -179,9 +183,9 @@ export async function registerRevenueSourceEvidence(submissionId: string, body: 
     } catch (error) {
       if (error instanceof RevenueEvidenceRefusal) return { ok: false, code: error.code, message: error.message }
       if (isLockUnavailable(error)) {
-        lockWaits += 1
-        if (lockWaits > MAX_LOCK_WAITS) return { ok: false, code: 'REVENUE_EVIDENCE_CONFLICT', message: 'the claim stayed busy with other changes; nothing was registered' }
+        if (Date.now() - waitingSince > LOCK_WAIT_BUDGET_MS) return { ok: false, code: 'REVENUE_EVIDENCE_CONFLICT', message: 'the claim stayed busy with other changes; nothing was registered' }
         await waitForClaimLock(owner.claimId)
+        await pauseAfterLockWait()
         continue
       }
       if (isWriteConflict(error) || isUniqueViolation(error)) {
