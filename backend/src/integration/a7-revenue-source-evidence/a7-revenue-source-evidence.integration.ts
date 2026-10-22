@@ -974,7 +974,19 @@ async function main() {
   check('T105', 'No verified path', /return \{ ok: true, value: \{ sourceKind: REVENUE_SOURCE_KIND_SYNTHETIC/.test(validationCode) && /acceptedRevenueSourceKinds = \[REVENUE_SOURCE_KIND_SYNTHETIC\] as const/.test(committedCode(`${MODULE_DIR}/revenue-evidence.types.ts`)), 'the only accepted kind in code is INTERNAL_SYNTHETIC; EXTERNAL_VERIFIED has no acceptance path')
   check('T106', 'No later-phase routes', absent.every((res) => res.status === 404), 'verify, payment, remittance, posting and balance routes do not exist (T008)')
   const jobsChanged = changedPaths.filter((file) => /^backend\/src\/jobs\//.test(file))
-  check('T107', 'No job or worker', jobsChanged.length === 0 && !/setInterval|setTimeout|worker|cron/i.test(production.code), 'A7.1 registers no job, worker, timer or schedule')
+  // Judged on behaviour, not vocabulary: an awaited in-request pause (`await new Promise((resolve) => setTimeout(
+  // resolve, …))`, the lock-wait jitter) is not background work. Any other timer, interval, schedule, worker or
+  // jobs-runner wiring is.
+  const awaitedPause = /new Promise\(\(resolve\) => setTimeout\(resolve, [^\n]*/g
+  const awaitedPauses = production.code.match(awaitedPause) ?? []
+  const backgroundWork = production.code.replace(awaitedPause, '')
+  const jobsWiring = [...committedFiles('backend/src/jobs')].filter((file) => /\.ts$/.test(file)).some((file) => /revenue/i.test(file) || /revenue/i.test(committedCode(file)))
+  check(
+    'T107',
+    'No job or worker',
+    jobsChanged.length === 0 && !jobsWiring && !/setInterval|setTimeout|setImmediate|worker_threads|\bnew Worker\(|cron|schedule\(/i.test(backgroundWork) && awaitedPauses.length === 1 && /await pauseAfterLockWait\(\)/.test(serviceCode),
+    `A7.1 registers no job, worker, interval, background timer or schedule; its only timer is the awaited in-request lock-wait pause (${awaitedPauses.length})`,
+  )
   const fiction = await prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM revenue_source_evidence WHERE source_kind <> 'INTERNAL_SYNTHETIC' OR source_digest_sha256 IS NOT NULL`
   check('T108', 'No real-evidence fiction', Number(fiction[0].n) === 0, 'every registration in the database is INTERNAL_SYNTHETIC with no digest: nothing pretends to be verified payer evidence')
   const a6Columns = await prisma.$queryRaw<{ t: string; n: bigint }[]>`SELECT table_name AS t, count(*) AS n FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('claims', 'claim_freezes') GROUP BY 1 ORDER BY 1`
