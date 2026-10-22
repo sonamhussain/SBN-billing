@@ -113,6 +113,12 @@ export const apiErrorCodes = [
   // A7.1: concurrent registrations kept conflicting, the frozen submission cannot be trusted, the database
   // refused the registration, or the outcome could not be established; nothing (further) was registered.
   'REVENUE_EVIDENCE_CONFLICT',
+  // A7.2: a claim of external verification without an authenticated source proof; nothing was classified.
+  'EVIDENCE_CLASSIFICATION_NOT_ALLOWED',
+  // A7.2: a recorded classification disagrees with its re-derivation, concurrent classifications kept
+  // conflicting, the database refused the classification, or the outcome could not be established; nothing
+  // (further) was classified.
+  'EVIDENCE_CLASSIFICATION_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

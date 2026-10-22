@@ -158,6 +158,8 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'claimCorrection.read', name: 'Read Claim Correction Links' },
   { code: 'revenueEvidence.create', name: 'Register Revenue Source Evidence' },
   { code: 'revenueEvidence.read', name: 'Read Revenue Source Evidence' },
+  { code: 'evidenceClassification.create', name: 'Classify Revenue Source Evidence' },
+  { code: 'evidenceClassification.read', name: 'Read Revenue Evidence Classifications' },
 ]
 
 const roleCatalogue = [
@@ -320,12 +322,14 @@ const roleCatalogue = [
       'claimCorrection.read',
       'revenueEvidence.create',
       'revenueEvidence.read',
+      'evidenceClassification.create',
+      'evidenceClassification.read',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read', 'rule_resolution.read', 'rule_pack.read', 'patient.read', 'clinicianAssignment.read', 'insuranceMembership.read', 'encounter.read', 'encounterDiagnosis.read', 'encounterActivity.read', 'encounterObservation.read', 'encounterBillingContext.read', 'evidenceArtifact.read', 'eligibilityVerification.read', 'priorAuthorization.read', 'authorizationLine.read', 'authorizationLine.evaluate', 'preClaimCommercialContext.read', 'evidenceRequirement.read', 'encounterEvidence.read', 'evidenceCompleteness.evaluate', 'validationRun.read', 'preClaimReadiness.read', 'preClaimA6Handoff.read', 'claim.read', 'claimLine.read', 'claimDiagnosis.read', 'tariffRate.read', 'claimPricing.read', 'claimDraft.read', 'claimReview.read', 'claimFreeze.read', 'claimLifecycle.read', 'claimCorrection.read', 'revenueEvidence.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read', 'rule_resolution.read', 'rule_pack.read', 'patient.read', 'clinicianAssignment.read', 'insuranceMembership.read', 'encounter.read', 'encounterDiagnosis.read', 'encounterActivity.read', 'encounterObservation.read', 'encounterBillingContext.read', 'evidenceArtifact.read', 'eligibilityVerification.read', 'priorAuthorization.read', 'authorizationLine.read', 'authorizationLine.evaluate', 'preClaimCommercialContext.read', 'evidenceRequirement.read', 'encounterEvidence.read', 'evidenceCompleteness.evaluate', 'validationRun.read', 'preClaimReadiness.read', 'preClaimA6Handoff.read', 'claim.read', 'claimLine.read', 'claimDiagnosis.read', 'tariffRate.read', 'claimPricing.read', 'claimDraft.read', 'claimReview.read', 'claimFreeze.read', 'claimLifecycle.read', 'claimCorrection.read', 'revenueEvidence.read', 'evidenceClassification.read'],
   },
 ] as const
 

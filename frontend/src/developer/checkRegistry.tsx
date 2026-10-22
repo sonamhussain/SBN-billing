@@ -55,6 +55,7 @@ import ClaimSubmissionCheck from '../modules/claim-submission/ClaimSubmissionChe
 import ClaimLifecycleCheck from '../modules/claim-lifecycle/ClaimLifecycleCheck.tsx'
 import ClaimCorrectionCheck from '../modules/claim-correction/ClaimCorrectionCheck.tsx'
 import RevenueEvidenceCheck from '../modules/revenue-evidence/RevenueEvidenceCheck.tsx'
+import EvidenceClassificationCheck from '../modules/evidence-classification/EvidenceClassificationCheck.tsx'
 
 // FE-01 — every existing engineering check, moved unchanged from the former Development Check page.
 // Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4 -> A5. A new backend *Check is registered
@@ -123,4 +124,5 @@ export const developerChecks: DeveloperCheck[] = [
   { key: 'claim-lifecycle', label: 'Internal claim lifecycle', Component: ClaimLifecycleCheck },
   { key: 'claim-correction', label: 'Claim correction lineage', Component: ClaimCorrectionCheck },
   { key: 'revenue-evidence', label: 'Revenue source evidence', Component: RevenueEvidenceCheck },
+  { key: 'evidence-classification', label: 'Evidence classification', Component: EvidenceClassificationCheck },
 ]
