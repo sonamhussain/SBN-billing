@@ -88,6 +88,7 @@ import { claimSubmissionRouter, frozenSubmissionRouter } from './modules/claim-s
 import { claimLifecycleRouter } from './modules/claim-lifecycle/claim-lifecycle.route.ts'
 import { claimCorrectionRouter, correctionLinkRouter } from './modules/claim-correction/claim-correction.route.ts'
 import { revenueEvidenceRouter, submissionRevenueEvidenceRouter } from './modules/revenue-evidence/revenue-evidence.route.ts'
+import { classificationRouter, sourceClassificationRouter } from './modules/evidence-classification/evidence-classification.route.ts'
 
 export const app = express()
 
@@ -353,6 +354,11 @@ app.use('/api/claim-correction-links', correctionLinkRouter)
 // or PUT, and no payment, posting, remittance, denial, adjudication or send route.
 app.use('/api/claim-submissions', submissionRevenueEvidenceRouter)
 app.use('/api/revenue-source-evidence', revenueEvidenceRouter)
+
+// A7.2 - immutable, server-derived classifications of a revenue source evidence record (classify, history,
+// read). No DELETE, PATCH or PUT, and no verify, payment, adjudication, denial, remittance or send route.
+app.use('/api/revenue-source-evidence', sourceClassificationRouter)
+app.use('/api/revenue-evidence-classifications', classificationRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

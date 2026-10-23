@@ -1087,6 +1087,63 @@ async function main() {
       revenueTables.join(', '),
     )
 
+    // A7.2 — append-only, server-derived classifications of A7.1 source records. The contract, the five codes
+    // (external verification disabled), the three outcomes, the six reasons and the fingerprint shape are held by
+    // CHECKs; one classification per source and contract by a UNIQUE index; the insert guard holds database
+    // time, the source's organization, the re-derived classification and the recomputed fingerprint; the table
+    // is append-only and cannot be truncated. No amount, payer, status or verdict column or table exists.
+    for (const trigger of ['source_evidence_classifications_insert_guard_trg', 'source_evidence_classifications_append_only_trg', 'source_evidence_classifications_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'source_evidence_classifications_pkey',
+      'source_evidence_classifications_contract_chk',
+      'source_evidence_classifications_code_chk',
+      'source_evidence_classifications_verified_disabled_chk',
+      'source_evidence_classifications_outcome_chk',
+      'source_evidence_classifications_reason_chk',
+      'source_evidence_classifications_fingerprint_chk',
+      'source_evidence_classifications_organization_id_fkey',
+      'source_evidence_classifications_source_evidence_id_fkey',
+      'source_evidence_classifications_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const classificationContract = replay.constraints.find((line) => line.includes('source_evidence_classifications_contract_chk')) ?? ''
+    const classificationCodes = replay.constraints.find((line) => line.includes('source_evidence_classifications_code_chk')) ?? ''
+    const classificationVerified = replay.constraints.find((line) => line.includes('source_evidence_classifications_verified_disabled_chk')) ?? ''
+    const classificationOutcomes = replay.constraints.find((line) => line.includes('source_evidence_classifications_outcome_chk')) ?? ''
+    const classificationReasons = replay.constraints.find((line) => line.includes('source_evidence_classifications_reason_chk')) ?? ''
+    check(
+      'the A7.2 CHECKs pin A7-EVIDENCE-CLASS-1, the controlled codes, outcomes and reasons, and disable external verification after a clean replay',
+      classificationContract.includes("'A7-EVIDENCE-CLASS-1'") &&
+        ['INTERNAL_DECLARATION', 'EXTERNAL_SOURCE_UNVERIFIED', 'INSUFFICIENT_CONTEXT', 'UNSUPPORTED_SOURCE'].every((code) => classificationCodes.includes(`'${code}'`)) &&
+        /IS NOT NULL/i.test(classificationCodes) &&
+        /<> 'EXTERNAL_SOURCE_VERIFIED'/.test(classificationVerified) &&
+        ['CLASSIFIED', 'NEEDS_REVIEW', 'UNSUPPORTED'].every((outcome) => classificationOutcomes.includes(`'${outcome}'`)) &&
+        ['SYNTHETIC_INTERNAL_SOURCE', 'EXTERNAL_PROOF_ABSENT', 'SOURCE_CONTEXT_MISSING', 'SOURCE_CONTEXT_CONTRADICTORY', 'SOURCE_KIND_UNSUPPORTED', 'SOURCE_CONTRACT_UNSUPPORTED'].every((reason) => classificationReasons.includes(`'${reason}'`)) &&
+        /IS NOT NULL/i.test(classificationReasons),
+      `${classificationContract.slice(0, 100)} | ${classificationVerified.slice(0, 100)}`,
+    )
+    check(
+      'one classification per source record and contract is unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('source_evidence_classifications_identity_key:') && /UNIQUE/i.test(line) && /source_evidence_id, contract_version/.test(line)),
+    )
+    const a72Columns = ['id', 'organization_id', 'source_evidence_id', 'contract_version', 'classification_code', 'normalization_outcome', 'reason_code', 'source_fingerprint_sha256', 'recorded_by_user_id', 'recorded_at', 'created_at']
+    const classificationColumns = replay.columns.filter((line) => line.startsWith('source_evidence_classifications.')).map((line) => line.slice('source_evidence_classifications.'.length).split(':')[0])
+    check(
+      `source_evidence_classifications carries exactly its ${a72Columns.length} A7.2 columns after a clean replay`,
+      classificationColumns.length === a72Columns.length && classificationColumns.every((column) => a72Columns.includes(column)),
+      classificationColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : classificationColumns.filter((column) => !a72Columns.includes(column)).join(', '),
+    )
+    const classificationTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /classif|normaliz/.test(table)))].sort()
+    check(
+      'the A7.2 tables are exactly source_evidence_classifications after a clean replay',
+      JSON.stringify(classificationTables) === JSON.stringify(['source_evidence_classifications']),
+      classificationTables.join(', '),
+    )
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration

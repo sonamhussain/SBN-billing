@@ -767,7 +767,10 @@ async function main() {
   ]
   check('T059', 'No update or delete', updates.every((message) => /is append-only/.test(message)), 'UPDATE (even a no-op) and DELETE are refused')
   // TRUNCATE removes rows without firing row-level triggers; it has its own statement-level guard. The whole
-  // table is hashed before and after, so "refused" also means "nothing changed".
+  // table is hashed before and after, so "refused" also means "nothing changed". A later owner's ON DELETE
+  // RESTRICT key into this table (A7.2 classifications) makes PostgreSQL refuse a plain TRUNCATE before any
+  // trigger runs; TRUNCATE … CASCADE still reaches this guard first. Judged on behaviour: both are refused by a
+  // real guard, the guard exists, and nothing changed.
   const tableHash = async () => {
     const row = (await prisma.$queryRaw<{ n: bigint; h: string }[]>`SELECT count(*) AS n, encode(sha256(convert_to(coalesce(string_agg(row_to_json(r)::text, '|' ORDER BY r.id), ''), 'UTF8')), 'hex') AS h FROM revenue_source_evidence r`)[0]
     return { n: Number(row.n), h: row.h }
@@ -783,13 +786,16 @@ async function main() {
     throw new Error(NOT_REFUSED)
   }))
   const afterTruncate = await tableHash()
+  const referencedBy = await prisma.$queryRaw<{ t: string; del: string }[]>`SELECT conrelid::regclass::text AS t, confdeltype::text AS del FROM pg_constraint WHERE contype = 'f' AND confrelid = 'revenue_source_evidence'::regclass`
+  const plainRefusedByGuard = refusedBy(truncate, /revenue_source_evidence is append-only: TRUNCATE is not permitted/)
+  const plainRefusedByKey = refusedBy(truncate, /cannot truncate a table referenced in a foreign key constraint/) && referencedBy.length > 0 && referencedBy.every((row) => row.del === 'r')
   check(
     'T060',
     'No bulk wipe',
-    refusedBy(truncate, /revenue_source_evidence is append-only: TRUNCATE is not permitted/) && refusedBy(truncateCascade, /is append-only: TRUNCATE/) &&
+    (plainRefusedByGuard || plainRefusedByKey) && refusedBy(truncateCascade, /revenue_source_evidence is append-only: TRUNCATE is not permitted/) &&
       /^CREATE TRIGGER revenue_source_evidence_no_truncate_trg BEFORE TRUNCATE ON public\.revenue_source_evidence FOR EACH STATEMENT EXECUTE FUNCTION revenue_source_evidence_append_only\(\)$/.test(truncateTrigger) &&
       beforeTruncate.n > 0 && same(afterTruncate, beforeTruncate),
-    `TRUNCATE and TRUNCATE … CASCADE (which bypass row triggers) are refused by the statement-level BEFORE TRUNCATE guard; all ${beforeTruncate.n} rows are byte-identical afterwards`,
+    `TRUNCATE (refused by ${plainRefusedByGuard ? 'the statement-level BEFORE TRUNCATE guard' : `the RESTRICT key of ${referencedBy.map((row) => row.t).join(', ')}`}) and TRUNCATE … CASCADE (refused by the BEFORE TRUNCATE guard), which both bypass row triggers; all ${beforeTruncate.n} rows are byte-identical afterwards`,
   )
 
   // ---------------------------------------------------------------- atomicity (T061–T070)

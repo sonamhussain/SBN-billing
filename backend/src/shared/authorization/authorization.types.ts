@@ -231,6 +231,11 @@ export const permissionCodes = [
   // verdict, a payment or a status, or changes a freeze, its lifecycle or its correction lineage.
   'revenueEvidence.create',
   'revenueEvidence.read',
+  // A7.2 - recording the server-derived classification of a revenue source evidence record (Admin), and reading
+  // a source's classifications and one classification (Admin, Viewer). None of them verifies a source, asserts
+  // an amount, a payer verdict, a payment or a status, or changes a source record, freeze or lifecycle.
+  'evidenceClassification.create',
+  'evidenceClassification.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

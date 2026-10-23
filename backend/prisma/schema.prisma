@@ -33,6 +33,7 @@ model Organization {
   patients          Patient[]
   evidenceArtifacts EvidenceArtifact[]
   revenueSourceEvidence RevenueSourceEvidence[]
+  sourceEvidenceClassifications SourceEvidenceClassification[]
 
   @@map("organizations")
 }
@@ -1076,6 +1077,7 @@ model User {
   claimFreezeLifecycleEventsRecorded ClaimFreezeLifecycleEvent[] @relation("ClaimFreezeLifecycleEventActor")
   claimCorrectionLinksRecorded ClaimCorrectionLink[] @relation("ClaimCorrectionRecordedBy")
   revenueSourceEvidenceRecorded RevenueSourceEvidence[] @relation("RevenueSourceEvidenceRecordedBy")
+  sourceEvidenceClassificationsRecorded SourceEvidenceClassification[] @relation("SourceEvidenceClassificationRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -2276,9 +2278,39 @@ model RevenueSourceEvidence {
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   claimSubmission ClaimFreeze  @relation(fields: [claimSubmissionId], references: [id], onDelete: Restrict)
   recordedBy      User         @relation("RevenueSourceEvidenceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  classifications SourceEvidenceClassification[]
 
   @@unique([claimSubmissionId, sourceKind, sourceReference, sourceVersion], map: "revenue_source_evidence_identity_key")
   @@index([organizationId])
   @@index([recordedByUserId])
   @@map("revenue_source_evidence")
+}
+
+// A7.2 — one immutable classification (A7-EVIDENCE-CLASS-1) of exactly one A7.1 revenue source evidence record:
+// what kind of internal evidence it is and whether it normalizes without ambiguity. Derived by one pure
+// classifier from the source's own facts and re-derived by the database; never client-chosen. It asserts no
+// payer adjudication, allowance, denial, payment, adjustment or receivable, and never promotes a source to
+// external truth. One classification per source record and contract version. Append-only.
+// (Physical name kept clear of the A7.1 "revenue" table and permission scans; the API keeps the business name.)
+model SourceEvidenceClassification {
+  id                      String   @id @default(uuid()) @db.Uuid
+  organizationId          String   @map("organization_id") @db.Uuid
+  sourceEvidenceId        String   @map("source_evidence_id") @db.Uuid
+  contractVersion         String   @map("contract_version") @db.Text
+  classificationCode      String   @map("classification_code") @db.Text
+  normalizationOutcome    String   @map("normalization_outcome") @db.Text
+  reasonCode              String   @map("reason_code") @db.Text
+  sourceFingerprintSha256 String   @map("source_fingerprint_sha256") @db.Char(64)
+  recordedByUserId        String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt              DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sourceEvidence RevenueSourceEvidence @relation(fields: [sourceEvidenceId], references: [id], onDelete: Restrict)
+  recordedBy     User                  @relation("SourceEvidenceClassificationRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceEvidenceId, contractVersion], map: "source_evidence_classifications_identity_key")
+  @@index([organizationId])
+  @@index([recordedByUserId])
+  @@map("source_evidence_classifications")
 }
