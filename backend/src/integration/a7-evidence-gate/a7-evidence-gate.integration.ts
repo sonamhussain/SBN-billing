@@ -977,7 +977,7 @@ async function main() {
     // may answer before the vocabulary CHECK does; both vocabulary definitions are verified directly.
     nullSql.every((m) => refusedBy(m, /null value/)) && vocabSql.every((m) => refusedBy(m, /evidence_gate_results_(readiness|reason|pairing)_chk/)) &&
       /readiness_code IS NOT NULL/.test(readinessDef) && !/'(READY_FOR_ADJUDICATION|CONFLICT|ADJUDICATED)'/.test(readinessDef.replace(/NOT_READY_FOR_ADJUDICATION/g, '')) &&
-      /reason_code IS NOT NULL/.test(reasonDef) && !/PROVENANCE_CONFLICT/.test(reasonDef),
+      /reason_code IS NOT NULL/.test(reasonDef) && !reasonDef.includes('PROVENANCE_CONFLICT'),
     `NULL readiness, reason, contract and fingerprint are refused (NOT NULL, and the CHECKs' own IS NOT NULL); READY, CONFLICT, PROVENANCE_CONFLICT and ADJUDICATED are not storable (${vocabSql.map(markerOf).join(', ')})`,
   )
   const pairingSql = [await directInsert(dU, { readiness: 'NOT_READY_FOR_ADJUDICATION', reason: 'CLASSIFICATION_UNSUPPORTED', guardOff: true }), await directInsert(dU, { readiness: 'SOURCE_UNSUPPORTED', reason: 'CLASSIFICATION_REVIEW_REQUIRED', guardOff: true })]
