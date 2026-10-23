@@ -119,6 +119,13 @@ export const apiErrorCodes = [
   // conflicting, the database refused the classification, or the outcome could not be established; nothing
   // (further) was classified.
   'EVIDENCE_CLASSIFICATION_CONFLICT',
+  // A7.3: the classification, its source and their organization do not link exactly, an owner could not confirm
+  // them, the classification is not a controlled result, or a recorded readiness disagrees with its derivation;
+  // nothing was recorded.
+  'ADJUDICATION_READINESS_PROVENANCE_CONFLICT',
+  // A7.3: concurrent requests kept conflicting, the claim stayed busy, or the outcome could not be established;
+  // nothing (further) was recorded.
+  'ADJUDICATION_READINESS_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

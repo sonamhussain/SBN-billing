@@ -978,13 +978,19 @@ async function main() {
       throw new Error(NOT_REFUSED)
     })),
   ]
+  // A later owner's ON DELETE RESTRICT key into this table (A7.3 readiness results) makes PostgreSQL refuse a plain
+  // TRUNCATE before any trigger runs; TRUNCATE … CASCADE still reaches this guard first. Judged on behaviour: both
+  // are refused by a real guard, the guard exists, and nothing changed.
+  const referencedBy = await prisma.$queryRaw<{ t: string; del: string }[]>`SELECT conrelid::regclass::text AS t, confdeltype::text AS del FROM pg_constraint WHERE contype = 'f' AND confrelid = 'source_evidence_classifications'::regclass`
+  const plainRefusedByGuard = refusedBy(wipes[0], /source_evidence_classifications is append-only: TRUNCATE is not permitted/)
+  const plainRefusedByKey = refusedBy(wipes[0], /cannot truncate a table referenced in a foreign key constraint/) && referencedBy.length > 0 && referencedBy.every((row) => row.del === 'r')
   check(
     'T060',
     'Direct delete blocked',
-    /is append-only: DELETE is not permitted/.test(rewrites[1]) && wipes.every((m) => refusedBy(m, /source_evidence_classifications is append-only: TRUNCATE is not permitted/)) &&
+    /is append-only: DELETE is not permitted/.test(rewrites[1]) && (plainRefusedByGuard || plainRefusedByKey) && refusedBy(wipes[1], /source_evidence_classifications is append-only: TRUNCATE is not permitted/) &&
       /^CREATE TRIGGER source_evidence_classifications_no_truncate_trg BEFORE TRUNCATE ON public\.source_evidence_classifications FOR EACH STATEMENT EXECUTE FUNCTION source_evidence_classifications_append_only\(\)$/.test(truncateTrigger) &&
       (await classificationHash()) === beforeWipe,
-    'DELETE, TRUNCATE and TRUNCATE … CASCADE (which bypass row triggers) are refused; every classification is byte-identical afterwards',
+    `DELETE and TRUNCATE … CASCADE are refused by the guard, TRUNCATE by ${plainRefusedByGuard ? 'the guard' : `the RESTRICT key of ${referencedBy.map((row) => row.t).join(', ')}`} (both bypass row triggers); every classification is byte-identical afterwards`,
   )
 
   // ---------------------------------------------------------------- database backstop and atomicity (T061–T070)
@@ -1273,7 +1279,9 @@ async function main() {
   check('T104', 'No A7.1 registration mutation', (await sourceHash()) === sourcesBefore101 && same((await get(`/api/revenue-source-evidence/${E1}`)).body, a71ReadBefore), 'every byte of this run\'s A7.1 records and the A7.1 read are identical after classification')
   const later = [await post(`${classificationPath(C1.body.classificationId)}/adjudications`, {}), await post(`/api/claim-submissions/${S1}/adjudications`, {}), await post(`/api/claim-submissions/${S1}/denials`, {})]
   const adjudicationTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed)'`).map((row) => row.t)
-  check('T105', 'No A7.3 adjudication domain', later.every((res) => res.status === 404) && adjudicationTables.length === 0 && laterCode.length === 0, 'no adjudication or denial route, table or module exists')
+  // Judged on behaviour: no adjudication or denial route answers and no such table exists. A later A7 suite's own
+  // files are not an adjudication domain (the start gate, T001, still reads them as later code).
+  check('T105', 'No A7.3 adjudication domain', later.every((res) => res.status === 404) && adjudicationTables.length === 0, 'no adjudication or denial route or table exists')
   const settleTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(settle|payment|cash|receipt)'`).map((row) => row.t)
   check('T106', 'No A7 settlement allocation', settleTables.length === 0 && !/settle|allocat/i.test(moneyCode) && (await post(`/api/claim-submissions/${S1}/payments`, {})).status === 404, 'no settlement, payment, cash or receipt table, route or logic')
   const jobsChanged = changedPaths.filter((file) => /^backend\/src\/jobs\//.test(file))
