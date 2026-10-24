@@ -1009,13 +1009,19 @@ async function main() {
       throw new Error(NOT_REFUSED)
     })),
   ]
+  // A later owner's ON DELETE RESTRICT key into this table makes PostgreSQL refuse a plain TRUNCATE before any
+  // trigger runs; TRUNCATE … CASCADE still reaches this guard first. Judged on behaviour: every wipe is refused by a
+  // real guard, the guard exists, and nothing changed.
+  const referencedBy = await prisma.$queryRaw<{ t: string; del: string }[]>`SELECT conrelid::regclass::text AS t, confdeltype::text AS del FROM pg_constraint WHERE contype = 'f' AND confrelid = 'evidence_gate_results'::regclass`
+  const plainRefusedByGuard = refusedBy(wipes[0], /evidence_gate_results is append-only: TRUNCATE is not permitted/)
+  const plainRefusedByKey = refusedBy(wipes[0], /cannot truncate a table referenced in a foreign key constraint/) && referencedBy.length > 0 && referencedBy.every((row) => row.del === 'r')
   check(
     'T060',
     'Delete, TRUNCATE and CASCADE blocked',
-    /is append-only: DELETE is not permitted/.test(rewrites[1]) && wipes.slice(0, 2).every((m) => refusedBy(m, /evidence_gate_results is append-only: TRUNCATE is not permitted/)) && refusedBy(wipes[2], /is append-only: TRUNCATE is not permitted/) &&
+    /is append-only: DELETE is not permitted/.test(rewrites[1]) && (plainRefusedByGuard || plainRefusedByKey) && refusedBy(wipes[1], /evidence_gate_results is append-only: TRUNCATE is not permitted/) && refusedBy(wipes[2], /is append-only: TRUNCATE is not permitted/) &&
       /^CREATE TRIGGER evidence_gate_results_no_truncate_trg BEFORE TRUNCATE ON public\.evidence_gate_results FOR EACH STATEMENT EXECUTE FUNCTION evidence_gate_results_append_only\(\)$/.test(truncateTrigger) &&
       (await resultHash()) === beforeWipe,
-    'DELETE, TRUNCATE, TRUNCATE … CASCADE and a CASCADE from the A7.2 table (all bypass row triggers) are refused; every result is byte-identical afterwards',
+    `DELETE, TRUNCATE (refused by ${plainRefusedByGuard ? 'the guard' : `the RESTRICT key of ${referencedBy.map((row) => row.t).join(', ')}`}), TRUNCATE … CASCADE and a CASCADE from the A7.2 table (all bypass row triggers) are refused; every result is byte-identical afterwards`,
   )
 
   // ---------------------------------------------------------------- forgery and atomicity (T061–T070)

@@ -241,6 +241,11 @@ export const permissionCodes = [
   // imports, verifies, approves or transmits anything, or changes a classification, source, freeze or lifecycle.
   'adjudicationReadiness.create',
   'adjudicationReadiness.read',
+  // A7.4 - assembling the immutable case snapshot of a frozen submission (Admin), and reading a submission's cases
+  // and one case (Admin, Viewer). None of them adjudicates, pays, settles, posts, sends or imports anything, or
+  // changes a freeze, source, classification or readiness result.
+  'evidenceCase.create',
+  'evidenceCase.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

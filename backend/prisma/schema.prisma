@@ -35,6 +35,7 @@ model Organization {
   revenueSourceEvidence RevenueSourceEvidence[]
   sourceEvidenceClassifications SourceEvidenceClassification[]
   evidenceGateResults EvidenceGateResult[]
+  evidenceCaseSnapshots EvidenceCaseSnapshot[]
 
   @@map("organizations")
 }
@@ -1080,6 +1081,7 @@ model User {
   revenueSourceEvidenceRecorded RevenueSourceEvidence[] @relation("RevenueSourceEvidenceRecordedBy")
   sourceEvidenceClassificationsRecorded SourceEvidenceClassification[] @relation("SourceEvidenceClassificationRecordedBy")
   evidenceGateResultsRecorded EvidenceGateResult[] @relation("EvidenceGateResultRecordedBy")
+  evidenceCaseSnapshotsRecorded EvidenceCaseSnapshot[] @relation("EvidenceCaseSnapshotRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -2163,6 +2165,7 @@ model ClaimFreeze {
   correctedBy      ClaimCorrectionLink?        @relation("ClaimCorrectionPrior")
   corrects         ClaimCorrectionLink?        @relation("ClaimCorrectionCorrected")
   revenueSourceEvidence RevenueSourceEvidence[]
+  evidenceCaseSnapshots EvidenceCaseSnapshot[]
 
   @@index([claimId, frozenAt])
   @@index([draftAssessmentId])
@@ -2282,6 +2285,7 @@ model RevenueSourceEvidence {
   recordedBy      User         @relation("RevenueSourceEvidenceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   classifications SourceEvidenceClassification[]
   gateResults     EvidenceGateResult[]
+  caseEntries     EvidenceCaseEntry[]
 
   @@unique([claimSubmissionId, sourceKind, sourceReference, sourceVersion], map: "revenue_source_evidence_identity_key")
   @@index([organizationId])
@@ -2312,6 +2316,7 @@ model SourceEvidenceClassification {
   sourceEvidence RevenueSourceEvidence @relation(fields: [sourceEvidenceId], references: [id], onDelete: Restrict)
   recordedBy     User                  @relation("SourceEvidenceClassificationRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   gateResults    EvidenceGateResult[]
+  caseEntries    EvidenceCaseEntry[]
 
   @@unique([sourceEvidenceId, contractVersion], map: "source_evidence_classifications_identity_key")
   @@index([organizationId])
@@ -2342,10 +2347,67 @@ model EvidenceGateResult {
   sourceEvidence RevenueSourceEvidence        @relation(fields: [sourceEvidenceId], references: [id], onDelete: Restrict)
   classification SourceEvidenceClassification @relation(fields: [classificationId], references: [id], onDelete: Restrict)
   recordedBy     User                         @relation("EvidenceGateResultRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  caseEntries    EvidenceCaseEntry[]
 
   @@unique([classificationId, contractVersion], map: "evidence_gate_results_identity_key")
   @@index([organizationId])
   @@index([sourceEvidenceId])
   @@index([recordedByUserId])
   @@map("evidence_gate_results")
+}
+
+// A7.4 — one immutable case snapshot (A7-REVENUE-CASE-1) of exactly one A6.7 frozen submission: the ordered
+// inventory of its A7.1 sources, their A7.2 classifications and A7.3 readiness results as recorded at assembly,
+// bound by one SHA-256 manifest. A descriptive inventory only: never an adjudication, submission, balance,
+// settlement, collection or revenue closure, and never a current or latest pointer. One snapshot per submission and
+// contract version. Append-only; its entries are written in the same transaction and checked at commit.
+// (Physical names kept clear of the A7.1 "revenue" table and permission scans; the API keeps the business name.)
+model EvidenceCaseSnapshot {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  claimSubmissionId String   @map("claim_submission_id") @db.Uuid
+  contractVersion   String   @map("contract_version") @db.Text
+  assemblyCode      String   @map("assembly_code") @db.Text
+  sourceCount       Int      @map("source_count")
+  classifiedCount   Int      @map("classified_count")
+  readinessCount    Int      @map("readiness_count")
+  itemCount         Int      @map("item_count")
+  manifestSha256    String   @map("manifest_sha256") @db.Char(64)
+  recordedByUserId  String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt        DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claimSubmission ClaimFreeze         @relation(fields: [claimSubmissionId], references: [id], onDelete: Restrict)
+  recordedBy      User                @relation("EvidenceCaseSnapshotRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  entries         EvidenceCaseEntry[]
+
+  @@unique([claimSubmissionId, contractVersion], map: "evidence_case_snapshots_identity_key")
+  @@index([organizationId])
+  @@index([recordedByUserId])
+  @@map("evidence_case_snapshots")
+}
+
+// A7.4 — one exact, ordered entry of a case snapshot: one A7.1 source, its A7.2 classification and A7.3 readiness
+// result, each NULL only when genuinely absent at assembly. Append-only.
+model EvidenceCaseEntry {
+  id               String  @id @default(uuid()) @db.Uuid
+  assemblyId       String  @map("assembly_id") @db.Uuid
+  ordinal          Int
+  sourceEvidenceId String  @map("source_evidence_id") @db.Uuid
+  classificationId String? @map("classification_id") @db.Uuid
+  readinessId      String? @map("readiness_id") @db.Uuid
+  itemReasonCode   String  @map("item_reason_code") @db.Text
+
+  assembly       EvidenceCaseSnapshot          @relation(fields: [assemblyId], references: [id], onDelete: Restrict)
+  sourceEvidence RevenueSourceEvidence         @relation(fields: [sourceEvidenceId], references: [id], onDelete: Restrict)
+  classification SourceEvidenceClassification? @relation(fields: [classificationId], references: [id], onDelete: Restrict)
+  readiness      EvidenceGateResult?           @relation(fields: [readinessId], references: [id], onDelete: Restrict)
+
+  @@unique([assemblyId, ordinal], map: "evidence_case_entries_ordinal_key")
+  @@unique([assemblyId, sourceEvidenceId], map: "evidence_case_entries_source_key")
+  @@index([sourceEvidenceId])
+  @@index([classificationId])
+  @@index([readinessId])
+  @@map("evidence_case_entries")
 }
