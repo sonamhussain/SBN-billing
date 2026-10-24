@@ -91,6 +91,7 @@ import { revenueEvidenceRouter, submissionRevenueEvidenceRouter } from './module
 import { classificationRouter, sourceClassificationRouter } from './modules/evidence-classification/evidence-classification.route.ts'
 import { classificationReadinessRouter, readinessRouter } from './modules/evidence-gate/evidence-gate.route.ts'
 import { caseRouter, submissionCaseRouter } from './modules/evidence-case/evidence-case.route.ts'
+import { caseAssessmentRouter, prerequisiteAssessmentRouter } from './modules/case-prerequisite/case-prerequisite.route.ts'
 
 export const app = express()
 
@@ -371,6 +372,11 @@ app.use('/api/adjudication-evidence-readiness', readinessRouter)
 // no adjudication, payment, settlement, balance, remittance, send or payer-response route.
 app.use('/api/claim-submissions', submissionCaseRouter)
 app.use('/api/revenue-evidence-cases', caseRouter)
+
+// A7.5 - immutable closure-prerequisite assessments of one exact case snapshot (assess, history, read). No DELETE,
+// PATCH or PUT, and no adjudication, payment, posting, reconciliation, closure, balance or payer-response route.
+app.use('/api/revenue-evidence-cases', caseAssessmentRouter)
+app.use('/api/closure-prerequisite-assessments', prerequisiteAssessmentRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

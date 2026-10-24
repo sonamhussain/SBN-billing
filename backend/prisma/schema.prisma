@@ -36,6 +36,7 @@ model Organization {
   sourceEvidenceClassifications SourceEvidenceClassification[]
   evidenceGateResults EvidenceGateResult[]
   evidenceCaseSnapshots EvidenceCaseSnapshot[]
+  evidencePrereqResults EvidencePrereqResult[]
 
   @@map("organizations")
 }
@@ -1082,6 +1083,7 @@ model User {
   sourceEvidenceClassificationsRecorded SourceEvidenceClassification[] @relation("SourceEvidenceClassificationRecordedBy")
   evidenceGateResultsRecorded EvidenceGateResult[] @relation("EvidenceGateResultRecordedBy")
   evidenceCaseSnapshotsRecorded EvidenceCaseSnapshot[] @relation("EvidenceCaseSnapshotRecordedBy")
+  evidencePrereqResultsRecorded EvidencePrereqResult[] @relation("EvidencePrereqResultRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -2381,6 +2383,7 @@ model EvidenceCaseSnapshot {
   claimSubmission ClaimFreeze         @relation(fields: [claimSubmissionId], references: [id], onDelete: Restrict)
   recordedBy      User                @relation("EvidenceCaseSnapshotRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   entries         EvidenceCaseEntry[]
+  prereqResults   EvidencePrereqResult[]
 
   @@unique([claimSubmissionId, contractVersion], map: "evidence_case_snapshots_identity_key")
   @@index([organizationId])
@@ -2410,4 +2413,29 @@ model EvidenceCaseEntry {
   @@index([classificationId])
   @@index([readinessId])
   @@map("evidence_case_entries")
+}
+
+// A7.5 — one immutable closure-prerequisite assessment (A7-CLOSURE-PREREQ-1) of one exact A7.4 case snapshot: the
+// controlled assessment and basis codes and the case digest copied as stored. Never a payer verdict, balance,
+// payment or closure, and never a current or latest pointer. Append-only.
+model EvidencePrereqResult {
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @map("organization_id") @db.Uuid
+  evidenceCaseId     String   @map("evidence_case_id") @db.Uuid
+  contractVersion    String   @map("contract_version") @db.Text
+  assessmentCode     String   @map("assessment_code") @db.Text
+  basisCode          String   @map("basis_code") @db.Text
+  caseManifestSha256 String   @map("case_manifest_sha256") @db.Char(64)
+  recordedByUserId   String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt         DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  evidenceCase EvidenceCaseSnapshot @relation(fields: [evidenceCaseId], references: [id], onDelete: Restrict)
+  recordedBy   User                 @relation("EvidencePrereqResultRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([evidenceCaseId, contractVersion], map: "evidence_prereq_results_identity_key")
+  @@index([organizationId])
+  @@index([recordedByUserId])
+  @@map("evidence_prereq_results")
 }
