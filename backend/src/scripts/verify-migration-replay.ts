@@ -1144,6 +1144,59 @@ async function main() {
       classificationTables.join(', '),
     )
 
+    // A7.3 — append-only internal adjudication-readiness results of A7.2 classifications. The contract, the three
+    // storable readiness codes and reasons (no ready, adjudicated, paid or denied code), their pairing and the
+    // fingerprint shape are held by CHECKs; one result per classification and contract by a UNIQUE index; the insert
+    // guard holds database time, source/classification linkage, the organization, the derivation from the stored
+    // classification and the copied fingerprint; the table is append-only and cannot be truncated.
+    for (const trigger of ['evidence_gate_results_insert_guard_trg', 'evidence_gate_results_append_only_trg', 'evidence_gate_results_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'evidence_gate_results_pkey',
+      'evidence_gate_results_contract_chk',
+      'evidence_gate_results_readiness_chk',
+      'evidence_gate_results_reason_chk',
+      'evidence_gate_results_pairing_chk',
+      'evidence_gate_results_fingerprint_chk',
+      'evidence_gate_results_organization_id_fkey',
+      'evidence_gate_results_source_evidence_id_fkey',
+      'evidence_gate_results_classification_id_fkey',
+      'evidence_gate_results_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const gateContract = replay.constraints.find((line) => line.includes('evidence_gate_results_contract_chk')) ?? ''
+    const gateReadiness = replay.constraints.find((line) => line.includes('evidence_gate_results_readiness_chk')) ?? ''
+    const gateReasons = replay.constraints.find((line) => line.includes('evidence_gate_results_reason_chk')) ?? ''
+    check(
+      'the A7.3 CHECKs pin A7-ADJ-READINESS-1 and exactly the three readiness codes and reasons, with no positive verdict, after a clean replay',
+      gateContract.includes("'A7-ADJ-READINESS-1'") &&
+        ['NOT_READY_FOR_ADJUDICATION', 'SOURCE_REQUIRES_REVIEW', 'SOURCE_UNSUPPORTED'].every((code) => gateReadiness.includes(`'${code}'`)) &&
+        ['EXTERNAL_ADJUDICATION_EVIDENCE_ABSENT', 'CLASSIFICATION_REVIEW_REQUIRED', 'CLASSIFICATION_UNSUPPORTED'].every((reason) => gateReasons.includes(`'${reason}'`)) &&
+        /IS NOT NULL/i.test(gateReadiness) && /IS NOT NULL/i.test(gateReasons) &&
+        !/'(READY|READY_FOR_ADJUDICATION|ADJUDICATED|PAID|ALLOWED|DENIED|SETTLED|REMITTED|BALANCE_READY|CONFLICT)'/.test(gateReadiness),
+      `${gateContract.slice(0, 100)} | ${gateReadiness.slice(0, 160)}`,
+    )
+    check(
+      'one readiness result per classification and contract is unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('evidence_gate_results_identity_key:') && /UNIQUE/i.test(line) && /classification_id, contract_version/.test(line)),
+    )
+    const a73Columns = ['id', 'organization_id', 'source_evidence_id', 'classification_id', 'contract_version', 'readiness_code', 'reason_code', 'classification_fingerprint_sha256', 'recorded_by_user_id', 'recorded_at', 'created_at']
+    const gateColumns = replay.columns.filter((line) => line.startsWith('evidence_gate_results.')).map((line) => line.slice('evidence_gate_results.'.length).split(':')[0])
+    check(
+      `evidence_gate_results carries exactly its ${a73Columns.length} A7.3 columns after a clean replay`,
+      gateColumns.length === a73Columns.length && gateColumns.every((column) => a73Columns.includes(column)),
+      gateColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : gateColumns.filter((column) => !a73Columns.includes(column)).join(', '),
+    )
+    const gateTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /(^|_)gate(_|$)|adjudicat/.test(table)))].sort()
+    check(
+      'the A7.3 tables are exactly evidence_gate_results after a clean replay',
+      JSON.stringify(gateTables) === JSON.stringify(['evidence_gate_results']),
+      gateTables.join(', '),
+    )
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration

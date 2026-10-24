@@ -34,6 +34,7 @@ model Organization {
   evidenceArtifacts EvidenceArtifact[]
   revenueSourceEvidence RevenueSourceEvidence[]
   sourceEvidenceClassifications SourceEvidenceClassification[]
+  evidenceGateResults EvidenceGateResult[]
 
   @@map("organizations")
 }
@@ -1078,6 +1079,7 @@ model User {
   claimCorrectionLinksRecorded ClaimCorrectionLink[] @relation("ClaimCorrectionRecordedBy")
   revenueSourceEvidenceRecorded RevenueSourceEvidence[] @relation("RevenueSourceEvidenceRecordedBy")
   sourceEvidenceClassificationsRecorded SourceEvidenceClassification[] @relation("SourceEvidenceClassificationRecordedBy")
+  evidenceGateResultsRecorded EvidenceGateResult[] @relation("EvidenceGateResultRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -2279,6 +2281,7 @@ model RevenueSourceEvidence {
   claimSubmission ClaimFreeze  @relation(fields: [claimSubmissionId], references: [id], onDelete: Restrict)
   recordedBy      User         @relation("RevenueSourceEvidenceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   classifications SourceEvidenceClassification[]
+  gateResults     EvidenceGateResult[]
 
   @@unique([claimSubmissionId, sourceKind, sourceReference, sourceVersion], map: "revenue_source_evidence_identity_key")
   @@index([organizationId])
@@ -2308,9 +2311,41 @@ model SourceEvidenceClassification {
   organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   sourceEvidence RevenueSourceEvidence @relation(fields: [sourceEvidenceId], references: [id], onDelete: Restrict)
   recordedBy     User                  @relation("SourceEvidenceClassificationRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  gateResults    EvidenceGateResult[]
 
   @@unique([sourceEvidenceId, contractVersion], map: "source_evidence_classifications_identity_key")
   @@index([organizationId])
   @@index([recordedByUserId])
   @@map("source_evidence_classifications")
+}
+
+// A7.3 — one immutable internal readiness result (A7-ADJ-READINESS-1) for exactly one A7.2 classification of
+// exactly one A7.1 source record: whether trusted payer-adjudication evidence exists. It is derived from the
+// classification's stored outcome (never by re-running the classifier) and re-derived by the database. It is
+// never an insurer adjudication, payer response, denial, allowance, cash receipt, settlement or status. One result
+// per classification and contract version. Append-only.
+// (Physical name kept clear of the "adjudication" and "readiness" table scans; the API keeps the business name.)
+model EvidenceGateResult {
+  id                              String   @id @default(uuid()) @db.Uuid
+  organizationId                  String   @map("organization_id") @db.Uuid
+  sourceEvidenceId                String   @map("source_evidence_id") @db.Uuid
+  classificationId                String   @map("classification_id") @db.Uuid
+  contractVersion                 String   @map("contract_version") @db.Text
+  readinessCode                   String   @map("readiness_code") @db.Text
+  reasonCode                      String   @map("reason_code") @db.Text
+  classificationFingerprintSha256 String   @map("classification_fingerprint_sha256") @db.Char(64)
+  recordedByUserId                String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt                      DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt                       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization   Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sourceEvidence RevenueSourceEvidence        @relation(fields: [sourceEvidenceId], references: [id], onDelete: Restrict)
+  classification SourceEvidenceClassification @relation(fields: [classificationId], references: [id], onDelete: Restrict)
+  recordedBy     User                         @relation("EvidenceGateResultRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([classificationId, contractVersion], map: "evidence_gate_results_identity_key")
+  @@index([organizationId])
+  @@index([sourceEvidenceId])
+  @@index([recordedByUserId])
+  @@map("evidence_gate_results")
 }

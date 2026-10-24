@@ -236,6 +236,11 @@ export const permissionCodes = [
   // an amount, a payer verdict, a payment or a status, or changes a source record, freeze or lifecycle.
   'evidenceClassification.create',
   'evidenceClassification.read',
+  // A7.3 - recording the server-derived internal adjudication readiness of a classification (Admin), and reading
+  // a classification's readiness history and one result (Admin, Viewer). None of them adjudicates, pays, settles,
+  // imports, verifies, approves or transmits anything, or changes a classification, source, freeze or lifecycle.
+  'adjudicationReadiness.create',
+  'adjudicationReadiness.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
