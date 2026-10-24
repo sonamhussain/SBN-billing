@@ -90,6 +90,7 @@ import { claimCorrectionRouter, correctionLinkRouter } from './modules/claim-cor
 import { revenueEvidenceRouter, submissionRevenueEvidenceRouter } from './modules/revenue-evidence/revenue-evidence.route.ts'
 import { classificationRouter, sourceClassificationRouter } from './modules/evidence-classification/evidence-classification.route.ts'
 import { classificationReadinessRouter, readinessRouter } from './modules/evidence-gate/evidence-gate.route.ts'
+import { caseRouter, submissionCaseRouter } from './modules/evidence-case/evidence-case.route.ts'
 
 export const app = express()
 
@@ -365,6 +366,11 @@ app.use('/api/revenue-evidence-classifications', classificationRouter)
 // No DELETE, PATCH or PUT, and no adjudication, payment, denial, remittance, verify, send or payer-response route.
 app.use('/api/revenue-evidence-classifications', classificationReadinessRouter)
 app.use('/api/adjudication-evidence-readiness', readinessRouter)
+
+// A7.4 - immutable case snapshots of a frozen submission (assemble, history, read). No DELETE, PATCH or PUT, and
+// no adjudication, payment, settlement, balance, remittance, send or payer-response route.
+app.use('/api/claim-submissions', submissionCaseRouter)
+app.use('/api/revenue-evidence-cases', caseRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

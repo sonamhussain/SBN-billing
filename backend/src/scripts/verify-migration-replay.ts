@@ -1197,6 +1197,82 @@ async function main() {
       gateTables.join(', '),
     )
 
+    // A7.4 — append-only case snapshots of frozen submissions (header and ordered entries). The contract, the three
+    // assembly codes and their counts, the three entry reasons and their link shape, ordinals and the manifest
+    // shape are held by CHECKs; one snapshot per submission and contract, one entry per ordinal and per source by
+    // UNIQUE indexes; insert guards hold database time, organization and every exact link; a commit-time check
+    // holds completeness, order, counts and the manifest digest; both tables are append-only and cannot be
+    // truncated.
+    for (const trigger of [
+      'evidence_case_snapshots_insert_guard_trg',
+      'evidence_case_snapshots_completeness_trg',
+      'evidence_case_snapshots_append_only_trg',
+      'evidence_case_snapshots_no_truncate_trg',
+      'evidence_case_entries_insert_guard_trg',
+      'evidence_case_entries_append_only_trg',
+      'evidence_case_entries_no_truncate_trg',
+    ]) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'evidence_case_snapshots_pkey',
+      'evidence_case_snapshots_contract_chk',
+      'evidence_case_snapshots_code_chk',
+      'evidence_case_snapshots_counts_chk',
+      'evidence_case_snapshots_code_counts_chk',
+      'evidence_case_snapshots_manifest_chk',
+      'evidence_case_snapshots_organization_id_fkey',
+      'evidence_case_snapshots_claim_submission_id_fkey',
+      'evidence_case_snapshots_recorded_by_user_id_fkey',
+      'evidence_case_entries_pkey',
+      'evidence_case_entries_ordinal_chk',
+      'evidence_case_entries_reason_chk',
+      'evidence_case_entries_shape_chk',
+      'evidence_case_entries_assembly_id_fkey',
+      'evidence_case_entries_source_evidence_id_fkey',
+      'evidence_case_entries_classification_id_fkey',
+      'evidence_case_entries_readiness_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const caseContract = replay.constraints.find((line) => line.includes('evidence_case_snapshots_contract_chk')) ?? ''
+    const caseCodes = replay.constraints.find((line) => line.includes('evidence_case_snapshots_code_chk')) ?? ''
+    const entryReasons = replay.constraints.find((line) => line.includes('evidence_case_entries_reason_chk')) ?? ''
+    check(
+      'the A7.4 CHECKs pin A7-REVENUE-CASE-1, exactly the three assembly codes and entry reasons, with no verdict, after a clean replay',
+      caseContract.includes("'A7-REVENUE-CASE-1'") &&
+        ['INVENTORY_COMPLETE', 'INVENTORY_INCOMPLETE', 'NO_REVENUE_SOURCES'].every((code) => caseCodes.includes(`'${code}'`)) &&
+        ['SOURCE_ONLY', 'CLASSIFIED_NO_READINESS', 'LINKED'].every((reason) => entryReasons.includes(`'${reason}'`)) &&
+        /IS NOT NULL/i.test(caseCodes) && /IS NOT NULL/i.test(entryReasons) &&
+        !/'(READY|READY_FOR_ADJUDICATION|ADJUDICATED|PAID|DENIED|SETTLED|BALANCE)'/.test(caseCodes),
+      `${caseContract.slice(0, 100)} | ${caseCodes.slice(0, 160)}`,
+    )
+    check(
+      'one case per submission and contract, one entry per ordinal and per source are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('evidence_case_snapshots_identity_key:') && /UNIQUE/i.test(line) && /claim_submission_id, contract_version/.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('evidence_case_entries_ordinal_key:') && /UNIQUE/i.test(line) && /assembly_id, ordinal/.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('evidence_case_entries_source_key:') && /UNIQUE/i.test(line) && /assembly_id, source_evidence_id/.test(line)),
+    )
+    const a74Columns: Record<string, string[]> = {
+      evidence_case_snapshots: ['id', 'organization_id', 'claim_submission_id', 'contract_version', 'assembly_code', 'source_count', 'classified_count', 'readiness_count', 'item_count', 'manifest_sha256', 'recorded_by_user_id', 'recorded_at', 'created_at'],
+      evidence_case_entries: ['id', 'assembly_id', 'ordinal', 'source_evidence_id', 'classification_id', 'readiness_id', 'item_reason_code'],
+    }
+    for (const [table, expected] of Object.entries(a74Columns)) {
+      const actual = replay.columns.filter((line) => line.startsWith(`${table}.`)).map((line) => line.slice(table.length + 1).split(':')[0])
+      check(
+        `${table} carries exactly its ${expected.length} A7.4 columns after a clean replay`,
+        actual.length === expected.length && actual.every((column) => expected.includes(column)),
+        actual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : actual.filter((column) => !expected.includes(column)).join(', '),
+      )
+    }
+    const caseTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /(^|_)cases?(_|$)/.test(table)))].sort()
+    check(
+      'the A7.4 tables are exactly evidence_case_entries and evidence_case_snapshots after a clean replay',
+      JSON.stringify(caseTables) === JSON.stringify(['evidence_case_entries', 'evidence_case_snapshots']),
+      caseTables.join(', '),
+    )
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration

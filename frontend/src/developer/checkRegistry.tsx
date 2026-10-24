@@ -57,6 +57,7 @@ import ClaimCorrectionCheck from '../modules/claim-correction/ClaimCorrectionChe
 import RevenueEvidenceCheck from '../modules/revenue-evidence/RevenueEvidenceCheck.tsx'
 import EvidenceClassificationCheck from '../modules/evidence-classification/EvidenceClassificationCheck.tsx'
 import EvidenceGateCheck from '../modules/evidence-gate/EvidenceGateCheck.tsx'
+import EvidenceCaseCheck from '../modules/evidence-case/EvidenceCaseCheck.tsx'
 
 // FE-01 — every existing engineering check, moved unchanged from the former Development Check page.
 // Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4 -> A5. A new backend *Check is registered
@@ -127,4 +128,5 @@ export const developerChecks: DeveloperCheck[] = [
   { key: 'revenue-evidence', label: 'Revenue source evidence', Component: RevenueEvidenceCheck },
   { key: 'evidence-classification', label: 'Evidence classification', Component: EvidenceClassificationCheck },
   { key: 'evidence-gate', label: 'Evidence gate (adjudication readiness)', Component: EvidenceGateCheck },
+  { key: 'evidence-case', label: 'Evidence case snapshots', Component: EvidenceCaseCheck },
 ]
