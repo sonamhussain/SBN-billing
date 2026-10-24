@@ -246,6 +246,11 @@ export const permissionCodes = [
   // changes a freeze, source, classification or readiness result.
   'evidenceCase.create',
   'evidenceCase.read',
+  // A7.5 - recording the server-derived closure-prerequisite assessment of one exact case snapshot (Admin), and
+  // reading a case's assessments and one assessment (Admin, Viewer). None of them adjudicates, pays, settles, posts,
+  // reconciles or closes anything, or changes a case, readiness result, classification, source or freeze.
+  'evidenceCasePrereq.create',
+  'evidenceCasePrereq.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

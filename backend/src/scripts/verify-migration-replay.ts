@@ -1273,6 +1273,53 @@ async function main() {
       caseTables.join(', '),
     )
 
+    // A7.5 — append-only closure-prerequisite assessments of exact case snapshots. The contract, the five outcomes,
+    // the five bases, their 1:1 pairing and the digest shape are held by CHECKs; one assessment per case and contract
+    // by a UNIQUE index; an insert guard holds database time, organization, the copied digest and the outcome
+    // re-derived from the stored case; the table is append-only and cannot be truncated.
+    for (const trigger of ['evidence_prereq_results_insert_guard_trg', 'evidence_prereq_results_append_only_trg', 'evidence_prereq_results_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'evidence_prereq_results_pkey',
+      'evidence_prereq_results_contract_chk',
+      'evidence_prereq_results_code_chk',
+      'evidence_prereq_results_basis_chk',
+      'evidence_prereq_results_pairing_chk',
+      'evidence_prereq_results_digest_chk',
+      'evidence_prereq_results_organization_id_fkey',
+      'evidence_prereq_results_evidence_case_id_fkey',
+      'evidence_prereq_results_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const prereqContract = replay.constraints.find((line) => line.includes('evidence_prereq_results_contract_chk')) ?? ''
+    const prereqCodes = replay.constraints.find((line) => line.includes('evidence_prereq_results_code_chk')) ?? ''
+    const prereqBases = replay.constraints.find((line) => line.includes('evidence_prereq_results_basis_chk')) ?? ''
+    check(
+      'the A7.5 CHECKs pin A7-CLOSURE-PREREQ-1, exactly the five outcomes and five bases, with no closure or payment code, after a clean replay',
+      prereqContract.includes("'A7-CLOSURE-PREREQ-1'") &&
+        ['NO_SOURCE_BASIS', 'INCOMPLETE_SOURCE_CHAIN', 'EXTERNAL_FINANCIAL_EVIDENCE_ABSENT', 'REVIEW_REQUIRED', 'UNSUPPORTED_SOURCE_BASIS'].every((code) => prereqCodes.includes(`'${code}'`)) &&
+        ['NO_REGISTERED_SOURCES', 'SOURCE_LINKS_INCOMPLETE', 'EXTERNAL_REMITTANCE_NOT_ESTABLISHED', 'EVIDENCE_REVIEW_REQUIRED', 'UNSUPPORTED_EVIDENCE'].every((code) => prereqBases.includes(`'${code}'`)) &&
+        /IS NOT NULL/i.test(prereqCodes) && /IS NOT NULL/i.test(prereqBases) &&
+        !/'(READY|READY_FOR_CLOSURE|CLOSED|PAID|SETTLED|POSTED|BALANCE)'/.test(`${prereqCodes} ${prereqBases}`),
+      `${prereqContract.slice(0, 100)} | ${prereqCodes.slice(0, 160)}`,
+    )
+    check(
+      'one assessment per case and contract is unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('evidence_prereq_results_identity_key:') && /UNIQUE/i.test(line) && /evidence_case_id, contract_version/.test(line)),
+    )
+    const prereqExpected = ['id', 'organization_id', 'evidence_case_id', 'contract_version', 'assessment_code', 'basis_code', 'case_manifest_sha256', 'recorded_by_user_id', 'recorded_at', 'created_at']
+    const prereqActual = replay.columns.filter((line) => line.startsWith('evidence_prereq_results.')).map((line) => line.slice('evidence_prereq_results.'.length).split(':')[0])
+    check(
+      `evidence_prereq_results carries exactly its ${prereqExpected.length} A7.5 columns after a clean replay`,
+      prereqActual.length === prereqExpected.length && prereqActual.every((column) => prereqExpected.includes(column)),
+      prereqActual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : prereqActual.filter((column) => !prereqExpected.includes(column)).join(', '),
+    )
+    const prereqTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /prereq/.test(table)))].sort()
+    check('the A7.5 tables are exactly evidence_prereq_results after a clean replay', JSON.stringify(prereqTables) === JSON.stringify(['evidence_prereq_results']), prereqTables.join(', '))
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration
