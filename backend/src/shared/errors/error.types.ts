@@ -132,6 +132,12 @@ export const apiErrorCodes = [
   // A7.4: concurrent requests kept conflicting, the claim stayed busy, or the outcome could not be established;
   // nothing (further) was recorded.
   'REVENUE_EVIDENCE_CASE_CONFLICT',
+  // A7.5: the case snapshot, a linked readiness result or the organization is broken or contradictory, a recorded
+  // assessment disagrees with its derivation, or the database refused the assessment; nothing was recorded.
+  'EVIDENCE_CASE_PREREQUISITE_PROVENANCE_CONFLICT',
+  // A7.5: concurrent requests kept conflicting, the claim stayed busy, or the outcome could not be established;
+  // nothing (further) was recorded.
+  'EVIDENCE_CASE_PREREQUISITE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]
