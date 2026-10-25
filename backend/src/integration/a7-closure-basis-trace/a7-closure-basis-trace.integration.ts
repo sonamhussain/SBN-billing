@@ -1208,6 +1208,9 @@ async function main() {
   // ---------------------------------------------------------------- nested regressions (T111–T120)
   section('Regressions — A7.5 invoked, nesting A7.4 -> A7.3 -> A7.2 -> A7.1 -> A6.10 -> … -> A6.1 -> A5.10 -> A1')
   await apiReady('the A7.5 and backward regression chain')
+  // Rows written from here on belong to the nested suites' own fixtures (each proves its own in its T128), not to
+  // this run's: T128 below judges this run's rows by this boundary.
+  const chainStartedAt = (await prisma.$queryRaw<{ ts: Date }[]>`SELECT clock_timestamp() AS ts`)[0].ts
   const chain = run('npm run test:a7:case-prerequisite')
   await waitFor(databaseUp, 90_000)
   await apiReady('the checks after the regression chain')
@@ -1322,14 +1325,20 @@ async function main() {
   check('T126', 'Health 200, ready 503 outage, recovery', upHealth === 200 && upReady === 200 && stopped && downSamples.every((code) => code === 200) && downReady && restarted && recovered, 'up 200/200; with the database down health stayed 200 and ready reported 503; recovery 200')
   await waitFor(databaseUp, 60_000)
   check('T127', 'Zero unexpected HTTP 5xx', serverErrors === 0 && connectionResets === 0, `${serverErrors} HTTP 5xx answers and ${connectionResets} connection resets in this run`)
-  const runAssessments = await prisma.$queryRawUnsafe<{ org: string; sub: string }[]>(`SELECT a.organization_id::text AS org, h.claim_submission_id::text AS sub FROM ${PREREQ} a JOIN ${HEADER} h ON h.id = a.evidence_case_id WHERE a.created_at >= $1::timestamptz`, runStartedAt.toISOString())
+  const runAssessments = await prisma.$queryRawUnsafe<{ org: string; sub: string }[]>(
+    `SELECT a.organization_id::text AS org, h.claim_submission_id::text AS sub FROM ${PREREQ} a JOIN ${HEADER} h ON h.id = a.evidence_case_id WHERE a.created_at >= $1::timestamptz AND a.created_at < $2::timestamptz`,
+    runStartedAt.toISOString(),
+    chainStartedAt.toISOString(),
+  )
+  // The nested suites' assessments, written after the boundary, are still only of the two synthetic organizations.
+  const nestedOutside = Number((await prisma.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM ${PREREQ} a WHERE a.created_at >= $1::timestamptz AND a.organization_id::text <> ALL($2::text[])`, chainStartedAt.toISOString(), [org, otherOrg]))[0].n)
   const runSubmissions = new Set([...W.freezes, ...P.freezes, ...F.freezes, ...Re.freezes, ...Wd.freezes])
   const syntheticKinds = Number((await prisma.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM ${ENTRY} e JOIN ${HEADER} h ON h.id = e.assembly_id JOIN revenue_source_evidence r ON r.id = e.source_evidence_id WHERE h.created_at >= $1::timestamptz AND r.source_kind <> 'INTERNAL_SYNTHETIC'`, runStartedAt.toISOString()))[0].n)
   check(
     'T128',
     'Only synthetic organizations and IDs',
-    runAssessments.length > 0 && runAssessments.every((a) => runSubmissions.has(a.sub) && [org, otherOrg].includes(a.org)) && syntheticKinds === 0 && !/['"`][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"`]/.test(production.code),
-    `${runAssessments.length} assessments traced by this run all belong to its synthetic submissions in the two synthetic organizations; every cased source is INTERNAL_SYNTHETIC; no id is hard-coded in A7.6`,
+    runAssessments.length > 0 && runAssessments.every((a) => runSubmissions.has(a.sub) && [org, otherOrg].includes(a.org)) && nestedOutside === 0 && syntheticKinds === 0 && !/['"`][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"`]/.test(production.code),
+    `the ${runAssessments.length} assessments this run recorded (before the nested chain) all belong to its synthetic submissions in the two synthetic organizations, and the nested suites' own assessments are of those two organizations only (${nestedOutside} outside); every cased source is INTERNAL_SYNTHETIC; no id is hard-coded in A7.6`,
   )
   const afterRestart = await workedFacts()
   console.log(`[${TAG}]      worked example: S1 ${S1} -> CASE1 ${CASE1.caseId} -> ASSESS1 ${ASSESS1.assessmentId} ${ASSESS1.assessmentCode} / ${ASSESS1.basisCode}; GET basis-trace -> ${TRACE1.body.traceCode}, items 1 (E1/C1/R1) and 2 (E2/C2/R2) both EXTERNAL_ADJUDICATION_EVIDENCE_ABSENT, digest ${TRACE1.body.caseManifestSha256.slice(0, 12)}… copied`)
