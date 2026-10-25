@@ -138,6 +138,9 @@ export const apiErrorCodes = [
   // A7.5: concurrent requests kept conflicting, the claim stayed busy, or the outcome could not be established;
   // nothing (further) was recorded.
   'EVIDENCE_CASE_PREREQUISITE_CONFLICT',
+  // A7.6: the assessment, its case, the frozen submission's registrations or a linked readiness result disagree, so
+  // the recorded outcome cannot be explained exactly; nothing was explained and nothing was written.
+  'CLOSURE_BASIS_PROVENANCE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

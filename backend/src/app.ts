@@ -92,6 +92,7 @@ import { classificationRouter, sourceClassificationRouter } from './modules/evid
 import { classificationReadinessRouter, readinessRouter } from './modules/evidence-gate/evidence-gate.route.ts'
 import { caseRouter, submissionCaseRouter } from './modules/evidence-case/evidence-case.route.ts'
 import { caseAssessmentRouter, prerequisiteAssessmentRouter } from './modules/case-prerequisite/case-prerequisite.route.ts'
+import { basisTraceRouter } from './modules/closure-basis-trace/closure-basis-trace.route.ts'
 
 export const app = express()
 
@@ -377,6 +378,10 @@ app.use('/api/revenue-evidence-cases', caseRouter)
 // PATCH or PUT, and no adjudication, payment, posting, reconciliation, closure, balance or payer-response route.
 app.use('/api/revenue-evidence-cases', caseAssessmentRouter)
 app.use('/api/closure-prerequisite-assessments', prerequisiteAssessmentRouter)
+
+// A7.6 - the read-only basis trace of one exact assessment (GET only). No write, no audit, no latest or per-Claim
+// scan, and no adjudication, payment, posting, reconciliation, closure or payer-response route.
+app.use('/api/closure-prerequisite-assessments', basisTraceRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
