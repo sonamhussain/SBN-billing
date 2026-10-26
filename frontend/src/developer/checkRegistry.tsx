@@ -60,6 +60,7 @@ import EvidenceGateCheck from '../modules/evidence-gate/EvidenceGateCheck.tsx'
 import EvidenceCaseCheck from '../modules/evidence-case/EvidenceCaseCheck.tsx'
 import CasePrerequisiteCheck from '../modules/case-prerequisite/CasePrerequisiteCheck.tsx'
 import ClosureBasisTraceCheck from '../modules/closure-basis-trace/ClosureBasisTraceCheck.tsx'
+import RevenueTimelineCheck from '../modules/revenue-timeline/RevenueTimelineCheck.tsx'
 
 // FE-01 — every existing engineering check, moved unchanged from the former Development Check page.
 // Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4 -> A5. A new backend *Check is registered
@@ -133,4 +134,5 @@ export const developerChecks: DeveloperCheck[] = [
   { key: 'evidence-case', label: 'Evidence case snapshots', Component: EvidenceCaseCheck },
   { key: 'case-prerequisite', label: 'Case closure prerequisites', Component: CasePrerequisiteCheck },
   { key: 'closure-basis-trace', label: 'Closure basis trace', Component: ClosureBasisTraceCheck },
+  { key: 'revenue-timeline', label: 'Revenue evidence timeline', Component: RevenueTimelineCheck },
 ]

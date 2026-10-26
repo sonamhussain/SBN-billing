@@ -141,6 +141,10 @@ export const apiErrorCodes = [
   // A7.6: the assessment, its case, the frozen submission's registrations or a linked readiness result disagree, so
   // the recorded outcome cannot be explained exactly; nothing was explained and nothing was written.
   'CLOSURE_BASIS_PROVENANCE_CONFLICT',
+  // A7.7: the Claim's freezes, its correction chain, a case or an assessment disagree (a fork, join, cycle, second
+  // root, unlinked freeze, equal or reversed instant, or a foreign, duplicate or unsupported case or assessment), so
+  // no timeline was composed; nothing was written.
+  'REVENUE_TIMELINE_PROVENANCE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]
