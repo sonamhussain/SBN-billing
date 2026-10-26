@@ -93,6 +93,7 @@ import { classificationReadinessRouter, readinessRouter } from './modules/eviden
 import { caseRouter, submissionCaseRouter } from './modules/evidence-case/evidence-case.route.ts'
 import { caseAssessmentRouter, prerequisiteAssessmentRouter } from './modules/case-prerequisite/case-prerequisite.route.ts'
 import { basisTraceRouter } from './modules/closure-basis-trace/closure-basis-trace.route.ts'
+import { timelineRouter } from './modules/revenue-timeline/revenue-timeline.route.ts'
 
 export const app = express()
 
@@ -382,6 +383,10 @@ app.use('/api/closure-prerequisite-assessments', prerequisiteAssessmentRouter)
 // A7.6 - the read-only basis trace of one exact assessment (GET only). No write, no audit, no latest or per-Claim
 // scan, and no adjudication, payment, posting, reconciliation, closure or payer-response route.
 app.use('/api/closure-prerequisite-assessments', basisTraceRouter)
+
+// A7.7 - the read-only revenue evidence timeline of one Claim (GET only). No write, no audit, no latest or current
+// selector, no all-organization search, and no payment, remittance, balance, closure or payer-response route.
+app.use('/api/claims', timelineRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
