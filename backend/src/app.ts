@@ -95,6 +95,7 @@ import { caseAssessmentRouter, prerequisiteAssessmentRouter } from './modules/ca
 import { basisTraceRouter } from './modules/closure-basis-trace/closure-basis-trace.route.ts'
 import { timelineRouter } from './modules/revenue-timeline/revenue-timeline.route.ts'
 import { deltaRouter } from './modules/revenue-delta/revenue-delta.route.ts'
+import { continuityRouter } from './modules/revenue-continuity/revenue-continuity.route.ts'
 
 export const app = express()
 
@@ -392,6 +393,10 @@ app.use('/api/claims', timelineRouter)
 // A7.8 - the read-only revenue evidence delta of one Claim (GET only). No write, no audit, no latest or current
 // selector, no all-organization search, and no payment, remittance, balance, closure or payer-response route.
 app.use('/api/claims', deltaRouter)
+
+// A7.9 - the read-only revenue evidence continuity of one Claim (GET only). No write, no audit, no latest or current
+// selector, no all-organization search, and no payment, remittance, balance, closure or payer-response route.
+app.use('/api/claims', continuityRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

@@ -148,6 +148,9 @@ export const apiErrorCodes = [
   // A7.8: the Claim's timeline is corrupt, or contradicts itself (ordinals, predecessors, links, instants, a duplicate,
   // foreign or unsupported case or assessment), so no delta was compared; nothing was written.
   'REVENUE_DELTA_PROVENANCE_CONFLICT',
+  // A7.9: the Claim's timeline or delta is corrupt, or the two do not describe the same history (contracts, Claim,
+  // freezes, pairs, links, cases or assessments), so no continuity result was reconciled; nothing was written.
+  'REVENUE_CONTINUITY_PROVENANCE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]
