@@ -62,6 +62,7 @@ import CasePrerequisiteCheck from '../modules/case-prerequisite/CasePrerequisite
 import ClosureBasisTraceCheck from '../modules/closure-basis-trace/ClosureBasisTraceCheck.tsx'
 import RevenueTimelineCheck from '../modules/revenue-timeline/RevenueTimelineCheck.tsx'
 import RevenueDeltaCheck from '../modules/revenue-delta/RevenueDeltaCheck.tsx'
+import RevenueContinuityCheck from '../modules/revenue-continuity/RevenueContinuityCheck.tsx'
 
 // FE-01 — every existing engineering check, moved unchanged from the former Development Check page.
 // Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4 -> A5. A new backend *Check is registered
@@ -137,4 +138,5 @@ export const developerChecks: DeveloperCheck[] = [
   { key: 'closure-basis-trace', label: 'Closure basis trace', Component: ClosureBasisTraceCheck },
   { key: 'revenue-timeline', label: 'Revenue evidence timeline', Component: RevenueTimelineCheck },
   { key: 'revenue-delta', label: 'Revenue evidence delta', Component: RevenueDeltaCheck },
+  { key: 'revenue-continuity', label: 'Revenue evidence continuity', Component: RevenueContinuityCheck },
 ]
