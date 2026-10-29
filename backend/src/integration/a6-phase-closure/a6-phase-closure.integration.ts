@@ -1470,7 +1470,12 @@ async function main() {
     provenance[0]?.ok === true && unresolved.length === 0 && entries.filter((e) => e.referenceKind in kindTables).length >= 10,
     'the identity in S1\'s stored bytes resolves to one coherent Claim → readiness → run → pricing → assessment → approval → activities lineage, and every typed manifest reference resolves to exactly one row',
   )
-  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(remittance|payment|adjudicat|denial|receivable|outbox|queue|transmission|acknowledg|exception)'`).map((row) => row.t)
+  // Later phases' tables: those created by migrations committed after A6.10's own merge (none on its own branch, so
+  // this boundary is unchanged there). Every table that existed when A6.10 merged is judged as before.
+  const a610OwnMerge = branch === a610Branch ? '' : mergeOf(a610Branch)
+  const migrationDirsIn = (ref: string) => git(`ls-tree -d --name-only --full-tree ${ref} backend/prisma/migrations/`).split(/\r?\n/).filter((line) => /\/\d{14}_/.test(line))
+  const laterPhaseTables = new Set(a610OwnMerge ? migrationDirsIn('HEAD').filter((dir) => !migrationDirsIn(a610OwnMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(remittance|payment|adjudicat|denial|receivable|outbox|queue|transmission|acknowledg|exception)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const laterRoutes = [
     await post(`/api/claims/${claimW.id}/submit`, {}), await post(`/api/claim-submissions/${S2}/send`, {}), await post(`/api/claim-submissions/${S2}/transmit`, {}),
     await get(`/api/claim-submissions/${S2}/remittance`), await post(`/api/claims/${claimW.id}/payments`, {}), await get(`/api/claims/${claimW.id}/denials`),

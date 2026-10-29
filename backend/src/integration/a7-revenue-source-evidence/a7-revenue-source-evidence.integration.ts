@@ -394,12 +394,19 @@ async function main() {
     constantOf('backend/src/modules/claim-lifecycle/claim-lifecycle.types.ts', 'LIFECYCLE_CONTRACT_VERSION'),
     constantOf('backend/src/modules/claim-correction/claim-correction.types.ts', 'CORRECTION_CONTRACT_VERSION'),
   ]
+  // A7.1's own scope for T009: on its own branch, its diff against main; on any later branch, exactly what its own
+  // merge added, judged by the same rules. A later package's changes (A8.1's, a later harness correction's) are
+  // that package's to prove.
+  const ownMerge = branch === a71Branch ? '' : mergeOf(a71Branch)
+  const ownRange = ownMerge ? `${ownMerge}^1..${ownMerge}` : 'origin/main...HEAD'
+  const ownChangedPaths = gitArgs(['diff', '--name-only', ownRange]).split(/\r?\n/).filter(Boolean)
   const ownerChanged = changedPaths.filter((file) => A6_OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file))
+  const ownOwnerChanged = ownChangedPaths.filter((file) => A6_OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file))
   check(
     'T009',
     'Protected contracts',
-    same(contracts, ['A6-CLAIM-1', 'A6-PRICE-1', 'A6-DRAFT-1', 'A6-REVIEW-1', 'A6-PAYLOAD-1', 'A6-SUBMISSION-1', 'A6-EVIDENCE-1', 'A6-LIFECYCLE-1', 'A6-CORRECTION-1']) && ownerChanged.length === 0,
-    ownerChanged.length === 0 ? 'A6-CLAIM-1 … A6-CORRECTION-1 unchanged; no A5/A6 owner module, page or suite changed' : `changed: ${ownerChanged.join(', ').slice(0, 200)}`,
+    same(contracts, ['A6-CLAIM-1', 'A6-PRICE-1', 'A6-DRAFT-1', 'A6-REVIEW-1', 'A6-PAYLOAD-1', 'A6-SUBMISSION-1', 'A6-EVIDENCE-1', 'A6-LIFECYCLE-1', 'A6-CORRECTION-1']) && ownOwnerChanged.length === 0,
+    ownOwnerChanged.length === 0 ? 'A6-CLAIM-1 … A6-CORRECTION-1 unchanged; no A5/A6 owner module, page or suite changed' : `changed: ${ownOwnerChanged.join(', ').slice(0, 200)}`,
   )
 
   // ---------------------------------------------------------------- fixtures
@@ -971,7 +978,7 @@ async function main() {
 
   // ---------------------------------------------------------------- boundaries (T101–T110)
   section('Zero A6 changes, no A7.2/A9 leakage, no outbound calls, no settlement or real-evidence fiction')
-  check('T101', 'Zero A6 changes', ownerChanged.length === 0, 'no A5/A6 owner module, frontend page or harness changed (T009)')
+  check('T101', 'Zero A6 changes', ownOwnerChanged.length === 0, 'no A5/A6 owner module, frontend page or harness changed (T009)')
   const newTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(revenue|remittance|payment|receivable|adjudicat|denial|settlement|posting|ledger|outbox|queue|transmission|acknowledg)'`).map((row) => row.t)
   check('T102', 'One new table', same(newTables, [TABLE]), 'exactly one A7.1 table; no remittance, payment, receivable, adjudication, denial, settlement, posting, ledger, outbox, queue or transmission table')
   check('T103', 'No outbound call', !/from 'node:(http|https|net|tls|dgram)'|\bfetch\(|axios|undici|<\?xml|\bx12\b|\bhl7\b|\bfhir\b|enqueue/i.test(production.code), 'no network client, XML/X12/HL7/FHIR or queue in A7.1 code')

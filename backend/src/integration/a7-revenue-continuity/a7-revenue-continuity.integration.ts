@@ -305,19 +305,28 @@ async function main() {
   const migrationDirsAt = (ref: string) => git(`ls-tree -d --name-only --full-tree ${ref} backend/prisma/migrations/`).split(/\r?\n/).filter((line) => /\/\d{14}_/.test(line))
   const headMigrationDirs = migrationDirsAt('HEAD')
   const baseMigrationDirs = migrationDirsAt('origin/main')
-  check('T004', 'Zero schema or migration change', prismaStatus.length === 0 && same(headMigrationDirs, baseMigrationDirs), prismaStatus.length === 0 ? `nothing under backend/prisma changed: schema and all ${headMigrationDirs.length} migrations identical to main` : `prisma changes: ${prismaStatus.join(' | ')}`)
+  // A7.9's own scope: on its own branch, its diff against main; on any later branch, exactly what its own merge
+  // added. A later package's changes are that package's to prove, so the scope checks below (no migration, replay
+  // base, permission catalogue, owner code) always judge THIS package.
+  const ownMerge = branch === a79Branch ? '' : mergeOf(a79Branch)
+  const ownRange = ownMerge ? `${ownMerge}^1..${ownMerge}` : 'origin/main...HEAD'
+  const ownChangedPaths = gitArgs(['diff', '--name-only', ownRange]).split(/\r?\n/).filter(Boolean)
+  const ownPrismaStatus = gitArgs(['diff', '--name-status', ownRange, '--', ':/backend/prisma']).split(/\r?\n/).filter(Boolean)
+  const ownHeadMigrationDirs = ownMerge ? migrationDirsAt(ownMerge) : headMigrationDirs
+  const ownBaseMigrationDirs = ownMerge ? migrationDirsAt(`${ownMerge}^1`) : baseMigrationDirs
+  check('T004', 'Zero schema or migration change', ownPrismaStatus.length === 0 && same(ownHeadMigrationDirs, ownBaseMigrationDirs), ownPrismaStatus.length === 0 ? `nothing under backend/prisma changed: schema and all ${headMigrationDirs.length} migrations identical to its base` : `prisma changes: ${ownPrismaStatus.join(' | ')}`)
   const validate = run('npm run db:validate')
   const generate = run('npm run db:generate')
   const status = run('npm run db:status')
   check('T005', 'Prisma validate, generate and status', validate.ok && generate.ok && status.ok && /Database schema is up to date/.test(status.output), 'the unchanged schema validates and generates; the working database is up to date (never reset)')
   const replay = run('npm run db:verify:replay')
   const appliedCount = Number((replay.output.match(/(\d+) migrations applied cleanly/) ?? [])[1] ?? -1)
-  check('T006', 'Scratch replay equals HEAD migrations', replay.ok && /ALL CHECKS PASS/.test(replay.output) && appliedCount === headMigrationDirs.length && appliedCount === baseMigrationDirs.length, `${appliedCount} migrations applied cleanly from empty in the scratch database — exactly the ${headMigrationDirs.length} committed at HEAD (= main)`)
+  check('T006', 'Scratch replay equals HEAD migrations', replay.ok && /ALL CHECKS PASS/.test(replay.output) && appliedCount === headMigrationDirs.length && ownHeadMigrationDirs.length === ownBaseMigrationDirs.length, `${appliedCount} migrations applied cleanly from empty in the scratch database — exactly the ${headMigrationDirs.length} committed at HEAD, none added in its own scope`)
   const routeCode = committedCode(`${MODULE_DIR}/revenue-continuity.route.ts`)
   const permissionsOf = (code: string) => [...code.matchAll(/requireMemberPermission\(organizationIdFromClaim, '([^']+)'\)/g)].map((m) => m[1])
   const a77Permissions = permissionsOf(committedCode(A77_ROUTE))
   const a78Permissions = permissionsOf(committedCode(A78_ROUTE))
-  const authzDiff = gitArgs(['diff', 'origin/main...HEAD', '--', ':/backend/src/shared/authorization', ':/backend/src/scripts/bootstrap-authz-dev.ts'])
+  const authzDiff = gitArgs(['diff', ownRange, '--', ':/backend/src/shared/authorization', ':/backend/src/scripts/bootstrap-authz-dev.ts'])
   const allCodes = (await prisma.permission.findMany({ select: { code: true } })).map((row) => row.code)
   check(
     'T007',
@@ -433,11 +442,12 @@ async function main() {
     `GET answers a missing Claim with a privacy-safe 404; POST/PUT/PATCH/DELETE, latest, current, a collection and a per-submission route are absent (${absent.map((r) => r.status).join('/')}); unauthenticated ${unauthenticated.status}`,
   )
   const ownerChanged = changedPaths.filter((file) => OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file))
+  const ownOwnerChanged = ownChangedPaths.filter((file) => OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file))
   check(
     'T009',
     'Upstream owner contracts unchanged',
-    ownerChanged.length === 0 && prismaStatus.length === 0 && same(contracts, expectedContracts),
-    ownerChanged.length === 0 ? 'no A5/A6/A7.1–A7.8 module, page or suite, shared database or authorization code, schema or migration changed; every upstream contract is unchanged' : `changed: ${ownerChanged.join(', ').slice(0, 200)}`,
+    ownOwnerChanged.length === 0 && ownPrismaStatus.length === 0 && same(contracts, expectedContracts),
+    ownOwnerChanged.length === 0 ? 'no A5/A6/A7.1–A7.8 module, page or suite, shared database or authorization code, schema or migration changed; every upstream contract is unchanged' : `changed: ${ownOwnerChanged.join(', ').slice(0, 200)}`,
   )
 
   // ---------------------------------------------------------------- fixtures
@@ -1136,7 +1146,10 @@ async function main() {
     "S3's A7.6 trace, C's A7.7 timeline and C's A7.8 delta read back identically around the continuity reads, and the timeline lists exactly the freezes A7.9 reports",
   )
   const laterRoutes = [await post(`/api/claims/${C.claimId}/closures`, {}), await post(`/api/claims/${C.claimId}/payments`, {}), await post(`/api/claims/${C.claimId}/remittances`, {}), await post(`/api/claims/${C.claimId}/exceptions`, {}), await post(continuityPath(C.claimId), {})]
-  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|continuit|delta|receivable|ledger|balance|payment)'`).map((row) => row.t)
+  // Later phases' tables: those created by migrations committed after this package's own merge (none on its own
+  // branch, so this boundary is unchanged there). Every table that existed when the package merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|continuit|delta|receivable|ledger|balance|payment)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const moneyIdentifier = /\bDecimal\b|[Aa]mount|\b[Cc]urrency|[a-z]Currency|toFixed\(|[Ss]ettle|[Aa]llocat|[Aa]djust|[Rr]eceivable|[Bb]alance|[Ll]edger|[Pp]ayment|[Rr]emittance/
   check(
     'T110',
@@ -1226,7 +1239,7 @@ async function main() {
   check(
     'T120',
     'All historical branch-only N/A justified',
-    ran && failing.every((id) => id in a78NonApplicable) && unproven.length === 0 && naLines.length === 7 && naLines.every((line) => line.length > 80) && ownerChanged.length === 0,
+    ran && failing.every((id) => id in a78NonApplicable) && unproven.length === 0 && naLines.length === 7 && naLines.every((line) => line.length > 80) && ownOwnerChanged.length === 0,
     unproven.length === 0
       ? `each documented A7.8 failure (${failing.join(', ') || 'none'}) is printed with its reason and fails only for its branch-only cause, proved independently here; A7.8 itself justifies its seven A7.7 items (${naLines.length} lines)`
       : `cause not proven for: ${unproven.join(', ')}`,
