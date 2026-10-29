@@ -1320,6 +1320,53 @@ async function main() {
     const prereqTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /prereq/.test(table)))].sort()
     check('the A7.5 tables are exactly evidence_prereq_results after a clean replay', JSON.stringify(prereqTables) === JSON.stringify(['evidence_prereq_results']), prereqTables.join(', '))
 
+    // A8.1 — append-only exception intakes of exact source records. The contract, the two source kinds with their
+    // contracts, the five controlled reasons, the only owner-establishable (kind, reason) pairs, the digest shapes
+    // and the deterministic identity are held by CHECKs and a UNIQUE index; an insert guard holds database time,
+    // organization, membership, source coherence, the copied digest and the identity digest; the table is
+    // append-only and cannot be truncated.
+    for (const trigger of ['operational_intake_records_insert_guard_trg', 'operational_intake_records_append_only_trg', 'operational_intake_records_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'operational_intake_records_pkey',
+      'operational_intake_records_contract_chk',
+      'operational_intake_records_source_kind_chk',
+      'operational_intake_records_reason_chk',
+      'operational_intake_records_pairing_chk',
+      'operational_intake_records_fingerprint_chk',
+      'operational_intake_records_identity_chk',
+      'operational_intake_records_organization_id_fkey',
+      'operational_intake_records_claim_id_fkey',
+      'operational_intake_records_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const intakeContract = replay.constraints.find((line) => line.includes('operational_intake_records_contract_chk')) ?? ''
+    const intakeReasons = replay.constraints.find((line) => line.includes('operational_intake_records_reason_chk')) ?? ''
+    check(
+      'the A8.1 CHECKs pin A8-EXCEPTION-INTAKE-1 and exactly the five controlled reasons, with no payment, denial or closure reason, after a clean replay',
+      intakeContract.includes("'A8-EXCEPTION-INTAKE-1'") &&
+        ['PROVENANCE_CONFLICT', 'SOURCE_REFERENCE_UNAVAILABLE', 'CONTRACT_VERSION_UNSUPPORTED', 'HISTORICAL_RECORD_INCONSISTENT', 'OPERATOR_REVIEW_REQUIRED'].every((code) => intakeReasons.includes(`'${code}'`)) &&
+        /IS NOT NULL/i.test(intakeReasons) &&
+        !/'(PAID|DENIED|CLOSED|SETTLED|OVERPAID|UNDERPAID|RESOLVED|ASSIGNED|OPEN)'/.test(intakeReasons),
+      `${intakeContract.slice(0, 100)} | ${intakeReasons.slice(0, 160)}`,
+    )
+    check(
+      'one intake per deterministic identity is unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('operational_intake_records_identity_key:') && /UNIQUE/i.test(line) && /\(identity_key\)/.test(line)),
+    )
+    const intakeExpected = ['id', 'organization_id', 'claim_id', 'contract_version', 'source_kind', 'source_record_id', 'source_contract_version', 'source_fingerprint_sha256', 'exception_reason_code', 'identity_key', 'recorded_by_user_id', 'recorded_at', 'created_at']
+    const intakeActual = replay.columns.filter((line) => line.startsWith('operational_intake_records.')).map((line) => line.slice('operational_intake_records.'.length).split(':')[0])
+    check(
+      `operational_intake_records carries exactly its ${intakeExpected.length} A8.1 columns after a clean replay`,
+      intakeActual.length === intakeExpected.length && intakeActual.every((column) => intakeExpected.includes(column)),
+      intakeActual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : intakeActual.filter((column) => !intakeExpected.includes(column)).join(', '),
+    )
+    const intakeTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /exception|intake/.test(table)))].sort()
+    check('the A8.1 tables are exactly operational_intake_records after a clean replay', JSON.stringify(intakeTables) === JSON.stringify(['operational_intake_records']), intakeTables.join(', '))
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration

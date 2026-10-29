@@ -300,28 +300,37 @@ async function main() {
   const migrationDirsAt = (ref: string) => git(`ls-tree -d --name-only --full-tree ${ref} backend/prisma/migrations/`).split(/\r?\n/).filter((line) => /\/\d{14}_/.test(line))
   const headMigrationDirs = migrationDirsAt('HEAD')
   const baseMigrationDirs = migrationDirsAt('origin/main')
+  // A7.7's own scope: on its own branch, its diff against main; on any later branch, exactly what its own merge
+  // added. A later package's changes are that package's to prove, so the scope checks below (no migration, replay
+  // base, permission catalogue, owner code) always judge THIS package.
+  const ownMerge = branch === a77Branch ? '' : mergeOf(a77Branch)
+  const ownRange = ownMerge ? `${ownMerge}^1..${ownMerge}` : 'origin/main...HEAD'
+  const ownChangedPaths = gitArgs(['diff', '--name-only', ownRange]).split(/\r?\n/).filter(Boolean)
+  const ownPrismaStatus = gitArgs(['diff', '--name-status', ownRange, '--', ':/backend/prisma']).split(/\r?\n/).filter(Boolean)
+  const ownHeadMigrationDirs = ownMerge ? migrationDirsAt(ownMerge) : headMigrationDirs
+  const ownBaseMigrationDirs = ownMerge ? migrationDirsAt(`${ownMerge}^1`) : baseMigrationDirs
   check(
     'T004',
     'No schema or migration introduced',
-    prismaStatus.length === 0 && same(headMigrationDirs, baseMigrationDirs),
-    prismaStatus.length === 0 ? `nothing under backend/prisma changed: schema and all ${headMigrationDirs.length} migrations identical to main` : `prisma changes: ${prismaStatus.join(' | ')}`,
+    ownPrismaStatus.length === 0 && same(ownHeadMigrationDirs, ownBaseMigrationDirs),
+    ownPrismaStatus.length === 0 ? `nothing under backend/prisma changed: schema and all ${headMigrationDirs.length} migrations identical to its base` : `prisma changes: ${ownPrismaStatus.join(' | ')}`,
   )
   const validate = run('npm run db:validate')
   const generate = run('npm run db:generate')
   const status = run('npm run db:status')
-  check('T005', 'Prisma validate and generate unchanged', validate.ok && generate.ok && status.ok && /Database schema is up to date/.test(status.output) && prismaStatus.length === 0, 'the unchanged schema validates and generates; the working database is up to date (never reset)')
+  check('T005', 'Prisma validate and generate unchanged', validate.ok && generate.ok && status.ok && /Database schema is up to date/.test(status.output) && ownPrismaStatus.length === 0, 'the unchanged schema validates and generates; the working database is up to date (never reset)')
   const replay = run('npm run db:verify:replay')
   const appliedCount = Number((replay.output.match(/(\d+) migrations applied cleanly/) ?? [])[1] ?? -1)
   check(
     'T006',
     'From-empty replay agrees with base',
-    replay.ok && /ALL CHECKS PASS/.test(replay.output) && appliedCount === baseMigrationDirs.length && appliedCount === headMigrationDirs.length && /PASS {2}the A7\.5 tables are exactly evidence_prereq_results/.test(replay.output),
-    `${appliedCount} migrations applied cleanly from empty in the scratch database — exactly the ${baseMigrationDirs.length} on main; every guard survives`,
+    replay.ok && /ALL CHECKS PASS/.test(replay.output) && ownHeadMigrationDirs.length === ownBaseMigrationDirs.length && appliedCount === headMigrationDirs.length && /PASS {2}the A7\.5 tables are exactly evidence_prereq_results/.test(replay.output),
+    `${appliedCount} migrations applied cleanly from empty in the scratch database — exactly the ${headMigrationDirs.length} committed at HEAD, none added in its own scope; every guard survives`,
   )
   const allCodes = (await prisma.permission.findMany({ select: { code: true } })).map((row) => row.code)
   const grantsOf = async (code: string) => (await prisma.rolePermission.findMany({ where: { permission: { code } }, select: { role: { select: { code: true } } } })).map((g) => g.role.code).sort().join(',')
   const routeCode = committedCode(`${MODULE_DIR}/revenue-timeline.route.ts`)
-  const authzDiff = gitArgs(['diff', 'origin/main...HEAD', '--', ':/backend/src/shared/authorization', ':/backend/src/scripts/bootstrap-authz-dev.ts'])
+  const authzDiff = gitArgs(['diff', ownRange, '--', ':/backend/src/shared/authorization', ':/backend/src/scripts/bootstrap-authz-dev.ts'])
   const routePermissions = [...routeCode.matchAll(/requireMemberPermission\(organizationIdFromClaim, '([^']+)'\)/g)].map((m) => m[1])
   const grants = await Promise.all(READ_PERMISSIONS.map(grantsOf))
   check(
@@ -454,12 +463,13 @@ async function main() {
     constantOf('backend/src/modules/closure-basis-trace/closure-basis-trace.types.ts', 'TRACE_CONTRACT_VERSION'),
   ]
   const ownerChanged = changedPaths.filter((file) => OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file))
+  const ownOwnerChanged = ownChangedPaths.filter((file) => OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file))
   const expectedContracts = ['A6-CLAIM-1', 'A6-SUBMISSION-1', 'A6-LIFECYCLE-1', 'A6-CORRECTION-1', 'A7-REVENUE-SOURCE-1', 'A7-EVIDENCE-CLASS-1', 'A7-ADJ-READINESS-1', 'A7-REVENUE-CASE-1', 'A7-CLOSURE-PREREQ-1', 'A7-CLOSURE-TRACE-1']
   check(
     'T009',
     'All previous contracts untouched',
-    same(contracts, expectedContracts) && ownerChanged.length === 0,
-    ownerChanged.length === 0 ? `${expectedContracts.join(', ')} unchanged; no A5/A6/A7.1–A7.6 module, page or suite, shared database or authorization code, or prisma file changed` : `changed: ${ownerChanged.join(', ').slice(0, 200)}`,
+    same(contracts, expectedContracts) && ownOwnerChanged.length === 0,
+    ownOwnerChanged.length === 0 ? `${expectedContracts.join(', ')} unchanged; no A5/A6/A7.1–A7.6 module, page or suite, shared database or authorization code, or prisma file changed` : `changed: ${ownOwnerChanged.join(', ').slice(0, 200)}`,
   )
 
   // ---------------------------------------------------------------- fixtures
