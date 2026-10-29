@@ -82,7 +82,8 @@
     "test:a7:closure-basis-trace": "node --env-file=.env src/integration/a7-closure-basis-trace/a7-closure-basis-trace.integration.ts",
     "test:a7:revenue-timeline": "node --env-file=.env src/integration/a7-revenue-timeline/a7-revenue-timeline.integration.ts",
     "test:a7:revenue-delta": "node --env-file=.env src/integration/a7-revenue-delta/a7-revenue-delta.integration.ts",
-    "test:a7:revenue-continuity": "node --env-file=.env src/integration/a7-revenue-continuity/a7-revenue-continuity.integration.ts"
+    "test:a7:revenue-continuity": "node --env-file=.env src/integration/a7-revenue-continuity/a7-revenue-continuity.integration.ts",
+    "test:a7:phase-closure": "node --env-file=.env src/integration/a7-phase-closure/a7-phase-closure.integration.ts"
   },
   "keywords": [],
   "author": "",
