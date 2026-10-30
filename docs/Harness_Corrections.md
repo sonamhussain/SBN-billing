@@ -1,7 +1,8 @@
-# Harness Corrections — Later-Phase Recognition (before A8.1)
+# Harness Corrections — Later-Phase Recognition and A6.6 Ordered Counts (before A8.1)
 
 Branch `fix/a6-a7-harness-later-phase-recognition`, from `main` at `0a74f47` (A7.10 merge). Harness files only: no
-product module, migration, schema, permission, audit action, route, frontend page or accepted contract changes.
+product module, migration, schema, permission, audit action, route, frontend page or accepted contract changes. The
+branch also carries its own acceptance suite (`npm run test:harness-corrections`, below).
 
 ## Why
 
@@ -59,6 +60,50 @@ live state at the tested HEAD. Examples: `db:status` up to date, applied count e
 every A6/A7 guard, trigger, route and reducer. Only the question *"did this package change X"* moved from the current
 branch to the package's own merge.
 
+## A6.6 T082 — order-independent counts
+
+**Defect (found by the official runs of this branch).** A6.6 T082 "Previews write nothing" compares eleven
+`count(*)` results joined by `UNION ALL`, serialized as one ordered string, with no `ORDER BY`. PostgreSQL may run such
+a `UNION ALL` as a Parallel Append, which returns the rows in no guaranteed order. On a small database it ran
+serially and the order never changed; at today's size (about 750,000 audit events) the nested chain gets a parallel
+plan, so the same counts arrive in a different order and the check fails although nothing was written. A6.7 and every
+later suite already key their counts by table for exactly this reason; A6.6 was the only one that did not.
+
+**Evidence.** Two official runs (A710-1793281117696, A710-1793289117145) failed only on A6.6 T082 and its cascade. A
+temporary instrumented run (reverted, never committed) recorded inside the chain: all eleven count values identical at
+T071 and T082; every table's insert/update/delete statistics identical; no other session active; only the row
+order differed. Run alone, the unmodified A6.6 passed T082.
+
+| Suite | Check | Before | After |
+|---|---|---|---|
+| A6.6 `a6-canonical-payload` | T082 previews write nothing (`tableCounts`) | the eleven counts in the order PostgreSQL returned them | the same eleven counts, `ORDER BY t` |
+
+Every count is still compared exactly; only the order is fixed.
+
+## Acceptance of this correction (`npm run test:harness-corrections`)
+
+A7.10 run on any branch but its own always fails its seven checks about its own branch, so it cannot be this
+branch's final gate. `backend/src/integration/harness-corrections` is. Every check is executed, nothing is N/A
+except the seven nested A7.10 items, each proved for its cause:
+
+- **H01–H05 scope:** branch and ancestry; clean tree and origin parity; the exact changed files; no module, shared,
+  script, job, app, server, prisma or frontend change, `package.json` differing only by this suite's script; every
+  A1–A7 contract constant identical to main.
+- **H06–H08 every check kept:** each corrected suite has exactly its check ids and titles from main, and a
+  byte-identical N/A policy; every changed line is an own-scope definition or use, a comment, or the A6.6 `ORDER BY`.
+- **H09–H12 equivalence and the later-phase rule:** every own-scope value is defined once from `ownMerge`, and on
+  the package's own branch (`ownMerge = ''`) it is literally the original value. The excluded tables are computed
+  only from migration files committed after the package's own merge, never from the database. At this HEAD no
+  excluded table matches a boundary any suite enforces. A prohibited-looking table created outside any migration
+  (inside a transaction that is always rolled back) is excluded by no suite.
+- **H13–H17 full chain:** A7.10 → A1 run once. Every A7.10 substantive check PASSes (A7.9 … A7.1, A6.10 … A1, units,
+  typecheck, build, replay, outage, warnings), and each of the seven branch-only A7.10 failures is proved for its own
+  cause on this branch.
+- **H18:** exact HEAD equal to origin, clean tree, and the full nested output kept in `backend/hc-nested-<run>.log`.
+
+A later package (A8.1) proves its own tables: its own scope checks forbid any assignment, queue, payment, remittance
+or other later-domain table, so a table the earlier suites exclude is never unjudged.
+
 ## What remains branch-only
 
 These checks are unchanged and are still documented as branch-only N/A in a later package's nested chain. They prove
@@ -70,7 +115,6 @@ the package's own branch, ancestry, head, changed-file scope or acceptance regis
 ## Proof
 
 - Typecheck clean; `npm run test:a3:scope` passes.
-- A throwaway local clone of this branch, committed, runs A6.10 and every A7 suite **fully**, each with only its own
-  nested chain stubbed. Each suite's failures are exactly its documented branch-only items.
-- Two official `npm run test:a7:phase-closure` runs on this branch, where only the documented branch-only items of
-  the top-level A7.10 run itself fail, because this branch is not A7.10's own branch.
+- A throwaway local clone of this branch, committed, runs the full chain through `npm run test:harness-corrections`.
+- Two official `npm run test:harness-corrections` runs at one HEAD, each a complete PASS, with their full nested
+  outputs.
