@@ -5,25 +5,32 @@ import { withReadSnapshot } from '../../shared/database/read-snapshot.ts'
 import { isLockUnavailable, lockRowForUpdate, lockRowForUpdateNowait } from '../../shared/database/row-lock.ts'
 import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { recordAuditEvent } from '../audit/audit.service.ts'
-// The owners A8.1 consumes, on THIS transaction and unchanged: the A6.7 Claim ownership path, the A7.5 stored
-// assessment and its case -> frozen submission -> Claim identity, the A7.6 trace of an assessment and the A7.7
-// timeline of a Claim. Their verdicts are taken as answered; nothing is re-derived, repaired or written to them.
-import { findClaimForFreeze } from '../claim-submission/claim-submission.repository.ts'
+// The owners A8.1 consumes, on THIS transaction and unchanged: the A6.7 Claim ownership path and a Claim's freezes,
+// the A6.9 freeze instants and correction links, the A7.4 stored case, the A7.5 stored assessment and its case ->
+// frozen submission -> Claim identity, the A7.6 trace of an assessment and the A7.7 timeline of a Claim. Their
+// verdicts and stored facts are taken as answered; nothing is re-derived, repaired or written to them.
+import { findClaimForFreeze, findFreezesOfClaim } from '../claim-submission/claim-submission.repository.ts'
+import { findFreezeFacts, findLinksOfClaim } from '../claim-correction/claim-correction.repository.ts'
+import { findCaseById } from '../evidence-case/evidence-case.repository.ts'
 import { findAssessmentById, findCaseForPrerequisite } from '../case-prerequisite/case-prerequisite.repository.ts'
 import { getClosureBasisTraceOf } from '../closure-basis-trace/closure-basis-trace.service.ts'
 import { getRevenueTimelineOf } from '../revenue-timeline/revenue-timeline.service.ts'
-import { establishedReasons } from './exception-intake.basis.ts'
+import { establishedBasis } from './exception-intake.basis.ts'
 import { identityKeyOf } from './exception-intake.identity.ts'
 import { findIntakeByIdentity, findIntakesOfClaim, insertIntake, type IntakeRecord } from './exception-intake.repository.ts'
 import {
   EXCEPTION_INTAKE_CONTRACT_VERSION,
+  type BasisCode,
   type ExceptionIntakeDto,
   type ExceptionIntakeErrorCode,
   type ExceptionIntakeListDto,
   type ExceptionIntakeOutcome,
   type ExceptionIntakeResult,
   type ExceptionReasonCode,
+  type FreezeInstant,
+  type IdentityParts,
   type IntakeRequest,
+  type LinkEdge,
   type OwnerVerdict,
   type SourceKind,
 } from './exception-intake.types.ts'
@@ -37,12 +44,14 @@ import { isIntakeUuid, validateIntakeRequest } from './exception-intake.validati
 // 3. under the lock the Claim's organization is re-read, and the exact source is resolved through its owner: it must
 //    exist and belong to exactly this Claim and organization under its stored contract (otherwise the same 404 as a
 //    missing record);
-// 4. an intake with the same deterministic identity is the idempotent answer (200, no new row, no audit);
-// 5. otherwise the source's own owner answers its verdict on this transaction, and the pure basis rule says which
-//    reasons that verdict establishes; a reason it does not establish is refused (409 INTAKE_BASIS_NOT_ESTABLISHED),
-//    never stored;
-// 6. exactly one intake and one metadata-only audit are appended atomically; the database guard re-checks time,
-//    organization, membership, source coherence, the copied digest and the identity digest.
+// 4. an intake with the same deterministic identity is the idempotent answer (200, no new row, no audit) — only after
+//    every canonical field of the stored row is verified to be exactly the request's and this tenant's, and its
+//    identity key the digest of its own columns; anything else is refused, never answered;
+// 5. otherwise the source's owners answer their verdict and stored facts on this transaction, and the pure basis rule
+//    says whether the reason's specific condition holds and by which controlled basis; an owner's refusal alone, or
+//    any condition it cannot prove, is refused (409 INTAKE_BASIS_NOT_ESTABLISHED), never stored;
+// 6. exactly one intake (with its basis) and one metadata-only audit are appended atomically; the database guard
+//    re-checks time, organization, membership, source coherence, the copied digest, the basis fact and the identity.
 // Nothing is assigned, resolved, closed, paid, denied or changed in any source.
 
 class IntakeRefusal extends Error {
@@ -78,7 +87,7 @@ const isUniqueViolation = (error: unknown) =>
   (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') || (error instanceof Error && /duplicate key value violates unique constraint|23505/.test(error.message))
 
 // The database guard is the backstop behind every service check.
-const databaseGuardMarkers = ['exception_intake_time', 'exception_intake_coherence', 'exception_intake_member', 'exception_intake_source', 'exception_intake_identity', 'operational_intake_records is append-only']
+const databaseGuardMarkers = ['exception_intake_time', 'exception_intake_coherence', 'exception_intake_member', 'exception_intake_source', 'exception_intake_basis', 'exception_intake_identity', 'exception_intake_records is append-only']
 
 // A lost connection or transaction leaves the outcome unknown: never re-inserted blindly; the exact identity is
 // re-read instead.
@@ -99,6 +108,8 @@ function toIntakeDto(record: IntakeRecord): ExceptionIntakeDto {
     sourceContractVersion: record.sourceContractVersion,
     sourceFingerprintSha256: record.sourceFingerprintSha256,
     exceptionReasonCode: record.exceptionReasonCode as ExceptionReasonCode,
+    basisCode: record.basisCode as BasisCode,
+    basisRecordId: record.basisRecordId,
     identityKey: record.identityKey,
     recordedByUserId: record.recordedByUserId,
     recordedAt: record.recordedAt.toISOString(),
@@ -111,14 +122,26 @@ async function waitForClaimLock(claimId: string) {
   await prisma.$transaction(async (tx) => lockRowForUpdate(tx, 'claims', claimId), { maxWait: 10_000, timeout: 60_000 })
 }
 
-// §5 — the exact source through its owner, and that owner's verdict, on tx. A source of another Claim or
-// organization is answered exactly like a missing one. The digest is the owner's stored one or null — never made up.
+// §5 — the exact source through its owner, and that owner's verdict and stored facts, on tx. A source of another
+// Claim or organization is answered exactly like a missing one. The digest is the owner's stored one or null — never
+// made up. The facts behind a refusal are read only when the owner refused, and only identifiers, instants and codes.
 async function resolveSource(request: IntakeRequest, claimId: string, organizationId: string, tx: DbClient): Promise<{ verdict: OwnerVerdict; fingerprint: string | null }> {
   if (request.sourceKind === 'REVENUE_TIMELINE') {
     if (request.sourceRecordId !== claimId) return refuse('NOT_FOUND', NOT_FOUND_MESSAGE)
     const timeline = await getRevenueTimelineOf(claimId, tx)
     if (!timeline.ok && timeline.code === 'NOT_FOUND') return refuse('NOT_FOUND', NOT_FOUND_MESSAGE)
-    return { verdict: { kind: 'REVENUE_TIMELINE', timelineCode: timeline.ok ? 'OK' : timeline.code }, fingerprint: null }
+    const freezes: FreezeInstant[] = []
+    const links: LinkEdge[] = []
+    if (!timeline.ok) {
+      // Every A6.7 freeze of the Claim with its database instant in microseconds (the A6.9 freeze facts; an instant
+      // the owner cannot answer for this Claim stays unknown and proves nothing), and every A6.9 link of the Claim.
+      for (const freeze of await findFreezesOfClaim(claimId, tx)) {
+        const facts = await findFreezeFacts(freeze.id, tx)
+        freezes.push({ submissionId: freeze.id, frozenAtMicros: facts && facts.claimId === claimId ? facts.frozenAtMicros : Number.NaN })
+      }
+      for (const link of await findLinksOfClaim(claimId, tx)) links.push({ id: link.id, priorSubmissionId: link.priorSubmissionId, correctedSubmissionId: link.correctedSubmissionId })
+    }
+    return { verdict: { kind: 'REVENUE_TIMELINE', timelineCode: timeline.ok ? 'OK' : timeline.code, freezes, links }, fingerprint: null }
   }
   const assessment = await findAssessmentById(request.sourceRecordId, tx)
   if (!assessment || assessment.organizationId !== organizationId) return refuse('NOT_FOUND', NOT_FOUND_MESSAGE)
@@ -128,11 +151,54 @@ async function resolveSource(request: IntakeRequest, claimId: string, organizati
     return refuse('INTAKE_BASIS_NOT_ESTABLISHED', 'the source is not recorded under the stated contract; nothing was recorded')
   const trace = await getClosureBasisTraceOf(assessment.id, tx)
   if (!trace.ok && trace.code === 'NOT_FOUND') return refuse('NOT_FOUND', NOT_FOUND_MESSAGE)
+  // The assessed case's stored digest through the A7.4 owner, read only when the trace was refused.
+  const assessedCase = trace.ok ? null : await findCaseById(assessment.evidenceCaseId, tx)
   return {
-    verdict: { kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', traceCode: trace.ok ? 'OK' : trace.code, assessmentCode: assessment.assessmentCode },
+    verdict: {
+      kind: 'CLOSURE_PREREQUISITE_ASSESSMENT',
+      traceCode: trace.ok ? 'OK' : trace.code,
+      assessmentId: assessment.id,
+      assessmentCode: assessment.assessmentCode,
+      assessmentOrganizationId: assessment.organizationId,
+      assessmentCaseDigest: assessment.caseManifestSha256,
+      caseId: assessment.evidenceCaseId,
+      caseOrganizationId: located.organizationId,
+      caseManifestSha256: assessedCase?.manifestSha256 ?? null,
+    },
     fingerprint: assessment.caseManifestSha256,
   }
 }
+
+// §6 / D5 — a stored intake answers a replay only when every canonical field is exactly the request's and this
+// tenant's, under this contract, and its identity key is the digest of its own stored columns.
+function isCanonicalReplay(record: IntakeRecord, parts: IdentityParts): boolean {
+  let ownKey = ''
+  try {
+    ownKey = identityKeyOf({
+      organizationId: record.organizationId,
+      claimId: record.claimId,
+      sourceKind: record.sourceKind,
+      sourceRecordId: record.sourceRecordId,
+      sourceContractVersion: record.sourceContractVersion,
+      exceptionReasonCode: record.exceptionReasonCode,
+    })
+  } catch {
+    return false
+  }
+  return (
+    record.contractVersion === EXCEPTION_INTAKE_CONTRACT_VERSION &&
+    record.organizationId === parts.organizationId &&
+    record.claimId === parts.claimId &&
+    record.sourceKind === parts.sourceKind &&
+    record.sourceRecordId === parts.sourceRecordId &&
+    record.sourceContractVersion === parts.sourceContractVersion &&
+    record.exceptionReasonCode === parts.exceptionReasonCode &&
+    record.identityKey === identityKeyOf(parts) &&
+    ownKey === record.identityKey
+  )
+}
+
+const REPLAY_MISMATCH = 'a stored intake with this identity does not match the request; nothing was recorded'
 
 async function recordOnTransaction(claimId: string, request: IntakeRequest, actorUserId: string, tx: DbClient): Promise<ExceptionIntakeOutcome> {
   if (!(await lockRowForUpdateNowait(tx, 'claims', claimId))) return refuse('NOT_FOUND', NOT_FOUND_MESSAGE)
@@ -148,16 +214,23 @@ async function recordOnTransaction(claimId: string, request: IntakeRequest, acto
   const parts = { organizationId: claim.organizationId, claimId, sourceKind: request.sourceKind, sourceRecordId: request.sourceRecordId, sourceContractVersion: request.sourceContractVersion, exceptionReasonCode: request.exceptionReasonCode }
   const identityKey = identityKeyOf(parts)
   const existing = await findIntakeByIdentity(identityKey, tx)
-  if (existing) return { replayed: true, intake: toIntakeDto(existing) }
+  if (existing) {
+    if (!isCanonicalReplay(existing, parts)) return refuse('EXCEPTION_INTAKE_CONFLICT', REPLAY_MISMATCH)
+    return { replayed: true, intake: toIntakeDto(existing) }
+  }
 
-  // 5 — only a reason the owner's own verdict establishes NOW is admissible for a new intake.
-  if (!establishedReasons(verdict).includes(request.exceptionReasonCode))
-    return refuse('INTAKE_BASIS_NOT_ESTABLISHED', `the source's owner does not establish ${request.exceptionReasonCode} for this record; nothing was recorded`)
+  // 5 — only a reason whose specific condition the owners' facts prove NOW is admissible for a new intake.
+  const basis = establishedBasis(verdict, request.exceptionReasonCode)
+  if (!basis) return refuse('INTAKE_BASIS_NOT_ESTABLISHED', `the source's owners do not prove ${request.exceptionReasonCode} for this record; nothing was recorded`)
 
   // 6 — one intake and one business audit, atomically.
-  const intake = await insertIntake({ ...parts, contractVersion: EXCEPTION_INTAKE_CONTRACT_VERSION, sourceFingerprintSha256: fingerprint, identityKey, recordedByUserId: actorUserId }, tx)
+  const intake = await insertIntake(
+    { ...parts, contractVersion: EXCEPTION_INTAKE_CONTRACT_VERSION, sourceFingerprintSha256: fingerprint, basisCode: basis.basisCode, basisRecordId: basis.basisRecordId, identityKey, recordedByUserId: actorUserId },
+    tx,
+  )
   await concurrencyProbe('exceptionIntake.inserted')
-  // §6 — metadata only: ids, contract, the controlled codes and time. No digest, PHI, payload, payer value or amount.
+  // §6 — metadata only: ids, contract, the controlled codes, the basis and time. No digest, PHI, payload, payer value,
+  // owner message or amount.
   await recordAuditEvent(
     {
       organizationId: intake.organizationId,
@@ -174,6 +247,8 @@ async function recordOnTransaction(claimId: string, request: IntakeRequest, acto
         sourceRecordId: intake.sourceRecordId,
         sourceContractVersion: intake.sourceContractVersion,
         exceptionReasonCode: intake.exceptionReasonCode,
+        basisCode: intake.basisCode,
+        basisRecordId: intake.basisRecordId,
         recordedAt: intake.recordedAt.toISOString(),
       },
     },
@@ -235,15 +310,16 @@ export async function recordExceptionIntakeOn(claimId: string, body: unknown, ac
 }
 
 // §6 — after an unknown commit outcome the request is never repeated blindly: the exact identity is re-read on a new
-// connection. Found, it is the recorded intake (answered as a replay); absent, the outcome stays unknown.
+// connection. Found and canonical, it is the recorded intake (answered as a replay); otherwise the outcome stays
+// unknown.
 async function outcomeAfterUnknownCommit(claimId: string, request: IntakeRequest): Promise<ExceptionIntakeResult<ExceptionIntakeOutcome>> {
   const unknown: ExceptionIntakeResult<never> = { ok: false, code: 'EXCEPTION_INTAKE_CONFLICT', message: "the outcome could not be established; read the claim's exception intakes before requesting again" }
   try {
     const claim = await findClaimForFreeze(claimId, prisma)
     if (!claim) return unknown
-    const identityKey = identityKeyOf({ organizationId: claim.organizationId, claimId, ...request })
-    const found = await findIntakeByIdentity(identityKey, prisma)
-    return found ? { ok: true, value: { replayed: true, intake: toIntakeDto(found) } } : unknown
+    const parts = { organizationId: claim.organizationId, claimId, ...request }
+    const found = await findIntakeByIdentity(identityKeyOf(parts), prisma)
+    return found && isCanonicalReplay(found, parts) ? { ok: true, value: { replayed: true, intake: toIntakeDto(found) } } : unknown
   } catch {
     return unknown
   }

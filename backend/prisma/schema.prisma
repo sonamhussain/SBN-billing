@@ -2455,6 +2455,8 @@ model ExceptionIntakeRecord {
   sourceContractVersion   String   @map("source_contract_version") @db.Text
   sourceFingerprintSha256 String?  @map("source_fingerprint_sha256") @db.Char(64)
   exceptionReasonCode     String   @map("exception_reason_code") @db.Text
+  basisCode               String   @map("basis_code") @db.Text
+  basisRecordId           String   @map("basis_record_id") @db.Uuid
   identityKey             String   @map("identity_key") @db.Char(64)
   recordedByUserId        String   @map("recorded_by_user_id") @db.Uuid
   recordedAt              DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
@@ -2464,9 +2466,9 @@ model ExceptionIntakeRecord {
   claim        Claim        @relation(fields: [claimId], references: [id], onDelete: Restrict)
   recordedBy   User         @relation("ExceptionIntakeRecordRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
 
-  @@unique([identityKey], map: "operational_intake_records_identity_key")
+  @@unique([identityKey], map: "exception_intake_records_identity_key")
   @@index([claimId, recordedAt, id])
   @@index([organizationId])
   @@index([recordedByUserId])
-  @@map("operational_intake_records")
+  @@map("exception_intake_records")
 }

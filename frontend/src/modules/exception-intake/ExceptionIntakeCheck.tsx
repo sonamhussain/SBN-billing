@@ -11,6 +11,8 @@ type Intake = {
   sourceKind: string
   sourceRecordId: string
   exceptionReasonCode: string
+  basisCode: string
+  basisRecordId: string
   recordedAt: string
 }
 
@@ -64,7 +66,7 @@ export default function ExceptionIntakeCheck() {
           <ol className="mt-2 grid gap-1">
             {list.items.map((item) => (
               <li key={item.exceptionIntakeId} className="break-all">
-                {item.recordedAt} — {item.exceptionReasonCode} on {item.sourceKind} {item.sourceRecordId}
+                {item.recordedAt} — {item.exceptionReasonCode} on {item.sourceKind} {item.sourceRecordId} (basis {item.basisCode} {item.basisRecordId})
               </li>
             ))}
           </ol>

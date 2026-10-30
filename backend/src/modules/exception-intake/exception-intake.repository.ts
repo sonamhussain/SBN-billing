@@ -26,6 +26,8 @@ export type NewIntake = {
   sourceContractVersion: string
   sourceFingerprintSha256: string | null
   exceptionReasonCode: string
+  basisCode: string
+  basisRecordId: string
   identityKey: string
   recordedByUserId: string
 }
@@ -34,8 +36,8 @@ export type NewIntake = {
 // database's own transaction time own them (the insert guard refuses any other). The row is then read back.
 export async function insertIntake(data: NewIntake, db: DbClient): Promise<IntakeRecord> {
   const [inserted] = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
-    INSERT INTO "operational_intake_records" ("id", "organization_id", "claim_id", "contract_version", "source_kind", "source_record_id", "source_contract_version", "source_fingerprint_sha256", "exception_reason_code", "identity_key", "recorded_by_user_id")
-    VALUES (gen_random_uuid(), ${data.organizationId}::uuid, ${data.claimId}::uuid, ${data.contractVersion}, ${data.sourceKind}, ${data.sourceRecordId}::uuid, ${data.sourceContractVersion}, ${data.sourceFingerprintSha256}, ${data.exceptionReasonCode}, ${data.identityKey}, ${data.recordedByUserId}::uuid)
+    INSERT INTO "exception_intake_records" ("id", "organization_id", "claim_id", "contract_version", "source_kind", "source_record_id", "source_contract_version", "source_fingerprint_sha256", "exception_reason_code", "basis_code", "basis_record_id", "identity_key", "recorded_by_user_id")
+    VALUES (gen_random_uuid(), ${data.organizationId}::uuid, ${data.claimId}::uuid, ${data.contractVersion}, ${data.sourceKind}, ${data.sourceRecordId}::uuid, ${data.sourceContractVersion}, ${data.sourceFingerprintSha256}, ${data.exceptionReasonCode}, ${data.basisCode}, ${data.basisRecordId}::uuid, ${data.identityKey}, ${data.recordedByUserId}::uuid)
     RETURNING "id"::text AS "id"`)
   return db.exceptionIntakeRecord.findUniqueOrThrow({ where: { id: inserted.id } })
 }

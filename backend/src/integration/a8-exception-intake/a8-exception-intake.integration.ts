@@ -11,7 +11,8 @@ import { callApi, extractCookieHeader } from '../a1-foundation/integration.http.
 import { clearConcurrencyProbes, setConcurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { recordValidationRunInTransaction } from '../../modules/validation-run/validation-run.recorder.ts'
 import { recordCorrectionLink } from '../../modules/claim-correction/claim-correction.service.ts'
-import { getRevenueTimeline } from '../../modules/revenue-timeline/revenue-timeline.service.ts'
+import { getRevenueTimeline, getRevenueTimelineOf } from '../../modules/revenue-timeline/revenue-timeline.service.ts'
+import { getClosureBasisTraceOf } from '../../modules/closure-basis-trace/closure-basis-trace.service.ts'
 import { identityKeyOf, identityPreimage } from '../../modules/exception-intake/exception-intake.identity.ts'
 import { getExceptionIntakesOf, recordExceptionIntake, recordExceptionIntakeOn } from '../../modules/exception-intake/exception-intake.service.ts'
 import { EXCEPTION_INTAKE_CONTRACT_VERSION, exceptionReasonCodes, sourceKinds } from '../../modules/exception-intake/exception-intake.types.ts'
@@ -20,11 +21,12 @@ import { EXCEPTION_INTAKE_CONTRACT_VERSION, exceptionReasonCodes, sourceKinds } 
 //
 // Every Claim, freeze, source, classification, readiness, case and assessment is built through its owners exactly as
 // the A6.10 and A7.x suites build them. Real exceptions are made only through the owners: a Claim frozen twice without
-// an A6.9 link is a genuine history contradiction that the A7.7 owner refuses, and an intake on it is recorded
-// through the A8.1 route. Facts no synthetic owner path can produce (a REVIEW_REQUIRED or self-contradicting A7.5
-// assessment) are planted only in a transaction that is ALWAYS rolled back, and the production A8.1 service records
-// the intake on THAT transaction. Direct SQL writes are adversarial only, run against the live guards, and always
-// rolled back. Failure injection uses the existing concurrency probes. Synthetic users are provisioned per run
+// an A6.9 link is a genuine history contradiction that the A7.7 owner refuses, and its specific condition (an
+// unlinked freeze beside a valid chain) is recorded as the intake's basis through the A8.1 route. Facts no synthetic
+// owner path can produce (a REVIEW_REQUIRED A7.5 assessment, an assessment whose copied digest or organization
+// disagrees with its stored case, a Claim history refused for another cause, a forged intake row) are planted only in
+// a transaction that is ALWAYS rolled back, and the production A8.1 service answers on THAT transaction. Direct SQL
+// writes are adversarial only, run against the live guards, and always rolled back. Failure injection uses the existing concurrency probes. Synthetic users are provisioned per run
 // through Better Auth's own server-side creation with a random password that is never printed.
 
 const TAG = 'A8.1'
@@ -124,23 +126,21 @@ const HARNESS_DIR = 'backend/src/integration/a8-exception-intake'
 const REGISTER_DOC = 'docs/A8_Exception_Intake.md'
 const MIGRATION_NAME = '20261028090000_a8_1_exception_intake'
 const MIGRATION = `backend/prisma/migrations/${MIGRATION_NAME}/migration.sql`
-const TABLE = 'operational_intake_records'
-const UNIT_TESTS = [`${MODULE_DIR}/exception-intake.identity.test.ts`, `${MODULE_DIR}/exception-intake.validation.test.ts`]
+const TABLE = 'exception_intake_records'
+const UNIT_TESTS = [`${MODULE_DIR}/exception-intake.identity.test.ts`, `${MODULE_DIR}/exception-intake.basis.test.ts`, `${MODULE_DIR}/exception-intake.validation.test.ts`]
 const SYNTHETIC = 'INTERNAL_SYNTHETIC'
 const CONTRACT = 'A8-EXCEPTION-INTAKE-1'
 const TIMELINE_CONTRACT = 'A7-REVENUE-TIMELINE-1'
 const PREREQ_CONTRACT = 'A7-CLOSURE-PREREQ-1'
-const DTO_KEYS = ['exceptionIntakeId', 'contractVersion', 'organizationId', 'claimId', 'sourceKind', 'sourceRecordId', 'sourceContractVersion', 'sourceFingerprintSha256', 'exceptionReasonCode', 'identityKey', 'recordedByUserId', 'recordedAt']
-const COLUMNS = ['id', 'organization_id', 'claim_id', 'contract_version', 'source_kind', 'source_record_id', 'source_contract_version', 'source_fingerprint_sha256', 'exception_reason_code', 'identity_key', 'recorded_by_user_id', 'recorded_at', 'created_at']
-// The earlier suites whose phase-boundary predicates A8.1 corrects (harness only), and the exact allowed vocabulary of
-// that correction: an added line must carry the own-scope / A7-owned wording; a removed line must be one of the
-// predicate lines it replaces.
-const CORRECTED_HARNESSES = ['a7-closure-basis-trace', 'a7-revenue-timeline', 'a7-revenue-delta', 'a7-revenue-continuity', 'a7-phase-closure'].map((s) => `backend/src/integration/${s}/${s}.integration.ts`)
-const CORRECTION_ADDED = /ownMerge|ownRange|ownChangedPaths|ownPrismaStatus|ownHeadMigrationDirs|ownBaseMigrationDirs|ownOwnerChanged|own scope|THIS package|later branch|merge$|a7Owned|in the A7 phase|A7 phase's own files|base, permission catalogue, owner code|A later package's changes are that package's to prove/
-const CORRECTION_REMOVED = /prismaStatus|migrationStatus|ownerChanged|baseMigrationDirs|authzDiff = gitArgs|appDiff = gitArgs|changedPaths\.some|const tracked = |no exception, work-queue or A8 module|payer adapter file, and no A7 module/
+const DTO_KEYS = ['exceptionIntakeId', 'contractVersion', 'organizationId', 'claimId', 'sourceKind', 'sourceRecordId', 'sourceContractVersion', 'sourceFingerprintSha256', 'exceptionReasonCode', 'basisCode', 'basisRecordId', 'identityKey', 'recordedByUserId', 'recordedAt']
+const COLUMNS = ['id', 'organization_id', 'claim_id', 'contract_version', 'source_kind', 'source_record_id', 'source_contract_version', 'source_fingerprint_sha256', 'exception_reason_code', 'basis_code', 'basis_record_id', 'identity_key', 'recorded_by_user_id', 'recorded_at', 'created_at']
+const BASIS_CODES = ['UNLINKED_FROZEN_SUBMISSION', 'ASSESSMENT_CASE_ORGANIZATION_MISMATCH', 'ASSESSMENT_CASE_DIGEST_MISMATCH', 'ASSESSMENT_REVIEW_REQUIRED']
+const APPROVAL_LINE = 'CONDITIONAL ARCHITECTURE APPROVAL — 2026-10-29'
+// A8.1 changes no earlier suite: the later-phase recognition of the A6.10 and A7.x harnesses was merged on its own
+// (docs/Harness_Corrections.md), so no file under backend/src/integration outside this suite's folder may change.
 const ALLOWED = [
   'backend/package.json', 'backend/prisma/schema.prisma', MIGRATION, 'backend/src/app.ts', 'backend/src/shared/errors/error.types.ts', 'backend/src/shared/authorization/authorization.types.ts',
-  'backend/src/scripts/bootstrap-authz-dev.ts', 'backend/src/scripts/verify-migration-replay.ts', 'backend/src/modules/audit/audit.types.ts', 'frontend/src/developer/checkRegistry.tsx', REGISTER_DOC, ...CORRECTED_HARNESSES,
+  'backend/src/scripts/bootstrap-authz-dev.ts', 'backend/src/scripts/verify-migration-replay.ts', 'backend/src/modules/audit/audit.types.ts', 'frontend/src/developer/checkRegistry.tsx', REGISTER_DOC,
 ]
 // Every table an intake could conceivably touch, in a fixed key order. A read or a refusal must leave every one as it was.
 const COUNT_TABLES = [TABLE, 'audit_events', 'evidence_prereq_results', 'evidence_case_snapshots', 'evidence_case_entries', 'evidence_gate_results', 'source_evidence_classifications', 'revenue_source_evidence', 'claims', 'claim_freezes', 'claim_freeze_lifecycle_events', 'claim_correction_links']
@@ -273,7 +273,7 @@ async function main() {
   check(
     'T006',
     'From-empty replay equals HEAD',
-    replay.ok && /ALL CHECKS PASS/.test(replay.output) && appliedCount === headMigrationDirs.length && /PASS {2}the A8\.1 tables are exactly operational_intake_records/.test(replay.output) && /PASS {2}operational_intake_records_insert_guard_trg is present/.test(replay.output),
+    replay.ok && /ALL CHECKS PASS/.test(replay.output) && appliedCount === headMigrationDirs.length && /PASS {2}the A8\.1 tables are exactly exception_intake_records/.test(replay.output) && /PASS {2}exception_intake_records_insert_guard_trg is present/.test(replay.output) && /PASS {2}the A8\.1 basis CHECK pairs each enabled reason/.test(replay.output),
     `${appliedCount} migrations applied cleanly from empty in the scratch database — exactly the ${headMigrationDirs.length} committed at HEAD; every A8.1 CHECK, index, trigger and foreign key survives`,
   )
   const catalogueAt = (ref: string) => [...gitArgs(['show', `${ref}:backend/src/shared/authorization/authorization.types.ts`]).matchAll(/^\s+'([A-Za-z_]+\.[A-Za-z_]+)',/gm)].map((m) => m[1])
@@ -330,7 +330,7 @@ async function main() {
   // Raw database text in a response body: SQL keywords, a stack frame or a physical table or guard name.
   const rawError = (body: unknown) => {
     const text = JSON.stringify(body ?? {})
-    return /\bat [\w.$<>]+ \(|\.ts:\d+:\d+|prisma|SELECT |INSERT |constraint|trigger/i.test(text) || /operational_intake|exception_intake_|evidence_prereq|claim_freeze/.test(text)
+    return /\bat [\w.$<>]+ \(|\.ts:\d+:\d+|prisma|SELECT |INSERT |constraint|trigger/i.test(text) || /exception_intake_|evidence_prereq|claim_freeze|claim_correction|evidence_case_snapshots/.test(text)
   }
 
   const intakePath = (claimId: string) => `/api/claims/${claimId}/exception-intake`
@@ -366,16 +366,15 @@ async function main() {
     `${contractsHead.filter((c) => c !== 'ABSENT').length} earlier owner contracts identical to main (${contractsHead.slice(-4).join(', ')}, …); no earlier module's code and no applied migration changed`,
   )
   const outOfScope = changedPaths.filter((file) => !file.startsWith(`${MODULE_DIR}/`) && !file.startsWith(`${FE_DIR}/`) && !file.startsWith(`${HARNESS_DIR}/`) && !ALLOWED.includes(file))
-  const correctionLines = CORRECTED_HARNESSES.flatMap((path) => gitArgs(['diff', 'origin/main...HEAD', '--', `:/${path}`]).split(/\r?\n/).filter((line) => /^[+-][^+-]/.test(line)).map((line) => ({ path, line })))
-  const strayCorrection = correctionLines.filter(({ line }) => (line.startsWith('+') ? !CORRECTION_ADDED.test(line) : !CORRECTION_REMOVED.test(line)))
+  const earlierSuites = changedPaths.filter((file) => file.startsWith('backend/src/integration/') && !file.startsWith(`${HARNESS_DIR}/`))
   const laterDomain = changedPaths.filter((file) => /remittance|payment|posting|settlement|ledger|receivable|adjudicat|denial|payer-response|integration\/a9|dhpo|eclaimlink|assign|resolution|export/i.test(file))
   check(
     'T010',
     'Changed-file allowlist, no A8.2+/A9 code',
-    changedPaths.length > 0 && outOfScope.length === 0 && strayCorrection.length === 0 && correctionLines.length > 0 && laterDomain.length === 0,
-    outOfScope.length + strayCorrection.length + laterDomain.length === 0
-      ? `${changedPaths.length} path(s): the A8.1 module, page, harness, migration and register, the narrow shared additions, and only the own-scope predicate lines of the five corrected A7.6–A7.10 suites (${correctionLines.length} lines); no A8.2+ or A9 domain`
-      : `unexpected: ${[...outOfScope, ...strayCorrection.map((s) => `${s.path}: ${s.line.slice(0, 80)}`), ...laterDomain].join(' | ').slice(0, 300)}`,
+    changedPaths.length > 0 && outOfScope.length === 0 && earlierSuites.length === 0 && laterDomain.length === 0,
+    outOfScope.length + earlierSuites.length + laterDomain.length === 0
+      ? `${changedPaths.length} path(s): the A8.1 module, page, harness, migration and register and the narrow shared additions; no earlier suite changed (the harness correction merged on its own); no A8.2+ or A9 domain`
+      : `unexpected: ${[...new Set([...outOfScope, ...earlierSuites, ...laterDomain])].join(', ').slice(0, 300)}`,
   )
 
   // Synthetic users: Better Auth's own server-side user and credential creation, then a membership (with the ORG_ADMIN
@@ -575,23 +574,41 @@ async function main() {
     )
     return { ...out, message, clean: await unchanged(before) }
   }
-  // One direct INSERT into the intake table, against the live guards, always rolled back; answers the refusal.
+  // One direct INSERT into the intake table, against the live guards, always rolled back; answers the refusal. The
+  // default row is E1's own (Claim C's timeline, basis: C's latest unlinked freeze S2), so each adversarial variant
+  // fails only for the one thing it changes.
   const directInsert = async (o: Partial<Record<string, string | null>>) => {
     const row = {
       organization_id: org, claim_id: C.claimId, contract_version: CONTRACT, source_kind: 'REVENUE_TIMELINE', source_record_id: C.claimId, source_contract_version: TIMELINE_CONTRACT,
-      source_fingerprint_sha256: null as string | null, exception_reason_code: 'PROVENANCE_CONFLICT', recorded_by_user_id: creatorId, identity_key: '' as string | null, ...o,
+      source_fingerprint_sha256: null as string | null, exception_reason_code: 'PROVENANCE_CONFLICT', basis_code: 'UNLINKED_FROZEN_SUBMISSION', basis_record_id: C.freezes[1] as string | null,
+      recorded_by_user_id: creatorId, identity_key: '' as string | null, ...o,
     }
     if (row.identity_key === '')
       row.identity_key = identityKeyOf({ organizationId: String(row.organization_id), claimId: String(row.claim_id), sourceKind: String(row.source_kind), sourceRecordId: String(row.source_record_id), sourceContractVersion: String(row.source_contract_version), exceptionReasonCode: String(row.exception_reason_code) })
     const attempt = await rolledBack((tx) =>
       tx.$executeRawUnsafe(
-        `INSERT INTO ${TABLE} (id, organization_id, claim_id, contract_version, source_kind, source_record_id, source_contract_version, source_fingerprint_sha256, exception_reason_code, identity_key, recorded_by_user_id)
-         VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5::uuid, $6, $7, $8, $9, $10::uuid)`,
-        row.organization_id, row.claim_id, row.contract_version, row.source_kind, row.source_record_id, row.source_contract_version, row.source_fingerprint_sha256, row.exception_reason_code, row.identity_key, row.recorded_by_user_id,
+        `INSERT INTO ${TABLE} (id, organization_id, claim_id, contract_version, source_kind, source_record_id, source_contract_version, source_fingerprint_sha256, exception_reason_code, basis_code, basis_record_id, identity_key, recorded_by_user_id)
+         VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5::uuid, $6, $7, $8, $9, $10::uuid, $11, $12::uuid)`,
+        row.organization_id, row.claim_id, row.contract_version, row.source_kind, row.source_record_id, row.source_contract_version, row.source_fingerprint_sha256, row.exception_reason_code, row.basis_code, row.basis_record_id, row.identity_key, row.recorded_by_user_id,
       ),
     )
     return { refused: !attempt.message.includes(NOT_COMMITTED), message: attempt.message, clean: attempt.clean }
   }
+  // A forged intake row (guards relaxed, always rolled back) carrying the identity of a request that has none, then
+  // that exact request through the production service on the same transaction: a stored row answers a replay only
+  // when every canonical field is the request's and the tenant's.
+  const forgedReplay = async (forged: { organizationId: string; claimId: string; basisRecordId: string }, requestClaim: string) =>
+    rolledBack(async (tx) => {
+      const identity = identityKeyOf({ organizationId: org, claimId: requestClaim, sourceKind: 'REVENUE_TIMELINE', sourceRecordId: requestClaim, sourceContractVersion: TIMELINE_CONTRACT, exceptionReasonCode: 'PROVENANCE_CONFLICT' })
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica')
+      await tx.$executeRawUnsafe(
+        `INSERT INTO ${TABLE} (id, organization_id, claim_id, contract_version, source_kind, source_record_id, source_contract_version, source_fingerprint_sha256, exception_reason_code, basis_code, basis_record_id, identity_key, recorded_by_user_id)
+         VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, 'REVENUE_TIMELINE', $2::uuid, $4, NULL, 'PROVENANCE_CONFLICT', 'UNLINKED_FROZEN_SUBMISSION', $5::uuid, $6, $7::uuid)`,
+        forged.organizationId, forged.claimId, CONTRACT, TIMELINE_CONTRACT, forged.basisRecordId, identity, creatorId,
+      )
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = origin')
+      return recordExceptionIntakeOn(requestClaim, timelineBody(requestClaim), creatorId, tx)
+    })
 
   // ---------------------------------------------------------------- contracts and validation (T011–T020)
   section('Contracts and validation: the v1 literal and record, strict keys, client-owned fields, malformed ids, unknown kinds, contracts, reasons and context, injection')
@@ -604,7 +621,7 @@ async function main() {
     'T011',
     'Literal v1 DTO and DB CHECK',
     E1res.status === 201 && E1.contractVersion === CONTRACT && same(Object.keys(E1), DTO_KEYS) && EXCEPTION_INTAKE_CONTRACT_VERSION === CONTRACT && contractCheck.includes(`'${CONTRACT}'`) && /IS NOT NULL/.test(contractCheck),
-    `the first intake on Claim C carries ${CONTRACT} and exactly the ${DTO_KEYS.length} DTO keys; the database CHECK pins the literal`,
+    `the first intake on Claim C carries ${CONTRACT} and exactly the ${DTO_KEYS.length} DTO keys (its controlled basis included); the database CHECK pins the literal`,
   )
   const extraKeys = await Promise.all(['contextCode', 'description', 'narrative', 'amount', 'payload', 'status', 'resolution'].map((k) => post(intakePath(C.claimId), { ...timelineBody(C.claimId), [k]: 'x' })))
   const missingKey = await post(intakePath(C.claimId), { sourceKind: 'REVENUE_TIMELINE', sourceRecordId: C.claimId, sourceContractVersion: TIMELINE_CONTRACT })
@@ -672,18 +689,55 @@ async function main() {
   check('T032', 'Exact owner Claim and org link', E1row.claimId === C.claimId && E1row.organizationId === owningOrg && owningOrg === org, 'E1 belongs to exactly Claim C and the organization that owns it (Claim → Encounter → Patient)')
   check('T033', 'Source version matches', E1row.sourceContractVersion === TIMELINE_CONTRACT && constantAt('HEAD', 'backend/src/modules/revenue-timeline/revenue-timeline.types.ts', 'TIMELINE_CONTRACT_VERSION') === TIMELINE_CONTRACT, `E1 is recorded under the A7.7 owner's own contract ${TIMELINE_CONTRACT}`)
   const unproven = await post(intakePath(N.claimId), timelineBody(N.claimId))
-  check('T034', 'Owner proof required', unproven.status === 409 && errorCode(unproven.body) === 'INTAKE_BASIS_NOT_ESTABLISHED' && (await intakesOfClaim(N.claimId)).length === 0, "on Claim N, whose history the A7.7 owner accepts, PROVENANCE_CONFLICT is refused 409 INTAKE_BASIS_NOT_ESTABLISHED: the caller's assertion alone proves nothing")
+  // Claim N's history refused by the A7.7 owner for ANOTHER cause (its case planted under the other organization,
+  // rolled back): every freeze is linked, so the specific condition of PROVENANCE_CONFLICT does not hold.
+  const otherCause = await rolledBack(async (tx) => {
+    await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica')
+    await tx.$executeRawUnsafe('UPDATE evidence_case_snapshots SET organization_id = $1::uuid WHERE id = $2::uuid', otherOrg, CASE_N.caseId)
+    await tx.$executeRawUnsafe('SET LOCAL session_replication_role = origin')
+    const timeline = await getRevenueTimelineOf(N.claimId, tx)
+    const attempt = await recordExceptionIntakeOn(N.claimId, timelineBody(N.claimId), creatorId, tx)
+    return { refusedByOwner: !timeline.ok && timeline.code === 'REVENUE_TIMELINE_PROVENANCE_CONFLICT', attempt }
+  })
+  check(
+    'T034',
+    'Owner proof required',
+    unproven.status === 409 && errorCode(unproven.body) === 'INTAKE_BASIS_NOT_ESTABLISHED' && (await intakesOfClaim(N.claimId)).length === 0 &&
+      otherCause.value?.refusedByOwner === true && otherCause.value.attempt.ok === false && otherCause.value.attempt.code === 'INTAKE_BASIS_NOT_ESTABLISHED' && otherCause.clean,
+    "on Claim N, whose history the A7.7 owner accepts, PROVENANCE_CONFLICT is refused 409 INTAKE_BASIS_NOT_ESTABLISHED; and when the owner refuses N's history for another cause (planted, rolled back) the refusal alone still proves nothing: no unlinked freeze, 409",
+  )
   const unprovenReview = await post(intakePath(C.claimId), assessmentBody(ASSESS_C1.assessmentId, 'OPERATOR_REVIEW_REQUIRED'))
   const unprovenHistory = await post(intakePath(C.claimId), assessmentBody(ASSESS_C1.assessmentId, 'HISTORICAL_RECORD_INCONSISTENT'))
-  check('T035', 'Unproven reason refused', [unprovenReview, unprovenHistory].every((r) => r.status === 409 && errorCode(r.body) === 'INTAKE_BASIS_NOT_ESTABLISHED') && (await intakesOfClaim(C.claimId)).length === 1, "C's assessment is EXTERNAL_FINANCIAL_EVIDENCE_ABSENT with a consistent A7.6 trace: neither review nor inconsistency is established; nothing recorded")
-  // A REVIEW_REQUIRED assessment of S2's case (no synthetic owner path produces one) — planted and rolled back; its
-  // A7.6 trace re-derives EXTERNAL_FINANCIAL_EVIDENCE_ABSENT from the same case, so the owner also proves the
-  // inconsistency. The production service records both intakes on THAT transaction.
-  const plant = await rolledBack(async (tx) => {
+  // A REVIEW_REQUIRED assessment of S2's case that copies its case digest exactly (planted, rolled back): its A7.6 trace
+  // re-derives EXTERNAL_FINANCIAL_EVIDENCE_ABSENT, so the owner refuses it — yet the assessment and its case agree on
+  // organization and digest, so HISTORICAL_RECORD_INCONSISTENT has no specific basis and fails closed.
+  const consistentReview = await rolledBack(async (tx) => {
     await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica')
     const [planted] = await tx.$queryRawUnsafe<{ id: string }[]>(
       `INSERT INTO evidence_prereq_results (id, organization_id, evidence_case_id, contract_version, assessment_code, basis_code, case_manifest_sha256, recorded_by_user_id) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, 'REVIEW_REQUIRED', 'EVIDENCE_REVIEW_REQUIRED', $4, $5::uuid) RETURNING id::text AS id`,
       org, CASE_C2.caseId, PREREQ_CONTRACT, CASE_C2.manifestSha256, creatorId,
+    )
+    await tx.$executeRawUnsafe('SET LOCAL session_replication_role = origin')
+    const trace = await getClosureBasisTraceOf(planted.id, tx)
+    const history = await recordExceptionIntakeOn(C.claimId, assessmentBody(planted.id, 'HISTORICAL_RECORD_INCONSISTENT'), creatorId, tx)
+    return { refusedByOwner: !trace.ok && trace.code === 'CLOSURE_BASIS_PROVENANCE_CONFLICT', history }
+  })
+  check(
+    'T035',
+    'Unproven reason refused',
+    [unprovenReview, unprovenHistory].every((r) => r.status === 409 && errorCode(r.body) === 'INTAKE_BASIS_NOT_ESTABLISHED') && (await intakesOfClaim(C.claimId)).length === 1 &&
+      consistentReview.value?.refusedByOwner === true && consistentReview.value.history.ok === false && consistentReview.value.history.code === 'INTAKE_BASIS_NOT_ESTABLISHED' && consistentReview.clean,
+    "C's assessment is EXTERNAL_FINANCIAL_EVIDENCE_ABSENT with a consistent A7.6 trace: neither review nor inconsistency is established; a trace the owner refuses while assessment and case agree (planted) proves no inconsistency either (409); nothing recorded",
+  )
+  // A REVIEW_REQUIRED assessment of S2's case whose copied case digest is NOT the case's (planted, rolled back): the
+  // A7.6 owner refuses its trace and the digest disagreement is the specific basis; the stored outcome is the exact
+  // REVIEW_REQUIRED. The production service records both intakes on THAT transaction.
+  const plantedDigest = 'c'.repeat(64)
+  const plant = await rolledBack(async (tx) => {
+    await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica')
+    const [planted] = await tx.$queryRawUnsafe<{ id: string }[]>(
+      `INSERT INTO evidence_prereq_results (id, organization_id, evidence_case_id, contract_version, assessment_code, basis_code, case_manifest_sha256, recorded_by_user_id) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, 'REVIEW_REQUIRED', 'EVIDENCE_REVIEW_REQUIRED', $4, $5::uuid) RETURNING id::text AS id`,
+      org, CASE_C2.caseId, PREREQ_CONTRACT, plantedDigest, creatorId,
     )
     await tx.$executeRawUnsafe('SET LOCAL session_replication_role = origin')
     const review = await recordExceptionIntakeOn(C.claimId, assessmentBody(planted.id, 'OPERATOR_REVIEW_REQUIRED'), creatorId, tx)
@@ -696,11 +750,28 @@ async function main() {
     return { assessmentId: planted.id, review, reviewAgain, history, notEstablished, list, e1After, audits }
   })
   const pv = plant.value
+  // S1's case planted under the other organization (rolled back): the A7.6 owner refuses ASSESS_C1's trace because the
+  // stored assessment and its stored case belong to different organizations — the specific basis checked first.
+  const orgPlant = await rolledBack(async (tx) => {
+    await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica')
+    await tx.$executeRawUnsafe('UPDATE evidence_case_snapshots SET organization_id = $1::uuid WHERE id = $2::uuid', otherOrg, CASE_C1.caseId)
+    await tx.$executeRawUnsafe('SET LOCAL session_replication_role = origin')
+    return recordExceptionIntakeOn(C.claimId, assessmentBody(ASSESS_C1.assessmentId, 'HISTORICAL_RECORD_INCONSISTENT'), creatorId, tx)
+  })
+  // The database re-checks the same facts on a direct write: the latest unlinked freeze of X is a basis, its earlier
+  // one is not; a disagreement the stored rows do not show is refused.
+  const xParts = { organization_id: org, claim_id: X.claimId, source_record_id: X.claimId }
+  const xLatest = await directInsert({ ...xParts, basis_record_id: X.freezes[1] })
+  const xEarlier = await directInsert({ ...xParts, basis_record_id: X.freezes[0] })
+  const consistentAsMismatch = await directInsert({ source_kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', source_record_id: ASSESS_C1.assessmentId, source_contract_version: PREREQ_CONTRACT, exception_reason_code: 'HISTORICAL_RECORD_INCONSISTENT', source_fingerprint_sha256: ASSESS_C1.caseManifestSha256, basis_code: 'ASSESSMENT_CASE_DIGEST_MISMATCH', basis_record_id: CASE_C1.caseId })
   check(
     'T036',
     'Controlled owner conflict admitted',
-    E1res.status === 201 && E1.exceptionReasonCode === 'PROVENANCE_CONFLICT' && pv?.history.ok === true && pv.history.value.intake.exceptionReasonCode === 'HISTORICAL_RECORD_INCONSISTENT' && plant.message.includes(NOT_COMMITTED) && plant.clean,
-    "the A7.7 owner's real refusal of C's history admits PROVENANCE_CONFLICT (E1, 201); the A7.6 owner's refusal of a self-contradicting assessment (planted, rolled back) admits HISTORICAL_RECORD_INCONSISTENT",
+    E1res.status === 201 && E1.exceptionReasonCode === 'PROVENANCE_CONFLICT' && E1.basisCode === 'UNLINKED_FROZEN_SUBMISSION' && E1.basisRecordId === C.freezes[1] &&
+      pv?.history.ok === true && pv.history.value.intake.exceptionReasonCode === 'HISTORICAL_RECORD_INCONSISTENT' && pv.history.value.intake.basisCode === 'ASSESSMENT_CASE_DIGEST_MISMATCH' && pv.history.value.intake.basisRecordId === CASE_C2.caseId && plant.message.includes(NOT_COMMITTED) && plant.clean &&
+      orgPlant.value?.ok === true && orgPlant.value.value.intake.basisCode === 'ASSESSMENT_CASE_ORGANIZATION_MISMATCH' && orgPlant.value.value.intake.basisRecordId === CASE_C1.caseId && orgPlant.clean &&
+      !xLatest.refused && xLatest.clean && xEarlier.refused && /exception_intake_basis/.test(xEarlier.message) && consistentAsMismatch.refused && /exception_intake_basis/.test(consistentAsMismatch.message),
+    "C's two freezes with no A6.9 link: the A7.7 owner refuses and S2 is the latest unlinked freeze, so E1 is PROVENANCE_CONFLICT on basis UNLINKED_FROZEN_SUBMISSION(S2); a copied digest that is not the case's, and a case of another organization (planted, rolled back), each admit HISTORICAL_RECORD_INCONSISTENT on its own basis naming the case; the database accepts the true basis and refuses an earlier freeze or a disagreement the rows do not show",
   )
   const unavailable = await post(intakePath(C.claimId), { ...timelineBody(C.claimId), exceptionReasonCode: 'SOURCE_REFERENCE_UNAVAILABLE' })
   check('T037', 'Source reference missing truth check', unavailable.status === 409 && errorCode(unavailable.body) === 'INTAKE_BASIS_NOT_ESTABLISHED' && missingSource.status === 404, 'SOURCE_REFERENCE_UNAVAILABLE on an existing record is not established (409); a reference that truly does not exist is a 404, never an intake')
@@ -709,8 +780,9 @@ async function main() {
   check(
     'T039',
     'Operator review backed by accepted code',
-    pv?.review.ok === true && pv.review.value.replayed === false && pv.review.value.intake.exceptionReasonCode === 'OPERATOR_REVIEW_REQUIRED' && pv.review.value.intake.sourceRecordId === pv.assessmentId,
-    'a stored A7.5 REVIEW_REQUIRED assessment (planted, rolled back) admits OPERATOR_REVIEW_REQUIRED through the production service',
+    pv?.review.ok === true && pv.review.value.replayed === false && pv.review.value.intake.exceptionReasonCode === 'OPERATOR_REVIEW_REQUIRED' && pv.review.value.intake.sourceRecordId === pv.assessmentId &&
+      pv.review.value.intake.basisCode === 'ASSESSMENT_REVIEW_REQUIRED' && pv.review.value.intake.basisRecordId === pv.assessmentId && unprovenReview.status === 409,
+    'exactly the recorded A7.5 REVIEW_REQUIRED assessment (planted, rolled back) admits OPERATOR_REVIEW_REQUIRED on basis ASSESSMENT_REVIEW_REQUIRED naming itself; an EXTERNAL_FINANCIAL_EVIDENCE_ABSENT one does not (409)',
   )
   const absence = await Promise.all(exceptionReasonCodes.map((reason) => post(intakePath(N.claimId), assessmentBody(ASSESS_N.assessmentId, reason))))
   check('T040', 'Financial-evidence absence not auto-exception', absence.every((r) => r.status === 409 || r.status === 400) && (await intakesOfClaim(N.claimId)).length === 0 && ASSESS_N.assessmentCode === 'EXTERNAL_FINANCIAL_EVIDENCE_ABSENT', "Claim N's EXTERNAL_FINANCIAL_EVIDENCE_ABSENT assessment establishes no reason at all; N has no intake and none was created for it")
@@ -722,8 +794,8 @@ async function main() {
   const times = (await prisma.$queryRawUnsafe<{ ok: boolean; started: boolean }[]>(`SELECT recorded_at = created_at AS ok, recorded_at >= $2::timestamptz AS started FROM ${TABLE} WHERE id = $1::uuid`, E1.exceptionIntakeId, runStartedAt.toISOString()))[0]
   const backdated = await rolledBack((tx) =>
     tx.$executeRawUnsafe(
-      `INSERT INTO ${TABLE} (id, organization_id, claim_id, contract_version, source_kind, source_record_id, source_contract_version, source_fingerprint_sha256, exception_reason_code, identity_key, recorded_by_user_id, recorded_at, created_at)
-       SELECT gen_random_uuid(), organization_id, claim_id, contract_version, source_kind, source_record_id, source_contract_version, source_fingerprint_sha256, exception_reason_code, identity_key, recorded_by_user_id, now() - interval '1 day', now() - interval '1 day' FROM ${TABLE} WHERE id = $1::uuid`,
+      `INSERT INTO ${TABLE} (id, organization_id, claim_id, contract_version, source_kind, source_record_id, source_contract_version, source_fingerprint_sha256, exception_reason_code, basis_code, basis_record_id, identity_key, recorded_by_user_id, recorded_at, created_at)
+       SELECT gen_random_uuid(), organization_id, claim_id, contract_version, source_kind, source_record_id, source_contract_version, source_fingerprint_sha256, exception_reason_code, basis_code, basis_record_id, identity_key, recorded_by_user_id, now() - interval '1 day', now() - interval '1 day' FROM ${TABLE} WHERE id = $1::uuid`,
       E1.exceptionIntakeId,
     ),
   )
@@ -739,16 +811,43 @@ async function main() {
   const foreignOrgRow = await directInsert({ organization_id: otherOrg })
   check('T044', 'Same org/Claim DB guard', foreignOrgRow.refused && /exception_intake_coherence/.test(foreignOrgRow.message) && foreignOrgRow.clean, 'a direct row for Claim C under the other organization is refused by the insert guard')
   const badKind = await directInsert({ source_kind: 'PAYER_RESPONSE' })
-  check('T045', 'Controlled source CHECK', badKind.refused && /source_kind_chk|23514/.test(badKind.message) && badKind.clean, 'a direct row with an uncontrolled source kind is refused by the CHECK')
+  const kindDef = (await prisma.$queryRawUnsafe<{ d: string }[]>(`SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = '${TABLE}_source_kind_chk'`))[0]?.d ?? ''
+  check(
+    'T045',
+    'Controlled source CHECK',
+    badKind.refused && new RegExp(`${TABLE}_\\w+_chk`).test(badKind.message) && badKind.clean && sourceKinds.every((k) => kindDef.includes(`'${k}'`)) && !kindDef.includes("'PAYER_RESPONSE'"),
+    'a direct row with an uncontrolled source kind is refused by an A8.1 CHECK; the source-kind CHECK admits exactly the two kinds, each with its one contract',
+  )
   const badReasonRow = await directInsert({ exception_reason_code: 'PAYER_DENIED' })
-  const badPairRow = await directInsert({ exception_reason_code: 'OPERATOR_REVIEW_REQUIRED' })
-  check('T046', 'Controlled reason CHECK', badReasonRow.refused && /reason_chk|23514/.test(badReasonRow.message) && badPairRow.refused && /pairing_chk|23514/.test(badPairRow.message), 'an uncontrolled reason, and a controlled reason no owner establishes for that kind, are refused by the CHECKs')
+  const badPairRow = await directInsert({ exception_reason_code: 'OPERATOR_REVIEW_REQUIRED', basis_code: 'ASSESSMENT_REVIEW_REQUIRED' })
+  const badBasisRow = await directInsert({ basis_code: 'PAYER_DENIED' })
+  const crossBasisRow = await directInsert({ basis_code: 'ASSESSMENT_REVIEW_REQUIRED' })
+  // PostgreSQL tests CHECKs in name order, so a row breaking several is reported by the first; each row must be refused
+  // by an A8.1 CHECK, and each CHECK's own definition must hold exactly the controlled vocabulary.
+  const checkDef = async (name: string) => (await prisma.$queryRawUnsafe<{ d: string }[]>(`SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = '${TABLE}_${name}'`))[0]?.d ?? ''
+  const reasonDef = await checkDef('reason_chk')
+  const pairingDef = await checkDef('pairing_chk')
+  const basisDef = await checkDef('basis_chk')
+  const byA81Check = (r: { refused: boolean; message: string }) => r.refused && new RegExp(`${TABLE}_(reason|pairing|basis)_chk`).test(r.message)
+  check(
+    'T046',
+    'Controlled reason CHECK',
+    [badReasonRow, badPairRow, badBasisRow, crossBasisRow].every(byA81Check) &&
+      exceptionReasonCodes.every((r) => reasonDef.includes(`'${r}'`)) && !/'(PAID|DENIED|PAYER_DENIED|CLOSED|OVERPAID|UNDERPAID)'/.test(reasonDef + pairingDef + basisDef) &&
+      BASIS_CODES.every((b) => basisDef.includes(`'${b}'`)) && /IS NOT NULL/.test(basisDef) && pairingDef.includes("'REVENUE_TIMELINE'") && !pairingDef.includes("'SOURCE_REFERENCE_UNAVAILABLE'") && !basisDef.includes("'CONTRACT_VERSION_UNSUPPORTED'"),
+    'an uncontrolled reason, a reason no owner establishes for that kind, an uncontrolled basis and a basis of another reason are each refused by an A8.1 CHECK; the reason, pairing and basis CHECKs hold exactly the controlled vocabulary, with the two disabled reasons admitted by no pair and no basis',
+  )
   const digestOnTimeline = await directInsert({ source_fingerprint_sha256: 'a'.repeat(64) })
   const nullOnAssessment = await directInsert({ source_kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', source_record_id: ASSESS_C1.assessmentId, source_contract_version: PREREQ_CONTRACT, exception_reason_code: 'OPERATOR_REVIEW_REQUIRED', source_fingerprint_sha256: null })
-  check('T047', 'Fingerprint null or valid', digestOnTimeline.refused && nullOnAssessment.refused && E1.sourceFingerprintSha256 === null && pv?.review.ok === true && pv.review.value.intake.sourceFingerprintSha256 === CASE_C2.manifestSha256, "a timeline carries no digest (one is refused), an assessment carries its case's stored digest (none is refused)")
+  check(
+    'T047',
+    'Fingerprint null or valid',
+    digestOnTimeline.refused && nullOnAssessment.refused && E1.sourceFingerprintSha256 === null && pv?.review.ok === true && pv.review.value.intake.sourceFingerprintSha256 === plantedDigest && orgPlant.value?.ok === true && orgPlant.value.value.intake.sourceFingerprintSha256 === ASSESS_C1.caseManifestSha256,
+    "a timeline carries no digest (one is refused); an assessment intake carries exactly the assessment's own stored copy of its case digest, never one computed here (none is refused)",
+  )
   const duplicate = await directInsert({})
   const wrongIdentity = await directInsert({ identity_key: 'f'.repeat(64) })
-  check('T048', 'Identity key uniqueness', duplicate.refused && /exception_intake_records_identity_key|operational_intake_records_identity_key|23505|unique/i.test(duplicate.message) && wrongIdentity.refused && /exception_intake_identity/.test(wrongIdentity.message), "a second row with E1's identity is refused by the UNIQUE index; a row whose key is not the digest of its own preimage is refused by the guard")
+  check('T048', 'Identity key uniqueness', duplicate.refused && /exception_intake_records_identity_key|23505/.test(duplicate.message) && wrongIdentity.refused && /exception_intake_identity/.test(wrongIdentity.message), "a second row with E1's identity is refused by the UNIQUE index; a row whose key is not the digest of its own preimage is refused by the guard")
   const noopUpdate = await rolledBack((tx) => tx.$executeRawUnsafe(`UPDATE ${TABLE} SET identity_key = identity_key WHERE id = $1::uuid`, E1.exceptionIntakeId))
   check('T049', 'UPDATE even no-op refused', !noopUpdate.message.includes(NOT_COMMITTED) && /append-only/.test(noopUpdate.message) && noopUpdate.clean, 'even a no-op UPDATE of E1 is refused (append-only)')
   const deletion = await rolledBack((tx) => tx.$executeRawUnsafe(`DELETE FROM ${TABLE} WHERE id = $1::uuid`, E1.exceptionIntakeId))
@@ -760,7 +859,17 @@ async function main() {
   check('T051', 'New request creates 201', E1res.status === 201 && (await auditsOfIntake(E1.exceptionIntakeId)).length === 1, 'the first request records E1 (201) with exactly one audit')
   const auditsBeforeReplay = await prisma.auditEvent.count()
   const replayE1 = await post(intakePath(C.claimId), timelineBody(C.claimId))
-  check('T052', 'Same request identical 200', replayE1.status === 200 && JSON.stringify(replayE1.body) === JSON.stringify(E1), 'the identical request returns 200 with the byte-identical stored DTO')
+  // Claim N has no intake; a forged row carrying the identity of N's timeline request but Claim C's columns, or the
+  // other organization, must never be answered as N's replay.
+  const forgedClaim = await forgedReplay({ organizationId: org, claimId: C.claimId, basisRecordId: C.freezes[1] }, N.claimId)
+  const forgedTenant = await forgedReplay({ organizationId: otherOrg, claimId: N.claimId, basisRecordId: N.freezes[1] }, N.claimId)
+  check(
+    'T052',
+    'Same request identical 200',
+    replayE1.status === 200 && JSON.stringify(replayE1.body) === JSON.stringify(E1) &&
+      [forgedClaim, forgedTenant].every((f) => f.value?.ok === false && f.value.code === 'EXCEPTION_INTAKE_CONFLICT' && f.clean) && (await intakesOfClaim(N.claimId)).length === 0,
+    "the identical request returns 200 with the byte-identical stored DTO; a stored row with the same identity but another Claim's or another organization's canonical fields (forged, rolled back) is refused 409, never answered as a replay",
+  )
   check('T053', 'No second audit on replay', (await prisma.auditEvent.count()) === auditsBeforeReplay && (await auditsOfIntake(E1.exceptionIntakeId)).length === 1 && (await intakesOfClaim(C.claimId)).length === 1, 'the replay wrote no audit and no row')
   const e1Bytes = await intakeRowsHash([C.claimId])
   check(
@@ -808,8 +917,11 @@ async function main() {
   check(
     'T063',
     'Owner reads same DbClient',
-    ['getRevenueTimelineOf(claimId, tx)', 'findAssessmentById(request.sourceRecordId, tx)', 'findCaseForPrerequisite(assessment.evidenceCaseId, tx)', 'getClosureBasisTraceOf(assessment.id, tx)'].every((call) => resolveCode.includes(call)) && /findClaimForFreeze\(claimId, tx\)/.test(onTx) && !/prisma\./.test(resolveCode + onTx),
-    'the A6.7, A7.5, A7.6 and A7.7 owners are read on the one caller transaction; nothing uses a second connection',
+    [
+      'getRevenueTimelineOf(claimId, tx)', 'findFreezesOfClaim(claimId, tx)', 'findFreezeFacts(freeze.id, tx)', 'findLinksOfClaim(claimId, tx)',
+      'findAssessmentById(request.sourceRecordId, tx)', 'findCaseForPrerequisite(assessment.evidenceCaseId, tx)', 'getClosureBasisTraceOf(assessment.id, tx)', 'findCaseById(assessment.evidenceCaseId, tx)',
+    ].every((call) => resolveCode.includes(call)) && /findClaimForFreeze\(claimId, tx\)/.test(onTx) && !/prisma\./.test(resolveCode + onTx),
+    'the A6.7, A6.9, A7.4, A7.5, A7.6 and A7.7 owners are read on the one caller transaction; nothing uses a second connection',
   )
   check('T067', 'Retries re-read on new transaction', y2a.ok && y2b.ok && y2a.value.replayed === false && y2b.value.replayed === true && same(y2a.value.intake, y2b.value.intake), 'the waiting request retried on a fresh transaction, re-read and answered the committed intake as its replay — never a second row')
   const injectThrow = (probe: string, message: string) => {
@@ -856,7 +968,8 @@ async function main() {
   check('T073', 'Unknown source ID refused', unknownIds.every((r) => r.status === 404 && errorCode(r.body) === 'NOT_FOUND'), 'an unknown assessment id and a timeline id that is not this Claim are the same 404')
   const malformedDigest = await directInsert({ source_kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', source_record_id: ASSESS_C1.assessmentId, source_contract_version: PREREQ_CONTRACT, exception_reason_code: 'OPERATOR_REVIEW_REQUIRED', source_fingerprint_sha256: 'ABC' })
   check('T074', 'Malformed digest refused', malformedDigest.refused && malformedDigest.clean, 'a direct row with a malformed digest is refused (the API never accepts a digest from the client)')
-  const futureContract = await directInsert({ contract_version: 'A8-EXCEPTION-INTAKE-2' })
+  // On Claim V (two unlinked freezes, never an intake), so the row is otherwise valid and only its contract is wrong.
+  const futureContract = await directInsert({ contract_version: 'A8-EXCEPTION-INTAKE-2', claim_id: V.claimId, source_record_id: V.claimId, basis_record_id: V.freezes[1] })
   check('T075', 'Unknown contract literal refused', futureContract.refused && /contract_chk|23514/.test(futureContract.message) && badContract.every((r) => r.status === 400), 'a future intake contract is refused by the CHECK, and an unknown source contract by the API (T017)')
   const noRole = [await post(intakePath(D.claimId), timelineBody(D.claimId), NR.who), await get(intakePath(D.claimId), NR.who)]
   check('T076', 'Unauthorized role refused', noRole.every((r) => r.status === 403) && viewerPost.status === 403, 'a member without any grant is refused 403 on POST and GET; a Viewer is refused 403 on POST')
@@ -1063,28 +1176,42 @@ async function main() {
   const contradictionAgain = await getRevenueTimeline(C.claimId)
   const replayAfterContradiction = await post(intakePath(C.claimId), timelineBody(C.claimId))
   check('T114', 'Later contradiction does not rewrite intake', S3.length === 36 && !contradictionAgain.ok && replayAfterContradiction.status === 200 && same(replayAfterContradiction.body, E1) && (await intakesOfClaim(C.claimId)).length === 1 && (await intakeRowsHash([C.claimId])) === e1Bytes, "a third freeze left unlinked contradicts C's history again: the same request answers E1 unchanged — no new row, no rewrite")
-  check('T115', 'Existing AuditEvent metadata only', same(Object.keys((e1Audit?.afterState ?? {}) as object).sort(), ['claimId', 'contractVersion', 'exceptionIntakeId', 'exceptionReasonCode', 'recordedAt', 'sourceContractVersion', 'sourceKind', 'sourceRecordId']) && e1Audit?.actionCode === 'exception_intake.recorded' && e1Audit?.beforeState === null, "E1's audit is the existing Business AuditEvent exception_intake.recorded with identifiers, contracts, codes and time only — no digest, PHI, payload or amount")
+  check(
+    'T115',
+    'Existing AuditEvent metadata only',
+    same(Object.keys((e1Audit?.afterState ?? {}) as object).sort(), ['basisCode', 'basisRecordId', 'claimId', 'contractVersion', 'exceptionIntakeId', 'exceptionReasonCode', 'recordedAt', 'sourceContractVersion', 'sourceKind', 'sourceRecordId']) &&
+      e1Audit?.actionCode === 'exception_intake.recorded' && e1Audit?.beforeState === null,
+    "E1's audit is the existing Business AuditEvent exception_intake.recorded with identifiers, contracts, codes, the basis and time only — no digest, PHI, payload, owner message or amount",
+  )
   check('T116', 'Source digest omission remains NULL', E1row.sourceFingerprintSha256 === null && E2res.body.sourceFingerprintSha256 === null, 'a revenue timeline supplies no trustworthy digest, so its intakes store NULL — never a made-up one')
   const narrative = await Promise.all(['narrative', 'description', 'note', 'comment'].map((k) => post(intakePath(D.claimId), { ...timelineBody(D.claimId), [k]: 'free text about the payer' })))
   check('T117', 'No free-text narrative accepted', narrative.every((r) => r.status === 400) && !COLUMNS.some((c) => /note|comment|narrative|description|text/.test(c)), 'any narrative field is refused (400) and no free-text column exists')
   const impersonation = await directInsert({ source_kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', source_record_id: randomUUID(), source_contract_version: PREREQ_CONTRACT, exception_reason_code: 'OPERATOR_REVIEW_REQUIRED', source_fingerprint_sha256: 'a'.repeat(64) })
-  check('T118', 'Missing source cannot be impersonated', unknownIds.every((r) => r.status === 404) && impersonation.refused && /exception_intake_source/.test(impersonation.message), 'a made-up source UUID is a 404 through the API and is refused by the database guard when written directly')
+  const madeUpBasis = await directInsert({ basis_record_id: randomUUID() })
+  check(
+    'T118',
+    'Missing source cannot be impersonated',
+    unknownIds.every((r) => r.status === 404) && impersonation.refused && /exception_intake_source/.test(impersonation.message) && madeUpBasis.refused && /exception_intake_basis/.test(madeUpBasis.message),
+    'a made-up source UUID is a 404 through the API and is refused by the database guard when written directly; so is a made-up basis record',
+  )
   const a82Tables = await newTablesLike('(assign|status|export|triage|escalat|work_item|investigat)')
   check('T119', 'No A8.2 assignment/status/export table', a82Tables.length === 0 && laterRoutes.slice(0, 3).every((r) => r.status === 404), 'no new assignment, status, triage, escalation, investigation or export table (earlier phases own theirs), and no such route')
   const registerDoc = committedText(REGISTER_DOC)
-  const approval = registerDoc.match(/^Architecture-owner approval: approved on (\d{4}-\d{2}-\d{2})/m)
+  const approval = registerDoc.includes(`**${APPROVAL_LINE}**`)
   check(
     'T120',
     'Proposed contract requires owner sign-off',
-    approval !== null && registerDoc.includes(CONTRACT) && sourceKinds.every((k) => registerDoc.includes(`\`${k}\``)) && exceptionReasonCodes.every((r) => registerDoc.includes(`\`${r}\``)) && registerDoc.includes(TABLE),
-    approval ? `the committed register records the architecture owner's approval on ${approval[1]} and names exactly the contract, both source kinds and all five reasons the code uses` : `the committed register does not record the architecture owner's approval (${REGISTER_DOC})`,
+    approval && registerDoc.includes(CONTRACT) && sourceKinds.every((k) => registerDoc.includes(`\`${k}\``)) && exceptionReasonCodes.every((r) => registerDoc.includes(`\`${r}\``)) && BASIS_CODES.every((b) => registerDoc.includes(`\`${b}\``)) && registerDoc.includes(`\`${TABLE}\``),
+    approval
+      ? `the committed register records "${APPROVAL_LINE}" with its conditions and names exactly the contract, both source kinds, all five reasons, the four bases and the table the code uses`
+      : `the committed register does not record "${APPROVAL_LINE}" (${REGISTER_DOC})`,
   )
 
   // ---------------------------------------------------------------- final reproducibility gates (T121–T130)
   section('Final reproducibility gates: units, typecheck, frontend, checksums and replay, outage and recovery, no 5xx, synthetic fixtures, the golden intake after restart and the nested chain, exact head')
   const allUnit = run('npm run test:unit')
   const ownUnit = run(`node --test ${UNIT_TESTS.map((file) => file.replace('backend/', '')).join(' ')}`)
-  check('T121', 'Backend unit tests PASS', allUnit.ok && /ℹ fail 0/.test(allUnit.output) && ownUnit.ok && /ℹ pass 10/.test(ownUnit.output) && /ℹ fail 0/.test(ownUnit.output), `${(allUnit.output.match(/ℹ pass \d+/) ?? ['unit output unavailable'])[0]}, including the 10 A8.1 identity, basis and request tests`)
+  check('T121', 'Backend unit tests PASS', allUnit.ok && /ℹ fail 0/.test(allUnit.output) && ownUnit.ok && /ℹ pass 14/.test(ownUnit.output) && /ℹ fail 0/.test(ownUnit.output), `${(allUnit.output.match(/ℹ pass \d+/) ?? ['unit output unavailable'])[0]}, including the 14 A8.1 identity, basis and request tests`)
   const typecheck = run('npm run typecheck')
   check('T122', 'Backend typecheck PASS', typecheck.ok, 'backend typecheck clean, including this harness')
   const lint = run('npm run lint --prefix ../frontend')

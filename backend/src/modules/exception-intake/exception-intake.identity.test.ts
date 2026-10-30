@@ -1,9 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { identityKeyOf, identityPreimage } from './exception-intake.identity.ts'
-import { establishedReasons } from './exception-intake.basis.ts'
 
-// A8.1 — the dedupe identity and the owner-verdict basis rule. Synthetic values only.
+// A8.1 — the dedupe identity. Synthetic values only.
 
 const ORG = '00000000-0000-4000-8000-0000000000a1'
 const CLAIM = '00000000-0000-4000-8000-0000000000c1'
@@ -46,20 +45,4 @@ test('non-canonical parts are refused, so two inputs can never share a preimage'
   ]) {
     assert.throws(() => identityPreimage({ ...parts, ...change }), /not canonical/, JSON.stringify(change))
   }
-})
-
-test('the basis is only the owner verdict mapped to each reason', () => {
-  assert.deepEqual(establishedReasons({ kind: 'REVENUE_TIMELINE', timelineCode: 'REVENUE_TIMELINE_PROVENANCE_CONFLICT' }), ['PROVENANCE_CONFLICT'])
-  assert.deepEqual(establishedReasons({ kind: 'REVENUE_TIMELINE', timelineCode: 'OK' }), [])
-  assert.deepEqual(establishedReasons({ kind: 'REVENUE_TIMELINE', timelineCode: 'VALIDATION_ERROR' }), [])
-  assert.deepEqual(establishedReasons({ kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', traceCode: 'CLOSURE_BASIS_PROVENANCE_CONFLICT', assessmentCode: 'EXTERNAL_FINANCIAL_EVIDENCE_ABSENT' }), ['HISTORICAL_RECORD_INCONSISTENT'])
-  assert.deepEqual(establishedReasons({ kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', traceCode: 'OK', assessmentCode: 'REVIEW_REQUIRED' }), ['OPERATOR_REVIEW_REQUIRED'])
-  assert.deepEqual(establishedReasons({ kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', traceCode: 'CLOSURE_BASIS_PROVENANCE_CONFLICT', assessmentCode: 'REVIEW_REQUIRED' }), ['HISTORICAL_RECORD_INCONSISTENT', 'OPERATOR_REVIEW_REQUIRED'])
-})
-
-test('external financial evidence absence and every normal outcome establish nothing', () => {
-  for (const assessmentCode of ['EXTERNAL_FINANCIAL_EVIDENCE_ABSENT', 'NO_SOURCE_BASIS', 'INCOMPLETE_SOURCE_CHAIN', 'UNSUPPORTED_SOURCE_BASIS', 'PAID', '']) {
-    assert.deepEqual(establishedReasons({ kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', traceCode: 'OK', assessmentCode }), [], assessmentCode)
-  }
-  assert.deepEqual(establishedReasons({ kind: 'CLOSURE_PREREQUISITE_ASSESSMENT', traceCode: 'NOT_FOUND', assessmentCode: 'EXTERNAL_FINANCIAL_EVIDENCE_ABSENT' }), [])
 })
