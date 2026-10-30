@@ -301,7 +301,16 @@ async function main() {
   const migrationDirsAt = (ref: string) => git(`ls-tree -d --name-only --full-tree ${ref} backend/prisma/migrations/`).split(/\r?\n/).filter((line) => /\/\d{14}_/.test(line))
   const headMigrationDirs = migrationDirsAt('HEAD')
   const baseMigrationDirs = migrationDirsAt('origin/main')
-  check('T004', 'No new product migration or model', prismaStatus.length === 0 && same(headMigrationDirs, baseMigrationDirs) && !changedPaths.some((p) => /schema\.prisma|^backend\/src\/(modules|shared)\//.test(p)), prismaStatus.length === 0 ? `schema and all ${headMigrationDirs.length} migrations identical to main; no module or shared code changed` : `prisma changes: ${prismaStatus.join(' | ')}`)
+  // A7.10's own scope: on its own branch, its diff against main; on any later branch, exactly what its own merge
+  // added. A later package's changes are that package's to prove, so the scope checks below (no migration, replay
+  // base, permission catalogue, owner code) always judge THIS package.
+  const ownMerge = branch === a710Branch ? '' : mergeOf(a710Branch)
+  const ownRange = ownMerge ? `${ownMerge}^1..${ownMerge}` : 'origin/main...HEAD'
+  const ownChangedPaths = gitArgs(['diff', '--name-only', ownRange]).split(/\r?\n/).filter(Boolean)
+  const ownPrismaStatus = gitArgs(['diff', '--name-status', ownRange, '--', ':/backend/prisma']).split(/\r?\n/).filter(Boolean)
+  const ownHeadMigrationDirs = ownMerge ? migrationDirsAt(ownMerge) : headMigrationDirs
+  const ownBaseMigrationDirs = ownMerge ? migrationDirsAt(`${ownMerge}^1`) : baseMigrationDirs
+  check('T004', 'No new product migration or model', ownPrismaStatus.length === 0 && same(ownHeadMigrationDirs, ownBaseMigrationDirs) && !ownChangedPaths.some((p) => /schema\.prisma|^backend\/src\/(modules|shared)\//.test(p)), ownPrismaStatus.length === 0 ? `schema and all ${headMigrationDirs.length} migrations identical to its base; no module or shared code changed` : `prisma changes: ${ownPrismaStatus.join(' | ')}`)
   const validate = run('npm run db:validate')
   const generate = run('npm run db:generate')
   const status = run('npm run db:status')
@@ -309,11 +318,11 @@ async function main() {
   const replay = run('npm run db:verify:replay')
   const appliedCount = Number((replay.output.match(/(\d+) migrations applied cleanly/) ?? [])[1] ?? -1)
   check('T006', 'Scratch replay matches all migrations', replay.ok && /ALL CHECKS PASS/.test(replay.output) && appliedCount === headMigrationDirs.length, `${appliedCount} migrations applied cleanly from empty in the scratch database — exactly the ${headMigrationDirs.length} committed at HEAD`)
-  const authzDiff = gitArgs(['diff', 'origin/main...HEAD', '--', ':/backend/src/shared/authorization', ':/backend/src/scripts/bootstrap-authz-dev.ts', ':/backend/src/shared/audit', ':/backend/src/modules'])
+  const authzDiff = gitArgs(['diff', ownRange, '--', ':/backend/src/shared/authorization', ':/backend/src/scripts/bootstrap-authz-dev.ts', ':/backend/src/shared/audit', ':/backend/src/modules'])
   const permissionCount = await prisma.permission.count()
-  check('T007', 'No new permission or audit action', authzDiff === '' && !changedPaths.some((p) => /authoriz|audit|bootstrap/i.test(p)) && permissionCount > 0, `no permission catalogue, bootstrap, audit or module code changed (${permissionCount} permissions as accepted)`)
-  const appDiff = gitArgs(['diff', 'origin/main...HEAD', '--', ':/backend/src/app.ts', ':/backend/src/server.ts', ':/frontend/src'])
-  check('T008', 'No extra route or payer send added', appDiff === '' && !changedPaths.some((p) => /route|router|adapter|outbox|transport|dhpo|eclaim/i.test(p)), 'app.ts, server.ts and the frontend are unchanged: no route, page or sender was added')
+  check('T007', 'No new permission or audit action', authzDiff === '' && !ownChangedPaths.some((p) => /authoriz|audit|bootstrap/i.test(p)) && permissionCount > 0, `no permission catalogue, bootstrap, audit or module code changed (${permissionCount} permissions as accepted)`)
+  const appDiff = gitArgs(['diff', ownRange, '--', ':/backend/src/app.ts', ':/backend/src/server.ts', ':/frontend/src'])
+  check('T008', 'No extra route or payer send added', appDiff === '' && !ownChangedPaths.some((p) => /route|router|adapter|outbox|transport|dhpo|eclaim/i.test(p)), 'app.ts, server.ts and the frontend are unchanged: no route, page or sender was added')
   const contractsNow = CONTRACT_SOURCES.map(([path, name]) => constantOf(path, name))
   const contractsMain = CONTRACT_SOURCES.map(([path, name]) => (gitArgs(['show', `origin/main:backend/src/modules/${path}`]).match(new RegExp(`export const ${name} = '([^']+)'`)) ?? [])[1])
   check('T009', 'Accepted contract versions unchanged', same(contractsNow, CONTRACT_SOURCES.map((c) => c[2])) && same(contractsNow, contractsMain), `A7.1–A7.9: ${contractsNow.join(', ')} — exactly as accepted on main`)
@@ -1081,7 +1090,10 @@ async function main() {
 
   // ---------------------------------------------------------------- phase boundaries (T091–T100)
   section('Clear phase boundaries: no payer submission, adjudication, remittance, patient responsibility, receivable, adjustment, ledger, A8 or A9 functionality')
-  const tableNames = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public'`).map((r) => r.t)
+  // Later phases' tables: those created by migrations committed after this package's own merge (none on its own
+  // branch, so this boundary is unchanged there). Every table that existed when the package merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const tableNames = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public'`).map((r) => r.t).filter((t) => !laterPhaseTables.has(t))
   const tablesLike = (re: RegExp) => tableNames.filter((t) => re.test(t))
   const a7Code = committedProductionCodeOf(A7_MODULE_DIRS).code
   // Identifiers only: messages and other string literals may name what a module refuses to do.
@@ -1103,7 +1115,9 @@ async function main() {
   const oneLifecycle = (await get(`/api/claim-submissions/${One.freezes[0]}/lifecycle`)).body
   const oneAfter = await readAll(One.claimId)
   check('T098', 'A6.8 internal release not payer release', oneLifecycle?.state === 'RELEASE_ELIGIBLE' && same(stableAll(oneAfter), oneBefore) && ![...deepKeys(stableAll(oneAfter))].some((k) => /disposition|lifecycle|release|status|sent/i.test(k)), "after an internal AUTHORIZE_RELEASE (RELEASE_ELIGIBLE) One's timeline, delta and continuity are byte-identical and carry no release, send or status")
-  const tracked = git('ls-tree -r --name-only --full-tree HEAD').split(/\r?\n/)
+  // The A7 phase's files: on A7.10's own branch, its tree; on any later branch, the tree its merge closed. Files a later
+  // phase adds are that phase's to prove; every A7-era file is judged as before.
+  const tracked = git(`ls-tree -r --name-only --full-tree ${ownMerge || 'HEAD'}`).split(/\r?\n/)
   check('T099', 'No A8 exception workflow added', tracked.filter((f) => /exception|work-?queue|integration\/a8/i.test(f) && !/error/i.test(f)).length === 0 && tablesLike(/exception|work_queue|task_assign/).length === 0 && (await routeStatus('POST', `/api/claims/${C.claimId}/exceptions`)) === 404, 'no exception, work-queue or A8 module, table or route')
   check('T100', 'No A9 external adapter added', tracked.filter((f) => /dhpo|eclaimlink|x12|hl7|payer-adapter|integration\/a9/i.test(f)).length === 0 && !/soap|xml2js|x12|hl7/i.test(a7Identifiers), 'no DHPO, eClaimLink, X12, HL7 or payer adapter file, and no A7 module speaks an exchange format')
 

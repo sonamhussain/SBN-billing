@@ -420,23 +420,34 @@ async function main() {
     const end = lines.findIndex((line) => line.includes('atomicity (T061–T070)'))
     return start >= 0 && end > start ? { start: start + 1, end: end + 1 } : null
   }
-  const a71HarnessDiff = gitArgs(['diff', '-U0', 'origin/main...HEAD', '--', `:/${A71_HARNESS}`])
+  // A7.2's own scope for T009: on its own branch, its diff against main; on any later branch, exactly what its own
+  // merge added, judged by the same rules. A later package's changes (A8.1's, a later harness correction's) are
+  // that package's to prove.
+  const ownMerge = branch === a72Branch ? '' : mergeOf(a72Branch)
+  const ownRange = ownMerge ? `${ownMerge}^1..${ownMerge}` : 'origin/main...HEAD'
+  const ownBase = ownMerge ? gitArgs(['rev-parse', `${ownMerge}^1`]) : 'origin/main'
+  const ownTip = ownMerge || 'HEAD'
+  const ownChangedPaths = gitArgs(['diff', '--name-only', ownRange]).split(/\r?\n/).filter(Boolean)
+  const a71HarnessDiff = gitArgs(['diff', '-U0', ownRange, '--', `:/${A71_HARNESS}`])
   const a71Hunks = [...a71HarnessDiff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)].map((m) => ({ oldStart: Number(m[1]), oldCount: Number(m[2] ?? 1), newStart: Number(m[3]), newCount: Number(m[4] ?? 1) }))
-  const oldBlock = t060Block(gitArgs(['show', `origin/main:${A71_HARNESS}`]))
-  const newBlock = t060Block(committedText(A71_HARNESS))
+  const oldBlock = t060Block(gitArgs(['show', `${ownBase}:${A71_HARNESS}`]))
+  const newBlock = t060Block(gitArgs(['show', `${ownTip}:${A71_HARNESS}`]))
   const insideBlock = (start: number, count: number, block: { start: number; end: number } | null) => count === 0 || (block !== null && start >= block.start && start + count - 1 < block.end)
   const a71HarnessOnlyT060 =
     a71Hunks.length > 0 && a71Hunks.every((hunk) => insideBlock(hunk.oldStart, hunk.oldCount, oldBlock) && insideBlock(hunk.newStart, hunk.newCount, newBlock))
   const ownerChanged = changedPaths.filter(
     (file) => !(file === A71_HARNESS && a71HarnessOnlyT060) && (OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file)),
   )
+  const ownOwnerChanged = ownChangedPaths.filter(
+    (file) => !(file === A71_HARNESS && a71HarnessOnlyT060) && (OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file)),
+  )
   check(
     'T009',
     'Earlier domain contracts preserved',
-    same(contracts, ['A6-CLAIM-1', 'A6-PRICE-1', 'A6-DRAFT-1', 'A6-REVIEW-1', 'A6-PAYLOAD-1', 'A6-SUBMISSION-1', 'A6-EVIDENCE-1', 'A6-LIFECYCLE-1', 'A6-CORRECTION-1', SOURCE_CONTRACT]) && ownerChanged.length === 0,
-    ownerChanged.length === 0
+    same(contracts, ['A6-CLAIM-1', 'A6-PRICE-1', 'A6-DRAFT-1', 'A6-REVIEW-1', 'A6-PAYLOAD-1', 'A6-SUBMISSION-1', 'A6-EVIDENCE-1', 'A6-LIFECYCLE-1', 'A6-CORRECTION-1', SOURCE_CONTRACT]) && ownOwnerChanged.length === 0,
+    ownOwnerChanged.length === 0
       ? `A6-CLAIM-1 … A6-CORRECTION-1 and A7-REVENUE-SOURCE-1 unchanged; no A5/A6/A7.1 owner module or page changed${changedPaths.includes(A71_HARNESS) ? `; the A7.1 suite changed only inside its T060 block (${a71Hunks.length} hunk(s))` : ''}`
-      : `changed: ${ownerChanged.join(', ').slice(0, 200)}`,
+      : `changed: ${ownOwnerChanged.join(', ').slice(0, 200)}`,
   )
 
   // ---------------------------------------------------------------- fixtures

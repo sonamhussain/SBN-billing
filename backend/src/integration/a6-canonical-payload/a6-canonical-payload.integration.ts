@@ -508,13 +508,16 @@ async function main() {
   const inProcess = async (subject: { claimId: string; body: { draftAssessmentId: string; approvalDecisionId: string } }) =>
     withReadSnapshot(undefined, (tx) => composeCanonicalClaimPayload(subject.claimId, subject.body.draftAssessmentId, subject.body.approvalDecisionId, tx))
   const outcomeOf = (res: { status: number; body: any }) => (res.status === 200 ? 'COMPOSED' : errorCode(res.body))
+  // PostgreSQL may run the UNION ALL as a Parallel Append, so its row order is not guaranteed: the counts are ordered
+  // by table key before they are compared (every count is still compared exactly).
   const tableCounts = async () =>
     JSON.stringify(
       await prisma.$queryRaw<{ t: string; n: bigint }[]>`
         SELECT 'claims' AS t, count(*) AS n FROM claims UNION ALL SELECT 'lines', count(*) FROM claim_lines UNION ALL SELECT 'pointers', count(*) FROM claim_line_diagnosis_pointers
         UNION ALL SELECT 'diagnoses', count(*) FROM claim_diagnoses UNION ALL SELECT 'runs', count(*) FROM claim_pricing_runs UNION ALL SELECT 'line_results', count(*) FROM claim_pricing_line_results
         UNION ALL SELECT 'assessments', count(*) FROM claim_draft_assessments UNION ALL SELECT 'findings', count(*) FROM claim_draft_findings UNION ALL SELECT 'decisions', count(*) FROM claim_review_events
-        UNION ALL SELECT 'audit', count(*) FROM audit_events UNION ALL SELECT 'validation_runs', count(*) FROM validation_runs`,
+        UNION ALL SELECT 'audit', count(*) FROM audit_events UNION ALL SELECT 'validation_runs', count(*) FROM validation_runs
+        ORDER BY t`,
       (_, value) => (typeof value === 'bigint' ? value.toString() : value),
     )
   // Runs the composer inside a transaction that is always rolled back, after an adversarial setup that no
