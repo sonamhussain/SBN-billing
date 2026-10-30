@@ -1146,7 +1146,10 @@ async function main() {
     "S3's A7.6 trace, C's A7.7 timeline and C's A7.8 delta read back identically around the continuity reads, and the timeline lists exactly the freezes A7.9 reports",
   )
   const laterRoutes = [await post(`/api/claims/${C.claimId}/closures`, {}), await post(`/api/claims/${C.claimId}/payments`, {}), await post(`/api/claims/${C.claimId}/remittances`, {}), await post(`/api/claims/${C.claimId}/exceptions`, {}), await post(continuityPath(C.claimId), {})]
-  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|continuit|delta|receivable|ledger|balance|payment)'`).map((row) => row.t)
+  // Later phases' tables: those created by migrations committed after this package's own merge (none on its own
+  // branch, so this boundary is unchanged there). Every table that existed when the package merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|continuit|delta|receivable|ledger|balance|payment)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const moneyIdentifier = /\bDecimal\b|[Aa]mount|\b[Cc]urrency|[a-z]Currency|toFixed\(|[Ss]ettle|[Aa]llocat|[Aa]djust|[Rr]eceivable|[Bb]alance|[Ll]edger|[Pp]ayment|[Rr]emittance/
   check(
     'T110',
@@ -1236,7 +1239,7 @@ async function main() {
   check(
     'T120',
     'All historical branch-only N/A justified',
-    ran && failing.every((id) => id in a78NonApplicable) && unproven.length === 0 && naLines.length === 7 && naLines.every((line) => line.length > 80) && ownerChanged.length === 0,
+    ran && failing.every((id) => id in a78NonApplicable) && unproven.length === 0 && naLines.length === 7 && naLines.every((line) => line.length > 80) && ownOwnerChanged.length === 0,
     unproven.length === 0
       ? `each documented A7.8 failure (${failing.join(', ') || 'none'}) is printed with its reason and fails only for its branch-only cause, proved independently here; A7.8 itself justifies its seven A7.7 items (${naLines.length} lines)`
       : `cause not proven for: ${unproven.join(', ')}`,

@@ -1034,7 +1034,10 @@ async function main() {
   const traceAfter = await get(`/api/closure-prerequisite-assessments/${ASSESS2.assessmentId}/basis-trace`)
   check('T109', 'A7.6 basis traces remain read-only', traceBefore.status === 200 && traceAfter.status === 200 && same(stable(traceAfter.body), stable(traceBefore.body)) && (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* 'trace'`).length === 0, "ASSESS2's A7.6 trace reads back identically around the deltas, and no trace is stored anywhere")
   const laterRoutes = [await post(`/api/claims/${W.claimId}/closures`, {}), await post(`/api/claims/${W.claimId}/payments`, {}), await post(`/api/claims/${W.claimId}/remittances`, {}), await post(`/api/claims/${W.claimId}/exceptions`, {}), await post(deltaPath(W.claimId), {})]
-  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|delta|receivable|ledger|balance|payment)'`).map((row) => row.t)
+  // Later phases' tables: those created by migrations committed after this package's own merge (none on its own
+  // branch, so this boundary is unchanged there). Every table that existed when the package merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|delta|receivable|ledger|balance|payment)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const moneyIdentifier = /\bDecimal\b|[Aa]mount|\b[Cc]urrency|[a-z]Currency|toFixed\(|[Ss]ettle|[Aa]llocat|[Aa]djust|[Rr]eceivable|[Bb]alance|[Ll]edger|[Pp]ayment|[Rr]emittance/
   check(
     'T110',
@@ -1128,7 +1131,7 @@ async function main() {
   check(
     'T120',
     'Historical N/A independently justified',
-    ran && failing.every((id) => id in a77NonApplicable) && unproven.length === 0 && naLines.length === 5 && naLines.every((line) => line.length > 80) && ownerChanged.length === 0,
+    ran && failing.every((id) => id in a77NonApplicable) && unproven.length === 0 && naLines.length === 5 && naLines.every((line) => line.length > 80) && ownOwnerChanged.length === 0,
     unproven.length === 0
       ? `each documented A7.7 failure (${failing.join(', ') || 'none'}) is printed with its reason and fails only for its branch-only cause, proved independently here; A7.7 itself justifies its five A7.6 items (${naLines.length} lines)`
       : `cause not proven for: ${unproven.join(', ')}`,

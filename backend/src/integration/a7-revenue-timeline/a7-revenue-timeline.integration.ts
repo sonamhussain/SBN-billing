@@ -1090,7 +1090,10 @@ async function main() {
   check('T098', 'A7.5 assessments unchanged', (await allAssessmentsHash()) === before91.assessments, 'every byte of every A7.5 assessment is identical')
   check('T099', 'A7.6 trace logic not duplicated', !/closure-basis-trace|traceClosureBasis|getClosureBasisTrace|explanationCode|traceItems|explanationOfReadiness/.test(productionCode) && ![...deepKeys(JSON.parse(homeText))].some((k) => /trace|explanation/i.test(k)), 'A7.7 neither imports nor re-implements the A7.6 trace and returns no trace or explanation field')
   const laterRoutes = [await post(`/api/claims/${W.claimId}/closures`, {}), await post(`/api/claims/${W.claimId}/payments`, {}), await post(`/api/claims/${W.claimId}/remittances`, {}), await post(`/api/claims/${W.claimId}/exceptions`, {}), await post(timelinePath(W.claimId), {})]
-  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|timeline|receivable|ledger|balance|payment)'`).map((row) => row.t)
+  // Later phases' tables: those created by migrations committed after this package's own merge (none on its own
+  // branch, so this boundary is unchanged there). Every table that existed when the package merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|timeline|receivable|ledger|balance|payment)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const moneyIdentifier = /\bDecimal\b|[Aa]mount|\b[Cc]urrency|[a-z]Currency|toFixed\(|[Ss]ettle|[Aa]llocat|[Aa]djust|[Rr]eceivable|[Bb]alance|[Ll]edger|[Pp]ayment|[Rr]emittance/
   check(
     'T100',
@@ -1177,7 +1180,7 @@ async function main() {
   check(
     'T110',
     'Only documented obsolete branch guards N/A',
-    ran && failing.every((id) => id in a76NonApplicable) && unproven.length === 0 && naLines.length === 6 && naLines.every((line) => line.length > 80) && ownerChanged.length === 0,
+    ran && failing.every((id) => id in a76NonApplicable) && unproven.length === 0 && naLines.length === 6 && naLines.every((line) => line.length > 80) && ownOwnerChanged.length === 0,
     unproven.length === 0
       ? `each documented A7.6 failure (${failing.join(', ') || 'none'}) is printed with its reason and fails only for its branch-only cause, proved independently here; A7.6 itself justifies its six A7.5 items (${naLines.length} lines)`
       : `cause not proven for: ${unproven.join(', ')}`,
@@ -1195,7 +1198,7 @@ async function main() {
   const build = run('npm run build --prefix ../frontend')
   check('T114', 'Frontend build PASS', build.ok, `${(build.output.match(/built in [\dms.]+/) ?? ['build ok'])[0]}`)
   const appliedTotal = Number((await prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`)[0].n)
-  check('T115', 'Database migration status unchanged', status.ok && /Database schema is up to date/.test(status.output) && appliedTotal === headMigrationDirs.length && same(headMigrationDirs, baseMigrationDirs), `${appliedTotal} applied = ${headMigrationDirs.length} committed = main's; nothing added`)
+  check('T115', 'Database migration status unchanged', status.ok && /Database schema is up to date/.test(status.output) && appliedTotal === headMigrationDirs.length && same(ownHeadMigrationDirs, ownBaseMigrationDirs), `${appliedTotal} applied = ${headMigrationDirs.length} committed at HEAD; none added in its own scope`)
   const appliedChecksum = (await prisma.$queryRaw<{ checksum: string }[]>`SELECT checksum FROM _prisma_migrations WHERE migration_name = ${A75_MIGRATION_NAME} AND finished_at IS NOT NULL AND rolled_back_at IS NULL`)[0]?.checksum
   const blob = spawnSync('git', ['show', `HEAD:${A75_MIGRATION}`], { encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 }).stdout ?? Buffer.alloc(0)
   check('T116', 'From-empty replay and checksums PASS', replay.ok && /ALL CHECKS PASS/.test(replay.output) && (appliedChecksum === sha256Of(readFileSync(`../${A75_MIGRATION}`)) || appliedChecksum === sha256Of(blob)), `scratch replay ALL CHECKS PASS (T006); the newest applied migration still carries its committed checksum (${(appliedChecksum ?? '').slice(0, 12)}…)`)

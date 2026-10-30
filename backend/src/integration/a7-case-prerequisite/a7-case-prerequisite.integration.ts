@@ -435,14 +435,21 @@ async function main() {
     constantOf('backend/src/modules/evidence-gate/evidence-gate.types.ts', 'READINESS_CONTRACT_VERSION'),
     constantOf('backend/src/modules/evidence-case/evidence-case.types.ts', 'CASE_CONTRACT_VERSION'),
   ]
+  // A7.5's own scope for T009: on its own branch, its diff against main; on any later branch, exactly what its own
+  // merge added, judged by the same rules. A later package's changes (A8.1's, a later harness correction's) are
+  // that package's to prove.
+  const ownMerge = branch === a75Branch ? '' : mergeOf(a75Branch)
+  const ownRange = ownMerge ? `${ownMerge}^1..${ownMerge}` : 'origin/main...HEAD'
+  const ownChangedPaths = gitArgs(['diff', '--name-only', ownRange]).split(/\r?\n/).filter(Boolean)
   const ownerChanged = changedPaths.filter((file) => OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file))
+  const ownOwnerChanged = ownChangedPaths.filter((file) => OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file))
   check(
     'T009',
     'All prior contracts and owner code preserved',
-    same(contracts, ['A6-CLAIM-1', 'A6-SUBMISSION-1', 'A6-LIFECYCLE-1', 'A6-CORRECTION-1', 'A7-REVENUE-SOURCE-1', 'A7-EVIDENCE-CLASS-1', 'A7-ADJ-READINESS-1', CASE_CONTRACT]) && ownerChanged.length === 0,
-    ownerChanged.length === 0
+    same(contracts, ['A6-CLAIM-1', 'A6-SUBMISSION-1', 'A6-LIFECYCLE-1', 'A6-CORRECTION-1', 'A7-REVENUE-SOURCE-1', 'A7-EVIDENCE-CLASS-1', 'A7-ADJ-READINESS-1', CASE_CONTRACT]) && ownOwnerChanged.length === 0,
+    ownOwnerChanged.length === 0
       ? 'A6-CLAIM-1 … A6-CORRECTION-1, A7-REVENUE-SOURCE-1, A7-EVIDENCE-CLASS-1, A7-ADJ-READINESS-1 and A7-REVENUE-CASE-1 unchanged; no A5/A6/A7.1–A7.4 owner module, page or suite changed (the A7.4 exact case read is consumed unchanged)'
-      : `changed: ${ownerChanged.join(', ').slice(0, 200)}`,
+      : `changed: ${ownOwnerChanged.join(', ').slice(0, 200)}`,
   )
 
   // ---------------------------------------------------------------- fixtures
@@ -1544,7 +1551,7 @@ async function main() {
   check(
     'T120',
     'All nested substantive checks PASS',
-    ran && a74Substantive.length === 0 && unproven.length === 0 && ownerChanged.length === 0,
+    ran && a74Substantive.length === 0 && unproven.length === 0 && ownOwnerChanged.length === 0,
     unproven.length === 0
       ? `every substantive check of A7.4 and of every package it nests PASSES; each documented A7.4 failure (${failing.filter((id) => id in a74NonApplicable).join(', ') || 'none'}) fails only for its branch-only reason, proved independently; no owner file changed`
       : `cause not proven for: ${unproven.join(', ')}`,

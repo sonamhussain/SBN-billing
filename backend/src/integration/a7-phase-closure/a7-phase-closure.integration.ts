@@ -1090,7 +1090,10 @@ async function main() {
 
   // ---------------------------------------------------------------- phase boundaries (T091–T100)
   section('Clear phase boundaries: no payer submission, adjudication, remittance, patient responsibility, receivable, adjustment, ledger, A8 or A9 functionality')
-  const tableNames = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public'`).map((r) => r.t)
+  // Later phases' tables: those created by migrations committed after this package's own merge (none on its own
+  // branch, so this boundary is unchanged there). Every table that existed when the package merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const tableNames = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public'`).map((r) => r.t).filter((t) => !laterPhaseTables.has(t))
   const tablesLike = (re: RegExp) => tableNames.filter((t) => re.test(t))
   const a7Code = committedProductionCodeOf(A7_MODULE_DIRS).code
   // Identifiers only: messages and other string literals may name what a module refuses to do.
@@ -1112,11 +1115,11 @@ async function main() {
   const oneLifecycle = (await get(`/api/claim-submissions/${One.freezes[0]}/lifecycle`)).body
   const oneAfter = await readAll(One.claimId)
   check('T098', 'A6.8 internal release not payer release', oneLifecycle?.state === 'RELEASE_ELIGIBLE' && same(stableAll(oneAfter), oneBefore) && ![...deepKeys(stableAll(oneAfter))].some((k) => /disposition|lifecycle|release|status|sent/i.test(k)), "after an internal AUTHORIZE_RELEASE (RELEASE_ELIGIBLE) One's timeline, delta and continuity are byte-identical and carry no release, send or status")
-  // The A7 phase's own files: its modules, pages, suites and records. Later phases (A8, A9) own and prove theirs.
-  const a7Owned = (f: string) => A7_MODULE_DIRS.some((d) => f.startsWith(`${d}/`)) || A7_MODULES.some((m) => f.startsWith(`frontend/src/modules/${m}/`)) || /^backend\/src\/integration\/a7-/.test(f) || /^docs\/A7_/.test(f)
-  const tracked = git('ls-tree -r --name-only --full-tree HEAD').split(/\r?\n/).filter(a7Owned)
-  check('T099', 'No A8 exception workflow added', tracked.filter((f) => /exception|work-?queue|integration\/a8/i.test(f) && !/error/i.test(f)).length === 0 && tablesLike(/exception|work_queue|task_assign/).length === 0 && (await routeStatus('POST', `/api/claims/${C.claimId}/exceptions`)) === 404, 'no exception, work-queue or A8 file in the A7 phase, no such table, and no exception route')
-  check('T100', 'No A9 external adapter added', tracked.filter((f) => /dhpo|eclaimlink|x12|hl7|payer-adapter|integration\/a9/i.test(f)).length === 0 && !/soap|xml2js|x12|hl7/i.test(a7Identifiers), 'no DHPO, eClaimLink, X12, HL7 or payer adapter file in the A7 phase, and no A7 module speaks an exchange format')
+  // The A7 phase's files: on A7.10's own branch, its tree; on any later branch, the tree its merge closed. Files a later
+  // phase adds are that phase's to prove; every A7-era file is judged as before.
+  const tracked = git(`ls-tree -r --name-only --full-tree ${ownMerge || 'HEAD'}`).split(/\r?\n/)
+  check('T099', 'No A8 exception workflow added', tracked.filter((f) => /exception|work-?queue|integration\/a8/i.test(f) && !/error/i.test(f)).length === 0 && tablesLike(/exception|work_queue|task_assign/).length === 0 && (await routeStatus('POST', `/api/claims/${C.claimId}/exceptions`)) === 404, 'no exception, work-queue or A8 module, table or route')
+  check('T100', 'No A9 external adapter added', tracked.filter((f) => /dhpo|eclaimlink|x12|hl7|payer-adapter|integration\/a9/i.test(f)).length === 0 && !/soap|xml2js|x12|hl7/i.test(a7Identifiers), 'no DHPO, eClaimLink, X12, HL7 or payer adapter file, and no A7 module speaks an exchange format')
 
   const goldenBefore = { ...stableAll(await readAll(C.claimId)), trace: stable((await traceOf(ASSESS1.assessmentId)).body) }
 

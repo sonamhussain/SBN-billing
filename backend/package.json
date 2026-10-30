@@ -84,6 +84,7 @@
     "test:a7:revenue-delta": "node --env-file=.env src/integration/a7-revenue-delta/a7-revenue-delta.integration.ts",
     "test:a7:revenue-continuity": "node --env-file=.env src/integration/a7-revenue-continuity/a7-revenue-continuity.integration.ts",
     "test:a7:phase-closure": "node --env-file=.env src/integration/a7-phase-closure/a7-phase-closure.integration.ts",
+    "test:harness-corrections": "node --env-file=.env src/integration/harness-corrections/harness-corrections.integration.ts",
     "test:a8:exception-intake": "node --env-file=.env src/integration/a8-exception-intake/a8-exception-intake.integration.ts"
   },
   "keywords": [],

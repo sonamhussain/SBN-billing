@@ -432,23 +432,34 @@ async function main() {
     return start >= 0 && end > start ? { start: start + 1, end: end + 1 } : null
   }
   const a72Blocks = (text: string) => [blockOf(text, 'const truncateTrigger = ', 'database backstop and atomicity (T061–T070)'), blockOf(text, 'const later = [await post(', "check('T105'")]
-  const a72HarnessDiff = gitArgs(['diff', '-U0', 'origin/main...HEAD', '--', `:/${A72_HARNESS}`])
+  // A7.3's own scope for T009: on its own branch, its diff against main; on any later branch, exactly what its own
+  // merge added, judged by the same rules. A later package's changes (A8.1's, a later harness correction's) are
+  // that package's to prove.
+  const ownMerge = branch === a73Branch ? '' : mergeOf(a73Branch)
+  const ownRange = ownMerge ? `${ownMerge}^1..${ownMerge}` : 'origin/main...HEAD'
+  const ownBase = ownMerge ? gitArgs(['rev-parse', `${ownMerge}^1`]) : 'origin/main'
+  const ownTip = ownMerge || 'HEAD'
+  const ownChangedPaths = gitArgs(['diff', '--name-only', ownRange]).split(/\r?\n/).filter(Boolean)
+  const a72HarnessDiff = gitArgs(['diff', '-U0', ownRange, '--', `:/${A72_HARNESS}`])
   const a72Hunks = [...a72HarnessDiff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)].map((m) => ({ oldStart: Number(m[1]), oldCount: Number(m[2] ?? 1), newStart: Number(m[3]), newCount: Number(m[4] ?? 1) }))
-  const oldBlocks = a72Blocks(gitArgs(['show', `origin/main:${A72_HARNESS}`]))
-  const newBlocks = a72Blocks(committedText(A72_HARNESS))
+  const oldBlocks = a72Blocks(gitArgs(['show', `${ownBase}:${A72_HARNESS}`]))
+  const newBlocks = a72Blocks(gitArgs(['show', `${ownTip}:${A72_HARNESS}`]))
   const insideBlocks = (start: number, count: number, blocks: ({ start: number; end: number } | null)[]) =>
     count === 0 || blocks.some((block) => block !== null && start >= block.start && start + count - 1 <= block.end)
   const a72HarnessOnlyFixes = a72Hunks.length > 0 && a72Hunks.every((hunk) => insideBlocks(hunk.oldStart, hunk.oldCount, oldBlocks) && insideBlocks(hunk.newStart, hunk.newCount, newBlocks))
   const ownerChanged = changedPaths.filter(
     (file) => !(file === A72_HARNESS && a72HarnessOnlyFixes) && (OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file)),
   )
+  const ownOwnerChanged = ownChangedPaths.filter(
+    (file) => !(file === A72_HARNESS && a72HarnessOnlyFixes) && (OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)) || /^frontend\/src\/modules\/(claim|pre-claim|validation)/.test(file) || /^backend\/src\/integration\/a[1-6]/.test(file)),
+  )
   check(
     'T009',
     'Upstream ownership preserved',
-    same(contracts, ['A6-CLAIM-1', 'A6-SUBMISSION-1', 'A6-EVIDENCE-1', 'A6-LIFECYCLE-1', 'A6-CORRECTION-1', SOURCE_CONTRACT, CLASS_CONTRACT]) && ownerChanged.length === 0,
-    ownerChanged.length === 0
+    same(contracts, ['A6-CLAIM-1', 'A6-SUBMISSION-1', 'A6-EVIDENCE-1', 'A6-LIFECYCLE-1', 'A6-CORRECTION-1', SOURCE_CONTRACT, CLASS_CONTRACT]) && ownOwnerChanged.length === 0,
+    ownOwnerChanged.length === 0
       ? `A6-CLAIM-1 … A6-CORRECTION-1, A7-REVENUE-SOURCE-1 and A7-EVIDENCE-CLASS-1 unchanged; no A5/A6/A7.1/A7.2 owner module or page changed${changedPaths.includes(A72_HARNESS) ? `; the A7.2 suite changed only inside its T060 and T105 blocks (${a72Hunks.length} hunk(s))` : ''}`
-      : `changed: ${ownerChanged.join(', ').slice(0, 200)}`,
+      : `changed: ${ownOwnerChanged.join(', ').slice(0, 200)}`,
   )
 
   // ---------------------------------------------------------------- fixtures
