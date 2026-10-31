@@ -96,6 +96,7 @@ import { basisTraceRouter } from './modules/closure-basis-trace/closure-basis-tr
 import { timelineRouter } from './modules/revenue-timeline/revenue-timeline.route.ts'
 import { deltaRouter } from './modules/revenue-delta/revenue-delta.route.ts'
 import { continuityRouter } from './modules/revenue-continuity/revenue-continuity.route.ts'
+import { exceptionIntakeRouter } from './modules/exception-intake/exception-intake.route.ts'
 
 export const app = express()
 
@@ -397,6 +398,10 @@ app.use('/api/claims', deltaRouter)
 // A7.9 - the read-only revenue evidence continuity of one Claim (GET only). No write, no audit, no latest or current
 // selector, no all-organization search, and no payment, remittance, balance, closure or payer-response route.
 app.use('/api/claims', continuityRouter)
+
+// A8.1 - immutable exception intakes of one Claim (record one owner-established exception, read the Claim's
+// intakes). No PATCH, PUT or DELETE, and no assignment, status, resolution, closure, transport or export route.
+app.use('/api/claims', exceptionIntakeRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

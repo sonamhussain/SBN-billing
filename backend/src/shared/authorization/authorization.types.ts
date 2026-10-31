@@ -251,6 +251,10 @@ export const permissionCodes = [
   // reconciles or closes anything, or changes a case, readiness result, classification, source or freeze.
   'evidenceCasePrereq.create',
   'evidenceCasePrereq.read',
+  // A8.1 - recording one owner-established exception intake for an exact source of one Claim (Admin), and reading a
+  // Claim's intakes (Admin, Viewer). Neither assigns, resolves, closes, pays or denies anything, or changes a source.
+  'exceptionIntake.create',
+  'exceptionIntake.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

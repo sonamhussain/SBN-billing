@@ -37,6 +37,7 @@ model Organization {
   evidenceGateResults EvidenceGateResult[]
   evidenceCaseSnapshots EvidenceCaseSnapshot[]
   evidencePrereqResults EvidencePrereqResult[]
+  exceptionIntakeRecords ExceptionIntakeRecord[]
 
   @@map("organizations")
 }
@@ -1084,6 +1085,7 @@ model User {
   evidenceGateResultsRecorded EvidenceGateResult[] @relation("EvidenceGateResultRecordedBy")
   evidenceCaseSnapshotsRecorded EvidenceCaseSnapshot[] @relation("EvidenceCaseSnapshotRecordedBy")
   evidencePrereqResultsRecorded EvidencePrereqResult[] @relation("EvidencePrereqResultRecordedBy")
+  exceptionIntakeRecordsRecorded ExceptionIntakeRecord[] @relation("ExceptionIntakeRecordRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1860,6 +1862,7 @@ model Claim {
   reviewDecisions             ClaimReviewEvent[]
   freezes                     ClaimFreeze[]
   correctionLinks             ClaimCorrectionLink[]
+  exceptionIntakeRecords      ExceptionIntakeRecord[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -2438,4 +2441,34 @@ model EvidencePrereqResult {
   @@index([organizationId])
   @@index([recordedByUserId])
   @@map("evidence_prereq_results")
+}
+
+// A8.1 — immutable exception intake records (A8-EXCEPTION-INTAKE-1): one verified operational exception against one
+// exact source record of an accepted owner, established by that owner. Append-only; never a status or a resolution.
+model ExceptionIntakeRecord {
+  id                      String   @id @default(uuid()) @db.Uuid
+  organizationId          String   @map("organization_id") @db.Uuid
+  claimId                 String   @map("claim_id") @db.Uuid
+  contractVersion         String   @map("contract_version") @db.Text
+  sourceKind              String   @map("source_kind") @db.Text
+  sourceRecordId          String   @map("source_record_id") @db.Uuid
+  sourceContractVersion   String   @map("source_contract_version") @db.Text
+  sourceFingerprintSha256 String?  @map("source_fingerprint_sha256") @db.Char(64)
+  exceptionReasonCode     String   @map("exception_reason_code") @db.Text
+  basisCode               String   @map("basis_code") @db.Text
+  basisRecordId           String   @map("basis_record_id") @db.Uuid
+  identityKey             String   @map("identity_key") @db.Char(64)
+  recordedByUserId        String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt              DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claim        Claim        @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  recordedBy   User         @relation("ExceptionIntakeRecordRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([identityKey], map: "exception_intake_records_identity_key")
+  @@index([claimId, recordedAt, id])
+  @@index([organizationId])
+  @@index([recordedByUserId])
+  @@map("exception_intake_records")
 }

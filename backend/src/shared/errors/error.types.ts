@@ -151,6 +151,12 @@ export const apiErrorCodes = [
   // A7.9: the Claim's timeline or delta is corrupt, or the two do not describe the same history (contracts, Claim,
   // freezes, pairs, links, cases or assessments), so no continuity result was reconciled; nothing was written.
   'REVENUE_CONTINUITY_PROVENANCE_CONFLICT',
+  // A8.1: the source's own owner does not establish the requested exception reason for that exact record; nothing
+  // was recorded. A caller's assertion alone never establishes an exception.
+  'INTAKE_BASIS_NOT_ESTABLISHED',
+  // A8.1: the intake could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
+  // refusal or an unknown commit outcome); nothing was recorded, or the recorded intake must be re-read.
+  'EXCEPTION_INTAKE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]
