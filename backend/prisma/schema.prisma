@@ -38,6 +38,7 @@ model Organization {
   evidenceCaseSnapshots EvidenceCaseSnapshot[]
   evidencePrereqResults EvidencePrereqResult[]
   exceptionIntakeRecords ExceptionIntakeRecord[]
+  exceptionTriageEvents  ExceptionTriageEvent[]
 
   @@map("organizations")
 }
@@ -1086,6 +1087,7 @@ model User {
   evidenceCaseSnapshotsRecorded EvidenceCaseSnapshot[] @relation("EvidenceCaseSnapshotRecordedBy")
   evidencePrereqResultsRecorded EvidencePrereqResult[] @relation("EvidencePrereqResultRecordedBy")
   exceptionIntakeRecordsRecorded ExceptionIntakeRecord[] @relation("ExceptionIntakeRecordRecordedBy")
+  exceptionTriageEventsRecorded  ExceptionTriageEvent[]  @relation("ExceptionTriageEventRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1150,6 +1152,7 @@ model OrganizationMembership {
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   user         User             @relation(fields: [userId], references: [id], onDelete: Restrict)
   roles        MembershipRole[]
+  assignedTriageEvents ExceptionTriageEvent[] @relation("ExceptionTriageEventAssignedMember")
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -1863,6 +1866,7 @@ model Claim {
   freezes                     ClaimFreeze[]
   correctionLinks             ClaimCorrectionLink[]
   exceptionIntakeRecords      ExceptionIntakeRecord[]
+  exceptionTriageEvents       ExceptionTriageEvent[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -2465,10 +2469,44 @@ model ExceptionIntakeRecord {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   claim        Claim        @relation(fields: [claimId], references: [id], onDelete: Restrict)
   recordedBy   User         @relation("ExceptionIntakeRecordRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  triageEvents ExceptionTriageEvent[]
 
   @@unique([identityKey], map: "exception_intake_records_identity_key")
   @@index([claimId, recordedAt, id])
   @@index([organizationId])
   @@index([recordedByUserId])
   @@map("exception_intake_records")
+}
+
+// A8.2 — the append-only triage and assignment history of one A8.1 exception intake (A8-EXCEPTION-TRIAGE-1), numbered
+// 1..N by the server. The current disposition is derived from these rows on every read and never stored; there is no
+// status, current/latest pointer, SLA, resolution, amount, narrative or payload column.
+model ExceptionTriageEvent {
+  id                String   @id @default(uuid()) @db.Uuid
+  exceptionIntakeId String   @map("exception_intake_id") @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  claimId           String   @map("claim_id") @db.Uuid
+  contractVersion   String   @map("contract_version") @db.Text
+  sequence          Int
+  eventCode         String   @map("event_code") @db.Text
+  categoryCode      String?  @map("category_code") @db.Text
+  priorityCode      String?  @map("priority_code") @db.Text
+  assignedMemberId  String?  @map("assigned_member_id") @db.Uuid
+  reasonCode        String?  @map("reason_code") @db.Text
+  recordedByUserId  String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt        DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  exceptionIntake ExceptionIntakeRecord   @relation(fields: [exceptionIntakeId], references: [id], onDelete: Restrict)
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claim           Claim                   @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  assignedMember  OrganizationMembership? @relation("ExceptionTriageEventAssignedMember", fields: [assignedMemberId], references: [id], onDelete: Restrict)
+  recordedBy      User                    @relation("ExceptionTriageEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([exceptionIntakeId, sequence], map: "exception_triage_events_sequence_key")
+  @@index([organizationId])
+  @@index([claimId])
+  @@index([assignedMemberId])
+  @@index([recordedByUserId])
+  @@map("exception_triage_events")
 }

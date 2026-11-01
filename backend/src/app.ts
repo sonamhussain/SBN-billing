@@ -97,6 +97,7 @@ import { timelineRouter } from './modules/revenue-timeline/revenue-timeline.rout
 import { deltaRouter } from './modules/revenue-delta/revenue-delta.route.ts'
 import { continuityRouter } from './modules/revenue-continuity/revenue-continuity.route.ts'
 import { exceptionIntakeRouter } from './modules/exception-intake/exception-intake.route.ts'
+import { exceptionTriageRouter } from './modules/exception-triage/exception-triage.route.ts'
 
 export const app = express()
 
@@ -402,6 +403,10 @@ app.use('/api/claims', continuityRouter)
 // A8.1 - immutable exception intakes of one Claim (record one owner-established exception, read the Claim's
 // intakes). No PATCH, PUT or DELETE, and no assignment, status, resolution, closure, transport or export route.
 app.use('/api/claims', exceptionIntakeRouter)
+
+// A8.2 - the append-only triage and assignment history of one exception intake (record one event, read the history and
+// the derived disposition). No PUT, PATCH or DELETE, and no investigation, resolution, SLA, escalation or export route.
+app.use('/api/claims', exceptionTriageRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
