@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
 import { Client } from 'pg'
 
 // Audit F12 / C34 — a fresh empty-chain deployment is not the same thing as an intermediate
@@ -1371,8 +1372,12 @@ async function main() {
       ['UNLINKED_FROZEN_SUBMISSION', 'ASSESSMENT_CASE_ORGANIZATION_MISMATCH', 'ASSESSMENT_CASE_DIGEST_MISMATCH', 'ASSESSMENT_REVIEW_REQUIRED'].every((code) => intakeBasis.includes(`'${code}'`)) && /IS NOT NULL/i.test(intakeBasis),
       intakeBasis.slice(0, 200),
     )
-    const intakeTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /exception|intake/.test(table)))].sort()
-    check('the A8.1 tables are exactly exception_intake_records after a clean replay', JSON.stringify(intakeTables) === JSON.stringify(['exception_intake_records']), intakeTables.join(', '))
+    // The tables the A8.1 migration itself creates, read from its committed file (never by a name pattern, so a later
+    // phase's table is never counted as A8.1's), and each must exist after the clean replay.
+    const a81Created = [...readFileSync(new URL('../../prisma/migrations/20261028090000_a8_1_exception_intake/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    const replayedTables = new Set(replay.columns.map((line) => line.split('.')[0]))
+    const intakeTables = a81Created.filter((table) => replayedTables.has(table))
+    check('the A8.1 tables are exactly exception_intake_records after a clean replay', JSON.stringify(a81Created) === JSON.stringify(['exception_intake_records']) && JSON.stringify(intakeTables) === JSON.stringify(a81Created), intakeTables.join(', '))
 
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be

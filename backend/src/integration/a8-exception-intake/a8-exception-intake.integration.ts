@@ -258,11 +258,22 @@ async function main() {
   const migrationDirsAt = (ref: string) => git(`ls-tree -d --name-only --full-tree ${ref} backend/prisma/migrations/`).split(/\r?\n/).filter((line) => /\/\d{14}_/.test(line))
   const headMigrationDirs = migrationDirsAt('HEAD')
   const baseMigrationDirs = migrationDirsAt('origin/main')
+  // A8.1's own scope: on its own branch, its diff against main; on any later branch, exactly what its own merge added.
+  // A later package's changes are that package's to prove, so the scope checks below (one migration, the permission
+  // catalogue, earlier contracts) always judge THIS package.
+  const ownMerge = branch === a81Branch ? '' : mergeOf(a81Branch)
+  const ownRange = ownMerge ? `${ownMerge}^1..${ownMerge}` : 'origin/main...HEAD'
+  const ownBase = ownMerge ? gitArgs(['rev-parse', `${ownMerge}^1`]) : 'origin/main'
+  const ownTip = ownMerge || 'HEAD'
+  const ownChangedPaths = gitArgs(['diff', '--name-only', ownRange]).split(/\r?\n/).filter(Boolean)
+  const ownPrismaStatus = gitArgs(['diff', '--name-status', ownRange, '--', ':/backend/prisma']).split(/\r?\n/).filter(Boolean)
+  const ownHeadMigrationDirs = ownMerge ? migrationDirsAt(ownMerge) : headMigrationDirs
+  const ownBaseMigrationDirs = ownMerge ? migrationDirsAt(ownBase) : baseMigrationDirs
   check(
     'T004',
     'One A8.1 additive migration only',
-    same(prismaStatus, [`A\t${MIGRATION}`, 'M\tbackend/prisma/schema.prisma']) && headMigrationDirs.length === baseMigrationDirs.length + 1 && baseMigrationDirs.every((dir) => headMigrationDirs.includes(dir)) && headMigrationDirs[headMigrationDirs.length - 1].endsWith(MIGRATION_NAME),
-    `exactly one migration added (${MIGRATION_NAME}, the newest) and the schema extended; all ${baseMigrationDirs.length} applied migrations untouched`,
+    same(ownPrismaStatus, [`A\t${MIGRATION}`, 'M\tbackend/prisma/schema.prisma']) && ownHeadMigrationDirs.length === ownBaseMigrationDirs.length + 1 && ownBaseMigrationDirs.every((dir) => ownHeadMigrationDirs.includes(dir)) && ownHeadMigrationDirs[ownHeadMigrationDirs.length - 1].endsWith(MIGRATION_NAME),
+    `exactly one migration added (${MIGRATION_NAME}, the newest in its own scope) and the schema extended; all ${ownBaseMigrationDirs.length} applied migrations before it untouched`,
   )
   const validate = run('npm run db:validate')
   const generate = run('npm run db:generate')
@@ -277,8 +288,10 @@ async function main() {
     `${appliedCount} migrations applied cleanly from empty in the scratch database — exactly the ${headMigrationDirs.length} committed at HEAD; every A8.1 CHECK, index, trigger and foreign key survives`,
   )
   const catalogueAt = (ref: string) => [...gitArgs(['show', `${ref}:backend/src/shared/authorization/authorization.types.ts`]).matchAll(/^\s+'([A-Za-z_]+\.[A-Za-z_]+)',/gm)].map((m) => m[1])
-  const catalogueHead = catalogueAt('HEAD')
-  const catalogueMain = catalogueAt('origin/main')
+  const catalogueHead = catalogueAt(ownTip)
+  const catalogueMain = catalogueAt(ownBase)
+  // Permissions a later phase added to the catalogue after A8.1's own merge are that phase's (none on A8.1's branch).
+  const laterPermissions = ownMerge ? catalogueAt('HEAD').filter((c) => !catalogueHead.includes(c)) : []
   const allCodes = (await prisma.permission.findMany({ select: { code: true } })).map((row) => row.code)
   const grantsOf = async (code: string) => (await prisma.rolePermission.findMany({ where: { permission: { code } }, select: { role: { select: { code: true } } } })).map((g) => g.role.code).sort().join(',')
   check(
@@ -286,7 +299,7 @@ async function main() {
     'Narrow permission catalogue and grants',
     same(catalogueHead.filter((c) => !catalogueMain.includes(c)), ['exceptionIntake.create', 'exceptionIntake.read']) && catalogueMain.every((c) => catalogueHead.includes(c)) &&
       same(allCodes.filter((c) => /^exceptionIntake\./.test(c)).sort(), ['exceptionIntake.create', 'exceptionIntake.read']) && (await grantsOf('exceptionIntake.create')) === 'ORG_ADMIN' && (await grantsOf('exceptionIntake.read')) === 'ORG_ADMIN,ORG_VIEWER' &&
-      !allCodes.some((c) => /exception/i.test(c) && !/^exceptionIntake\.(create|read)$/.test(c)),
+      !allCodes.some((c) => /exception/i.test(c) && !/^exceptionIntake\.(create|read)$/.test(c) && !laterPermissions.includes(c)),
     'the catalogue adds exactly exceptionIntake.create (Admin) and exceptionIntake.read (Admin, Viewer); no permission removed; no assign, resolve, close or export permission exists',
   )
 
@@ -358,11 +371,11 @@ async function main() {
   const constantAt = (ref: string, path: string, name: string) => (gitArgs(['show', `${ref}:${path}`]).match(new RegExp(`export const ${name} = '([^']+)'`)) ?? [])[1] ?? 'ABSENT'
   const contractsHead = contractFiles.map(([p, n]) => constantAt('HEAD', p, n))
   const contractsMain = contractFiles.map(([p, n]) => constantAt('origin/main', p, n))
-  const productDiff = changedPaths.filter((p) => /^backend\/src\/modules\//.test(p) && !p.startsWith(`${MODULE_DIR}/`) && p !== 'backend/src/modules/audit/audit.types.ts')
+  const productDiff = ownChangedPaths.filter((p) => /^backend\/src\/modules\//.test(p) && !p.startsWith(`${MODULE_DIR}/`) && p !== 'backend/src/modules/audit/audit.types.ts')
   check(
     'T009',
     'Earlier contracts and migrations unchanged',
-    same(contractsHead, contractsMain) && !contractsHead.includes('ABSENT') && productDiff.length === 0 && prismaStatus.every((s) => !/^M\tbackend\/prisma\/migrations\//.test(s)),
+    same(contractsHead, contractsMain) && !contractsHead.includes('ABSENT') && productDiff.length === 0 && ownPrismaStatus.every((s) => !/^M\tbackend\/prisma\/migrations\//.test(s)),
     `${contractsHead.filter((c) => c !== 'ABSENT').length} earlier owner contracts identical to main (${contractsHead.slice(-4).join(', ')}, …); no earlier module's code and no applied migration changed`,
   )
   const outOfScope = changedPaths.filter((file) => !file.startsWith(`${MODULE_DIR}/`) && !file.startsWith(`${FE_DIR}/`) && !file.startsWith(`${HARNESS_DIR}/`) && !ALLOWED.includes(file))
@@ -852,7 +865,13 @@ async function main() {
   check('T049', 'UPDATE even no-op refused', !noopUpdate.message.includes(NOT_COMMITTED) && /append-only/.test(noopUpdate.message) && noopUpdate.clean, 'even a no-op UPDATE of E1 is refused (append-only)')
   const deletion = await rolledBack((tx) => tx.$executeRawUnsafe(`DELETE FROM ${TABLE} WHERE id = $1::uuid`, E1.exceptionIntakeId))
   const truncation = await rolledBack((tx) => tx.$executeRawUnsafe(`TRUNCATE ${TABLE}`))
-  check('T050', 'DELETE refused', /append-only/.test(deletion.message) && /append-only/.test(truncation.message) && deletion.clean && truncation.clean, 'DELETE and TRUNCATE of intakes are refused')
+  const cascadeTruncation = await rolledBack((tx) => tx.$executeRawUnsafe(`TRUNCATE ${TABLE} CASCADE`))
+  // A later owner's ON DELETE RESTRICT key into this table makes PostgreSQL refuse a plain TRUNCATE before any trigger
+  // runs; TRUNCATE ... CASCADE still reaches this guard. Judged on behaviour, as A7.3 T060 is: every wipe is refused by
+  // the guard or by a RESTRICT key, and nothing changed.
+  const referencedBy = await prisma.$queryRawUnsafe<{ t: string; del: string }[]>(`SELECT conrelid::regclass::text AS t, confdeltype::text AS del FROM pg_constraint WHERE contype = 'f' AND confrelid = '${TABLE}'::regclass`)
+  const truncationRefused = /append-only/.test(truncation.message) || (/cannot truncate a table referenced in a foreign key constraint/.test(truncation.message) && referencedBy.length > 0 && referencedBy.every((row) => row.del === 'r'))
+  check('T050', 'DELETE refused', /append-only/.test(deletion.message) && truncationRefused && /append-only/.test(cascadeTruncation.message) && deletion.clean && truncation.clean && cascadeTruncation.clean, 'DELETE and TRUNCATE of intakes are refused')
 
   // ---------------------------------------------------------------- dedupe and historical semantics (T051–T060)
   section('Dedupe and history: 201 then identical 200, no second audit, another reason never overwrites, independent sources, stable order, no status, readable after the source changes')
@@ -1068,7 +1087,10 @@ async function main() {
   // branch adds is judged, and the A8.1 migration must create exactly its one table.
   const mainTables = new Set(migrationDirsAt('origin/main').flatMap((dir) => [...gitArgs(['show', `origin/main:${dir}/migration.sql`]).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])))
   const a81Tables = [...committedText(MIGRATION).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])
-  const newTablesLike = async (pattern: string) => (await prisma.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* $1`, pattern)).map((r) => r.t).filter((t) => !mainTables.has(t))
+  // Later phases' tables: those created by migrations committed after A8.1's own merge (none on its own branch, so this
+  // boundary is unchanged there). Every table that existed when A8.1 merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const newTablesLike = async (pattern: string) => (await prisma.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* $1`, pattern)).map((r) => r.t).filter((t) => !mainTables.has(t) && !laterPhaseTables.has(t))
   const laterTables = await newTablesLike('(assign|work_queue|sla|severity|resolution|export|outbox|transmission|acknowledg|remittance|payment|ledger|receivable|settle|reconcil)')
   const laterRoutes = [await post(`${intakePath(C.claimId)}/${E1.exceptionIntakeId}/assign`, {}), await post(`${intakePath(C.claimId)}/${E1.exceptionIntakeId}/close`, {}), await post(`/api/claims/${C.claimId}/exception-exports`, {}), await post(`/api/claims/${C.claimId}/payments`, {})]
   const moneyOrTransport = /\bDecimal\b|[Aa]mount|\b[Cc]urrency|[a-z]Currency|[Bb]alance|[Ll]edger|[Pp]ayment|[Rr]emittance|from 'node:(http|https|net|tls|dgram)'|\bfetch\(|axios|enqueue|setInterval|worker_threads|cron|[Aa]ssign|[Ss]everity|[Pp]riority|\bsla\b/

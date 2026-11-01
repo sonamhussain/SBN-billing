@@ -85,7 +85,8 @@
     "test:a7:revenue-continuity": "node --env-file=.env src/integration/a7-revenue-continuity/a7-revenue-continuity.integration.ts",
     "test:a7:phase-closure": "node --env-file=.env src/integration/a7-phase-closure/a7-phase-closure.integration.ts",
     "test:harness-corrections": "node --env-file=.env src/integration/harness-corrections/harness-corrections.integration.ts",
-    "test:a8:exception-intake": "node --env-file=.env src/integration/a8-exception-intake/a8-exception-intake.integration.ts"
+    "test:a8:exception-intake": "node --env-file=.env src/integration/a8-exception-intake/a8-exception-intake.integration.ts",
+    "test:harness-corrections:a8": "node --env-file=.env src/integration/harness-corrections-a8/harness-corrections-a8.integration.ts"
   },
   "keywords": [],
   "author": "",

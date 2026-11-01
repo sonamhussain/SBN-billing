@@ -118,3 +118,96 @@ the package's own branch, ancestry, head, changed-file scope or acceptance regis
 - A throwaway local clone of this branch, committed, runs the full chain through `npm run test:harness-corrections`.
 - Two official `npm run test:harness-corrections` runs at one HEAD, each a complete PASS, with their full nested
   outputs.
+
+---
+
+# A8.1 later-phase recognition (before A8.2)
+
+Branch `fix/a8-1-harness-later-phase-recognition`, from `main` at `6033d41` (A8.1 merge). It changes only the A8.1
+suite, the A8.1 check of the migration replay script, this document, and a new acceptance suite with its one
+package script. No product module, migration, schema, permission, audit action, route, frontend page or accepted
+contract changes.
+
+## Why
+
+A8.1 runs nested inside every later acceptance chain, starting with A8.2. Some of its checks compared the
+**current branch** against `main` or scanned the **whole live database** by table name. These are the same patterns
+the first correction fixed in A6.10 and A7.1–A7.10. On the A8.2 branch they would judge A8.2, not A8.1:
+
+- its migration would break T004 "one A8.1 additive migration only";
+- its two permissions would break T007;
+- its module would break T009;
+- its `exception_triage_events` table would break T119 "no A8.2 assignment/status/export table" by name;
+- its RESTRICT foreign key into `exception_intake_records` would make PostgreSQL refuse a plain `TRUNCATE` before
+  A8.1's own guard runs, breaking T050;
+- the replay check "the A8.1 tables are exactly exception_intake_records" would count A8.2's table by its name
+  pattern.
+
+The same two wrong fixes stay rejected: renaming A8.2's table and marking checks N/A. Neither is done.
+
+## Changed predicates
+
+| Check | Before | After | Own branch |
+|---|---|---|---|
+| A8.1 T004 one additive migration | prisma status of `origin/main...HEAD`; HEAD migrations = main's + 1, the newest A8.1's | the same over A8.1's own range: migrations at its merge = those at its merge's first parent + 1, the newest A8.1's | unchanged |
+| A8.1 T007 narrow permission catalogue | catalogue at `HEAD` vs `origin/main` adds exactly `exceptionIntake.create`/`.read`; no other live `exception` permission | the catalogue at A8.1's merge vs its first parent; a live `exception` permission is accepted only if it was added to the catalogue **after** A8.1's merge | unchanged (no later permission) |
+| A8.1 T009 earlier contracts and migrations | module paths and prisma status of `origin/main...HEAD` | the same over A8.1's own range; the contract constants are still compared at `HEAD` | unchanged |
+| A8.1 T050 DELETE refused | DELETE and plain TRUNCATE refused by the append-only guard | DELETE refused by the guard; `TRUNCATE … CASCADE` (which reaches the guard past any foreign key) refused by the guard; plain TRUNCATE refused by the guard **or** by PostgreSQL because every key into the table is `ON DELETE RESTRICT`; nothing changed in any case | the plain TRUNCATE still reaches the guard (no key into the table) and the cascade case is an added refusal |
+| A8.1 T100 and T119 later-phase boundaries | live tables matching the boundary regexes, minus main's tables | the same, minus tables created by migrations committed after A8.1's merge (from git, never by name) | unchanged (empty set) |
+| Replay script, A8.1 tables | live tables whose name matches `exception\|intake` equal `[exception_intake_records]` | the tables the A8.1 migration file itself creates equal `[exception_intake_records]`, and each exists after the clean replay | the PASS text is unchanged, so A8.1 T006 reads it unchanged |
+
+On A8.1's own branch, `ownMerge = ''`, and every own-scope value is literally the original. The values are
+`origin/main...HEAD`, `origin/main`, `HEAD`, the same migration lists and catalogue, and no later-phase table or
+permission. The T050 judgement is by behaviour, like the accepted A7.3 T060: every wipe is still refused and nothing
+changes.
+
+Everything the live database, the API and the replay prove is still checked at the tested HEAD.
+
+## Acceptance of this correction (`npm run test:harness-corrections:a8`)
+
+A8.1 run on any branch but its own always fails its checks about its own branch. So the final gate for this branch is
+`backend/src/integration/harness-corrections-a8`, not A8.1. Every check is executed. Nothing is N/A except the
+nested A8.1 branch-only items, each proved for its cause.
+
+- **H01–H05 scope:**
+  - branch from the main that contains the A8.1 merge;
+  - clean tree and origin parity;
+  - exactly the five changed files;
+  - no module, shared, job, app, server, prisma or frontend change, and the replay script changed only in its A8.1
+    check;
+  - `package.json` differs only by this suite's script;
+  - every contract constant identical to main.
+- **H06–H08 every check kept:**
+  - the A8.1 suite has exactly its 130 check ids and titles from main;
+  - its N/A map and every N/A call are byte-identical;
+  - every changed line is an own-scope definition or use, the behaviour-judged T050 refusal, a comment, or the
+    replay's A8.1 table check.
+- **H09–H12 equivalence and the later-phase rule:**
+  - every own-scope value is defined once from `ownMerge` and is literally the original on A8.1's own branch;
+  - excluded tables come only from migration files committed after A8.1's merge, never from the database;
+  - at this HEAD nothing is excluded;
+  - a prohibited-looking table created outside any migration (rolled back) is never excluded.
+- **H13–H17 full chain:**
+  - A8.1 → A7.10 → … → A1 run once;
+  - every A8.1 substantive check PASSes, including the corrected T004, T006, T007, T009, T050, T100, T119 and T125,
+    the A7.10 → A1 regressions T101–T109, and units, typecheck, lint, build, replay and outage (T121–T129);
+  - each A8.1 branch-only failure is proved for its own cause on this branch.
+- **H18:** exact HEAD equal to origin, clean tree, and the full nested output kept in `backend/hc8-nested-<run>.log`.
+
+A later package proves its own tables. A8.2's own boundary checks judge `exception_triage_events` and forbid any
+other later-domain table, so a table A8.1 excludes is never unjudged.
+
+## What remains branch-only
+
+These checks are unchanged. They are documented as branch-only N/A in a later package's nested chain, where the
+parent proves its own versions:
+
+- A8.1 in a later chain: T001, T002, T010, T110, T130.
+  - T110 fails because it proves A7.10's branch-only causes against the A8.1 branch.
+
+## Proof
+
+- Typecheck clean; `npm run test:a3:scope` passes; `npm run db:verify:replay` ALL CHECKS PASS.
+- A throwaway local clone of this branch, committed, runs the full chain through `npm run test:harness-corrections:a8`.
+- Two official `npm run test:harness-corrections:a8` runs at one HEAD, each a complete PASS, with their full nested
+  outputs.
