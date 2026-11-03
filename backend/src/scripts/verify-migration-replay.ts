@@ -1379,6 +1379,57 @@ async function main() {
     const intakeTables = a81Created.filter((table) => replayedTables.has(table))
     check('the A8.1 tables are exactly exception_intake_records after a clean replay', JSON.stringify(a81Created) === JSON.stringify(['exception_intake_records']) && JSON.stringify(intakeTables) === JSON.stringify(a81Created), intakeTables.join(', '))
 
+    // A8.2 — the append-only, numbered triage history of one A8.1 intake. The contract, a positive sequence, the four
+    // controlled events and each event's exact shape are held by CHECKs, one number per intake by a UNIQUE index; an
+    // insert guard holds database time, the parent's organization and Claim, the acting member, the contiguous
+    // sequence, the legal transition and the assignee's current eligibility; the table is append-only and cannot be
+    // truncated; every key is ON DELETE RESTRICT.
+    for (const trigger of ['exception_triage_events_insert_guard_trg', 'exception_triage_events_append_only_trg', 'exception_triage_events_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'exception_triage_events_pkey',
+      'exception_triage_events_contract_chk',
+      'exception_triage_events_sequence_chk',
+      'exception_triage_events_event_code_chk',
+      'exception_triage_events_shape_chk',
+      'exception_triage_events_exception_intake_id_fkey',
+      'exception_triage_events_organization_id_fkey',
+      'exception_triage_events_claim_id_fkey',
+      'exception_triage_events_assigned_member_id_fkey',
+      'exception_triage_events_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const triageContract = replay.constraints.find((line) => line.includes('exception_triage_events_contract_chk')) ?? ''
+    const triageCodes = replay.constraints.find((line) => line.includes('exception_triage_events_event_code_chk')) ?? ''
+    const triageShape = replay.constraints.find((line) => line.includes('exception_triage_events_shape_chk')) ?? ''
+    check(
+      'the A8.2 CHECKs pin A8-EXCEPTION-TRIAGE-1, exactly the four triage events and their controlled codes, with no investigation, resolution or payment code, after a clean replay',
+      triageContract.includes("'A8-EXCEPTION-TRIAGE-1'") &&
+        ['TRIAGE_CLASSIFY', 'ASSIGN_OWNER', 'REASSIGN_OWNER', 'RETURN_TO_TRIAGE'].every((code) => triageCodes.includes(`'${code}'`)) &&
+        ['PROVENANCE_INTEGRITY', 'SOURCE_REFERENCE', 'CONTRACT_COMPATIBILITY', 'HISTORICAL_COHERENCE', 'HUMAN_REVIEW', 'ROUTINE', 'ELEVATED', 'URGENT', 'ASSIGNEE_UNAVAILABLE', 'ASSIGNMENT_INCORRECT', 'CLASSIFICATION_REVIEW_NEEDED'].every((code) => triageShape.includes(`'${code}'`)) &&
+        /IS NOT NULL/i.test(triageCodes) &&
+        !/'(INVESTIGAT\w*|RESOLVE\w*|CLOSE\w*|ESCALATE\w*|PAID|DENIED|SETTLED)'/.test(`${triageCodes} ${triageShape}`),
+      `${triageContract.slice(0, 100)} | ${triageCodes.slice(0, 160)}`,
+    )
+    check(
+      'one triage event per (intake, sequence) is unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('exception_triage_events_sequence_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id, sequence\)/.test(line)),
+    )
+    const triageExpected = ['id', 'exception_intake_id', 'organization_id', 'claim_id', 'contract_version', 'sequence', 'event_code', 'category_code', 'priority_code', 'assigned_member_id', 'reason_code', 'recorded_by_user_id', 'recorded_at', 'created_at']
+    const triageActual = replay.columns.filter((line) => line.startsWith('exception_triage_events.')).map((line) => line.slice('exception_triage_events.'.length).split(':')[0])
+    check(
+      `exception_triage_events carries exactly its ${triageExpected.length} A8.2 columns, with no status, current or SLA column, after a clean replay`,
+      triageActual.length === triageExpected.length && triageActual.every((column) => triageExpected.includes(column)),
+      triageActual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : triageActual.filter((column) => !triageExpected.includes(column)).join(', '),
+    )
+    // The tables the A8.2 migration itself creates, read from its committed file, and each must exist after the replay.
+    const a82Created = [...readFileSync(new URL('../../prisma/migrations/20261031090000_a8_2_exception_triage/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    const triageTables = a82Created.filter((table) => replayedTables.has(table))
+    check('the A8.2 tables are exactly exception_triage_events after a clean replay', JSON.stringify(a82Created) === JSON.stringify(['exception_triage_events']) && JSON.stringify(triageTables) === JSON.stringify(a82Created), triageTables.join(', '))
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration

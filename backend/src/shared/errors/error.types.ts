@@ -157,6 +157,15 @@ export const apiErrorCodes = [
   // A8.1: the intake could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
   // refusal or an unknown commit outcome); nothing was recorded, or the recorded intake must be re-read.
   'EXCEPTION_INTAKE_CONFLICT',
+  // A8.2: the requested triage event is not a legal transition from the exception's derived disposition (or repeats
+  // it unchanged); nothing was recorded.
+  'EXCEPTION_TRIAGE_TRANSITION_REFUSED',
+  // A8.2: the named member is missing, of another organization, or not eligible to own the exception now — answered
+  // identically; nothing was recorded.
+  'EXCEPTION_TRIAGE_ASSIGNEE_NOT_ELIGIBLE',
+  // A8.2: the event could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
+  // refusal, an unknown commit outcome) or the stored history is inconsistent; nothing was recorded or derived.
+  'EXCEPTION_TRIAGE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

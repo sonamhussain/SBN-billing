@@ -255,6 +255,10 @@ export const permissionCodes = [
   // Claim's intakes (Admin, Viewer). Neither assigns, resolves, closes, pays or denies anything, or changes a source.
   'exceptionIntake.create',
   'exceptionIntake.read',
+  // A8.2 - recording one triage or assignment event of an exception intake (Admin), and reading its history and derived
+  // disposition (Admin, Viewer). Neither investigates, resolves, closes, escalates, pays or changes the intake.
+  'exceptionTriage.record',
+  'exceptionTriage.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
