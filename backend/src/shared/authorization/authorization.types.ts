@@ -259,6 +259,11 @@ export const permissionCodes = [
   // disposition (Admin, Viewer). Neither investigates, resolves, closes, escalates, pays or changes the intake.
   'exceptionTriage.record',
   'exceptionTriage.read',
+  // A8.3 - recording one evidence link or finding of an exception investigation (Admin; the service further requires
+  // the current, eligible A8.2 assignee), and reading its history and derived summary (Admin, Viewer). Neither
+  // assigns, resolves, closes, escalates, pays or changes the intake, its triage or any source.
+  'exceptionInvestigation.record',
+  'exceptionInvestigation.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

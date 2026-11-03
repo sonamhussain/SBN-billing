@@ -39,6 +39,7 @@ model Organization {
   evidencePrereqResults EvidencePrereqResult[]
   exceptionIntakeRecords ExceptionIntakeRecord[]
   exceptionTriageEvents  ExceptionTriageEvent[]
+  exceptionInvestigationEvents ExceptionInvestigationEvent[]
 
   @@map("organizations")
 }
@@ -1088,6 +1089,7 @@ model User {
   evidencePrereqResultsRecorded EvidencePrereqResult[] @relation("EvidencePrereqResultRecordedBy")
   exceptionIntakeRecordsRecorded ExceptionIntakeRecord[] @relation("ExceptionIntakeRecordRecordedBy")
   exceptionTriageEventsRecorded  ExceptionTriageEvent[]  @relation("ExceptionTriageEventRecordedBy")
+  exceptionInvestigationEventsRecorded ExceptionInvestigationEvent[] @relation("ExceptionInvestigationEventRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1153,6 +1155,7 @@ model OrganizationMembership {
   user         User             @relation(fields: [userId], references: [id], onDelete: Restrict)
   roles        MembershipRole[]
   assignedTriageEvents ExceptionTriageEvent[] @relation("ExceptionTriageEventAssignedMember")
+  recordedInvestigationEvents ExceptionInvestigationEvent[] @relation("ExceptionInvestigationEventRecordedByMembership")
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -1867,6 +1870,7 @@ model Claim {
   correctionLinks             ClaimCorrectionLink[]
   exceptionIntakeRecords      ExceptionIntakeRecord[]
   exceptionTriageEvents       ExceptionTriageEvent[]
+  exceptionInvestigationEvents ExceptionInvestigationEvent[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -2470,6 +2474,7 @@ model ExceptionIntakeRecord {
   claim        Claim        @relation(fields: [claimId], references: [id], onDelete: Restrict)
   recordedBy   User         @relation("ExceptionIntakeRecordRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   triageEvents ExceptionTriageEvent[]
+  investigationEvents ExceptionInvestigationEvent[]
 
   @@unique([identityKey], map: "exception_intake_records_identity_key")
   @@index([claimId, recordedAt, id])
@@ -2509,4 +2514,46 @@ model ExceptionTriageEvent {
   @@index([assignedMemberId])
   @@index([recordedByUserId])
   @@map("exception_triage_events")
+}
+
+// A8.3 — the append-only evidence-link and finding history of one A8.1 exception intake (A8-EXCEPTION-INVESTIGATION-1),
+// numbered 1..N by the server and written only by the current, eligible A8.2 assignee. A link points at one immutable
+// owner record (no copy of its content); a finding names an earlier link. The investigation view is derived on every
+// read and never stored; there is no status, current/latest pointer, resolution, remediation, amount, narrative,
+// attachment or payload column.
+model ExceptionInvestigationEvent {
+  id                      String   @id @default(uuid()) @db.Uuid
+  exceptionIntakeId       String   @map("exception_intake_id") @db.Uuid
+  organizationId          String   @map("organization_id") @db.Uuid
+  claimId                 String   @map("claim_id") @db.Uuid
+  contractVersion         String   @map("contract_version") @db.Text
+  sequence                Int
+  eventCode               String   @map("event_code") @db.Text
+  evidenceKind            String?  @map("evidence_kind") @db.Text
+  evidenceRecordId        String?  @map("evidence_record_id") @db.Uuid
+  evidenceContractVersion String?  @map("evidence_contract_version") @db.Text
+  evidenceBasisCode       String?  @map("evidence_basis_code") @db.Text
+  linkedEvidenceEventId   String?  @map("linked_evidence_event_id") @db.Uuid
+  findingCode             String?  @map("finding_code") @db.Text
+  recordedByMembershipId  String   @map("recorded_by_membership_id") @db.Uuid
+  recordedByUserId        String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt              DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  exceptionIntake      ExceptionIntakeRecord         @relation(fields: [exceptionIntakeId], references: [id], onDelete: Restrict)
+  organization         Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claim                Claim                         @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  linkedEvidenceEvent  ExceptionInvestigationEvent?  @relation("ExceptionInvestigationEventLinkedEvidence", fields: [linkedEvidenceEventId], references: [id], onDelete: Restrict)
+  findings             ExceptionInvestigationEvent[] @relation("ExceptionInvestigationEventLinkedEvidence")
+  recordedByMembership OrganizationMembership        @relation("ExceptionInvestigationEventRecordedByMembership", fields: [recordedByMembershipId], references: [id], onDelete: Restrict)
+  recordedBy           User                          @relation("ExceptionInvestigationEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([exceptionIntakeId, sequence], map: "exception_investigation_events_sequence_key")
+  @@unique([exceptionIntakeId, evidenceKind, evidenceRecordId], map: "exception_investigation_events_link_key")
+  @@index([organizationId])
+  @@index([claimId])
+  @@index([linkedEvidenceEventId])
+  @@index([recordedByMembershipId])
+  @@index([recordedByUserId])
+  @@map("exception_investigation_events")
 }

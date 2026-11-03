@@ -166,6 +166,16 @@ export const apiErrorCodes = [
   // A8.2: the event could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
   // refusal, an unknown commit outcome) or the stored history is inconsistent; nothing was recorded or derived.
   'EXCEPTION_TRIAGE_CONFLICT',
+  // A8.3: the acting member is not the current, eligible A8.2 assignee of the exception (it is not ASSIGNED, it is
+  // assigned to another member, or the assignee is no longer eligible); nothing was recorded.
+  'EXCEPTION_INVESTIGATION_NOT_ASSIGNEE',
+  // A8.3: the requested investigation event is not a legal next step (a finding without an earlier link of this
+  // exception, an evidence record linked again, or the latest finding repeated unchanged); nothing was recorded.
+  'EXCEPTION_INVESTIGATION_TRANSITION_REFUSED',
+  // A8.3: the event could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
+  // refusal, an unknown commit outcome, a record under another contract) or a stored history is inconsistent; nothing
+  // was recorded or derived.
+  'EXCEPTION_INVESTIGATION_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

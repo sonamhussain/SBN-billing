@@ -98,6 +98,7 @@ import { deltaRouter } from './modules/revenue-delta/revenue-delta.route.ts'
 import { continuityRouter } from './modules/revenue-continuity/revenue-continuity.route.ts'
 import { exceptionIntakeRouter } from './modules/exception-intake/exception-intake.route.ts'
 import { exceptionTriageRouter } from './modules/exception-triage/exception-triage.route.ts'
+import { exceptionInvestigationRouter } from './modules/exception-investigation/exception-investigation.route.ts'
 
 export const app = express()
 
@@ -407,6 +408,11 @@ app.use('/api/claims', exceptionIntakeRouter)
 // A8.2 - the append-only triage and assignment history of one exception intake (record one event, read the history and
 // the derived disposition). No PUT, PATCH or DELETE, and no investigation, resolution, SLA, escalation or export route.
 app.use('/api/claims', exceptionTriageRouter)
+
+// A8.3 - the append-only evidence-link and finding history of one exception investigation (record one event as the
+// current A8.2 assignee, read the history and the derived summary). No PUT, PATCH or DELETE, and no assignment,
+// resolution, closure, escalation or export route.
+app.use('/api/claims', exceptionInvestigationRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
