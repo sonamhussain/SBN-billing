@@ -211,3 +211,90 @@ parent proves its own versions:
 - A throwaway local clone of this branch, committed, runs the full chain through `npm run test:harness-corrections:a8`.
 - Two official `npm run test:harness-corrections:a8` runs at one HEAD, each a complete PASS, with their full nested
   outputs.
+
+---
+
+# A5.10 and A7.2 later-phase recognition (before CRG-01)
+
+Branch `fix/a5-10-a7-2-harness-later-phase-recognition`, from `main` at `a9f1580` (A8.3 merge). It changes only
+A5.10 T112, the A7.2 check of the migration replay script, this document, and a new acceptance suite with its one
+package script. No product module, migration, schema, permission, audit action, route, frontend page or accepted
+contract changes.
+
+## Why
+
+CRG-01 FINAL (Checkpoint A) adds the code-system identity `HCPCS-LEVEL-II`. DHA General Circular GC 06-2026 (clause
+C1) mandates this code set for Dubai claims. CRG-01 also adds a table holding retirement classifications. Its clone
+proof exposed two earlier checks that judge a later package by a name:
+
+- **A5.10 T112 "No US runtime"** searches every production file at HEAD for US words (X12, clearinghouse, Medicare,
+  Medicaid, HCPCS, NPI). On the CRG-01 branch it fails on the DHA code-set name. That failure cascades through every
+  later chain (A6 → A7 → A8.3).
+- **The replay check "the A7.2 tables are exactly source_evidence_classifications"** counts every replayed table whose
+  name matches `classif|normaliz`. It would count CRG-01's `crg_retirement_classifications` as an A7.2 table.
+
+The same two wrong fixes stay rejected:
+
+- renaming CRG-01's table or identity to dodge the patterns;
+- allowing one word in T112's list.
+
+Neither is done.
+
+## Changed predicates
+
+| Check | Before | After | Own branch |
+|---|---|---|---|
+| A5.10 T112 no US runtime | the word list over every production file (`modules`, `shared`, `app.ts`, `server.ts`) at `HEAD` | the same word list over the production files at A5.10's own merge (`158c9b7`), found with `mergeOf(feature/a5-10-a5-integration-acceptance)` against `origin/main`; if the merge is not found it stays on `HEAD` | unchanged (`ownMerge = ''`, so `HEAD`) |
+| Replay script, A7.2 tables | replayed tables whose name matches `classif\|normaliz` equal `[source_evidence_classifications]` | the tables the A7.2 migration file itself creates equal `[source_evidence_classifications]`, and each exists after the clean replay, exactly as the A8.1 check | the PASS text is unchanged |
+
+T110 and T113 of A5.10 are unchanged. They still judge HEAD, and a later package that sets a market switch or a UAE
+literal still fails them. The word list of T112 is unchanged. A later package proves its own boundaries: CRG-01 checks
+its own module for US runtime terms.
+
+## Acceptance of this correction (`npm run test:harness-corrections:a5-a7`)
+
+Run on any branch but its own, A8.3 always fails its checks about its own branch. So the final gate for this branch is
+`backend/src/integration/harness-corrections-a5-a7`. Every check is executed. Nothing is N/A except the nested A8.3
+branch-only items, each proved for its cause.
+
+- **H01–H05 scope:**
+  - branch from the main that contains the A8.3 and A5.10 merges;
+  - clean tree and origin parity;
+  - exactly the five changed files;
+  - no module, shared, job, app, server, prisma or frontend change, and the replay script changed only in its A7.2
+    check;
+  - `package.json` differs only by this suite's script;
+  - every contract constant identical to main.
+- **H06–H08 every check kept:**
+  - the A5.10 suite has exactly its check ids and titles from main;
+  - its N/A map and every N/A call are byte-identical;
+  - every changed line is a T112 own-scope definition or use, a comment, a line the original already had, or the
+    replay's A7.2 table check.
+- **H09–H12 equivalence and refusal:**
+  - T112 is defined once from `ownMerge`, and with `''` it is literally the original;
+  - a later package naming `HCPCS-LEVEL-II` fails the original predicate (fix disabled → FAIL) and is not judged by
+    the corrected one;
+  - an X12 term in A5.10's own merged code still fails both;
+  - at this HEAD the original HEAD-wide predicate also PASSes, so nothing that exists today is hidden;
+  - the replay passes with the unchanged PASS text, and at this HEAD no other committed migration creates a table
+    named like A7.2's.
+- **H13–H17 full chain:**
+  - A8.3 → A8.2 → A8.1 → A7.10 → … → A5.10 → … → A1 run once;
+  - every A8.3 substantive check PASSes, including T111–T118 and the gates T121 and T125–T129;
+  - no nested A5.10 T112 or A7.2 replay-table failure appears anywhere;
+  - each A8.3 branch-only failure is proved for its own cause on this branch, all the way down to A7.9.
+- **H18:** exact HEAD equal to origin, clean tree, and the full nested output kept in `backend/hc57-nested-<run>.log`.
+
+## What remains branch-only
+
+These checks are unchanged. They are documented as branch-only N/A in a later package's nested chain:
+
+- A8.3 in a later chain: T001, T002, T010, T119, T130.
+
+## Proof
+
+- Typecheck clean; `npm run test:a3:scope` passes; `npm run db:verify:replay` ALL CHECKS PASS.
+- A throwaway local clone of this branch, committed, runs the full chain through
+  `npm run test:harness-corrections:a5-a7`.
+- Two official `npm run test:harness-corrections:a5-a7` runs at one HEAD, each a complete PASS, with their full
+  nested outputs.

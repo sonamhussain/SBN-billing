@@ -1138,10 +1138,15 @@ async function main() {
       classificationColumns.length === a72Columns.length && classificationColumns.every((column) => a72Columns.includes(column)),
       classificationColumns.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : classificationColumns.filter((column) => !a72Columns.includes(column)).join(', '),
     )
-    const classificationTables = [...new Set(replay.columns.map((line) => line.split('.')[0]).filter((table) => /classif|normaliz/.test(table)))].sort()
+    // The tables the A7.2 migration itself creates, read from its committed file (never by a name pattern, so a later
+    // phase's table is never counted as A7.2's), and each must exist after the clean replay (harness correction before
+    // CRG-01, as for A8.1).
+    const a72Created = [...readFileSync(new URL('../../prisma/migrations/20261022090000_a7_2_evidence_classification/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    const a72ReplayedTables = new Set(replay.columns.map((line) => line.split('.')[0]))
+    const classificationTables = a72Created.filter((table) => a72ReplayedTables.has(table))
     check(
       'the A7.2 tables are exactly source_evidence_classifications after a clean replay',
-      JSON.stringify(classificationTables) === JSON.stringify(['source_evidence_classifications']),
+      JSON.stringify(a72Created) === JSON.stringify(['source_evidence_classifications']) && JSON.stringify(classificationTables) === JSON.stringify(a72Created),
       classificationTables.join(', '),
     )
 
