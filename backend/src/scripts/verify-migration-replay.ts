@@ -1430,6 +1430,63 @@ async function main() {
     const triageTables = a82Created.filter((table) => replayedTables.has(table))
     check('the A8.2 tables are exactly exception_triage_events after a clean replay', JSON.stringify(a82Created) === JSON.stringify(['exception_triage_events']) && JSON.stringify(triageTables) === JSON.stringify(a82Created), triageTables.join(', '))
 
+    // A8.3 — the append-only, numbered evidence-link and finding history of one A8.1 intake. The contract, a positive
+    // sequence, the two controlled events and each event's exact shape are held by CHECKs, one number per intake and one
+    // link per (intake, kind, record) by UNIQUE indexes; an insert guard holds database time, the parent's organization
+    // and Claim, the acting membership, the current A8.2 assignment and its eligibility, the contiguous sequence, the
+    // evidence reference and the finding's earlier link; the table is append-only and cannot be truncated; every key is
+    // ON DELETE RESTRICT.
+    for (const trigger of ['exception_investigation_events_insert_guard_trg', 'exception_investigation_events_append_only_trg', 'exception_investigation_events_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'exception_investigation_events_pkey',
+      'exception_investigation_events_contract_chk',
+      'exception_investigation_events_sequence_chk',
+      'exception_investigation_events_event_code_chk',
+      'exception_investigation_events_shape_chk',
+      'exception_investigation_events_exception_intake_id_fkey',
+      'exception_investigation_events_organization_id_fkey',
+      'exception_investigation_events_claim_id_fkey',
+      'exception_investigation_events_linked_evidence_event_id_fkey',
+      'exception_investigation_events_recorded_by_membership_id_fkey',
+      'exception_investigation_events_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const investigationContract = replay.constraints.find((line) => line.includes('exception_investigation_events_contract_chk')) ?? ''
+    const investigationCodes = replay.constraints.find((line) => line.includes('exception_investigation_events_event_code_chk')) ?? ''
+    const investigationShape = replay.constraints.find((line) => line.includes('exception_investigation_events_shape_chk')) ?? ''
+    check(
+      'the A8.3 CHECKs pin A8-EXCEPTION-INVESTIGATION-1, exactly the two investigation events, the three evidence kinds with their contracts and the controlled codes, with no resolution or payment code, after a clean replay',
+      investigationContract.includes("'A8-EXCEPTION-INVESTIGATION-1'") &&
+        ['LINK_EVIDENCE_REFERENCE', 'RECORD_FINDING'].every((code) => investigationCodes.includes(`'${code}'`)) &&
+        ['INTAKE_BASIS', 'TRIAGE_EVENT', 'A7_CASE_ASSESSMENT', 'A8-EXCEPTION-INTAKE-1', 'A8-EXCEPTION-TRIAGE-1', 'A7-CLOSURE-PREREQ-1', 'EVIDENCE_CONFIRMS_RECORDED_CONFLICT', 'EVIDENCE_INCONCLUSIVE', 'FURTHER_REVIEW_REQUIRED'].every((code) => investigationShape.includes(`'${code}'`)) &&
+        /IS NOT NULL/i.test(investigationCodes) &&
+        !/'(RESOLVE\w*|CLOSE\w*|ESCALATE\w*|REMEDIAT\w*|PAID|DENIED|SETTLED)'/.test(`${investigationCodes} ${investigationShape}`),
+      `${investigationContract.slice(0, 100)} | ${investigationCodes.slice(0, 160)}`,
+    )
+    check(
+      'one investigation event per (intake, sequence) and one link per (intake, kind, record) are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('exception_investigation_events_sequence_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id, sequence\)/.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('exception_investigation_events_link_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id, evidence_kind, evidence_record_id\)/.test(line)),
+    )
+    const investigationExpected = [
+      'id', 'exception_intake_id', 'organization_id', 'claim_id', 'contract_version', 'sequence', 'event_code', 'evidence_kind', 'evidence_record_id', 'evidence_contract_version',
+      'evidence_basis_code', 'linked_evidence_event_id', 'finding_code', 'recorded_by_membership_id', 'recorded_by_user_id', 'recorded_at', 'created_at',
+    ]
+    const investigationActual = replay.columns.filter((line) => line.startsWith('exception_investigation_events.')).map((line) => line.slice('exception_investigation_events.'.length).split(':')[0])
+    check(
+      `exception_investigation_events carries exactly its ${investigationExpected.length} A8.3 columns, with no status, resolution, digest or narrative column, after a clean replay`,
+      investigationActual.length === investigationExpected.length && investigationActual.every((column) => investigationExpected.includes(column)),
+      investigationActual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : investigationActual.filter((column) => !investigationExpected.includes(column)).join(', '),
+    )
+    // The tables the A8.3 migration itself creates, read from its committed file, and each must exist after the replay.
+    const a83Created = [...readFileSync(new URL('../../prisma/migrations/20261103090000_a8_3_exception_investigation/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    const investigationTables = a83Created.filter((table) => replayedTables.has(table))
+    check('the A8.3 tables are exactly exception_investigation_events after a clean replay', JSON.stringify(a83Created) === JSON.stringify(['exception_investigation_events']) && JSON.stringify(investigationTables) === JSON.stringify(a83Created), investigationTables.join(', '))
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration
