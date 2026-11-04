@@ -71,6 +71,20 @@ const committedProductionCodeOf = (dirs: string[]) => {
   const files = dirs.flatMap((dir) => committedFiles(dir)).filter((file) => /\.(ts|tsx)$/.test(file) && !/\.test\.tsx?$/.test(file))
   return { files, code: files.map((file) => committedCode(file)).join('\n') }
 }
+// The same reads at a fixed commit (harness correction before CRG-01): a check that judges A5.10's own scope reads the
+// production code A5.10 itself merged, never a later package's.
+const committedCodeAt = (ref: string, path: string) =>
+  git(`show ${ref}:${path}`)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/(^|\s)\/\/.*$/, '$1'))
+    .join('\n')
+const committedProductionCodeAt = (ref: string, dirs: string[]) => {
+  const files = dirs
+    .flatMap((dir) => git(`ls-tree -r --name-only --full-tree ${ref} ${dir}`).split(/\r?\n/).filter(Boolean))
+    .filter((file) => /\.(ts|tsx)$/.test(file) && !/\.test\.tsx?$/.test(file))
+  return { files, code: files.map((file) => committedCodeAt(ref, file)).join('\n') }
+}
 
 class RunAborted extends Error {}
 
@@ -1116,7 +1130,19 @@ async function main() {
   )
   const usColumns = (await prisma.$queryRaw<{ c: string }[]>`SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND column_name ~* '(npi|cpt|hcpcs|medicare|medicaid|x12|clearinghouse)'`).map((row) => row.c)
   check('T111', 'No US core fields', usColumns.length === 0, usColumns.length === 0 ? 'no NPI, CPT, HCPCS, Medicare, Medicaid, X12 or clearinghouse column' : `unexpected: ${usColumns.join(', ')}`)
-  check('T112', 'No US runtime', productionReached && !/\b(x12|clearinghouse|medicare|medicaid|hcpcs|npi)\b/i.test(production.code + appCode), 'no US payer, clearinghouse or X12 behaviour in production code')
+  // T112 judges the production code A5.10 itself merged. On A5.10's own branch that is HEAD, exactly as before; on any
+  // later branch it is A5.10's own merge, so a later package's code (which proves its own boundaries) is never judged
+  // here. If the merge cannot be found the check stays on HEAD. The word list is unchanged.
+  const ownMerge = branch === a510Branch ? '' : git(`log origin/main --merges --grep=${a510Branch}$ -n 1 --format=%H`)
+  const ownProduction = ownMerge ? committedProductionCodeAt(ownMerge, ['backend/src/modules', 'backend/src/shared']) : production
+  const ownAppCode = ownMerge ? committedCodeAt(ownMerge, 'backend/src/app.ts') + committedCodeAt(ownMerge, 'backend/src/server.ts') : appCode
+  const ownProductionReached = ownProduction.files.length > 150 && ownProduction.code.includes('requireOrganizationPermission')
+  check(
+    'T112',
+    'No US runtime',
+    ownProductionReached && !/\b(x12|clearinghouse|medicare|medicaid|hcpcs|npi)\b/i.test(ownProduction.code + ownAppCode),
+    `no US payer, clearinghouse or X12 behaviour in production code${ownMerge ? ` (the ${ownProduction.files.length} production files A5.10 merged, ${ownMerge.slice(0, 7)})` : ''}`,
+  )
   check('T113', 'No new UAE hard-code', productionReached && productionChanged.length === 0 && !/['"`](AE-DU|AE-AZ|DHA|DOH|AED)['"`]/.test(production.code + appCode), 'A5.10 adds no production branch, and no UAE jurisdiction, authority or currency literal decides anything in the shared core')
   const profileFk = (await prisma.$queryRaw<{ def: string }[]>`SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'validation_runs_facility_regulatory_profile_id_fkey'`)[0]?.def ?? ''
   const profileNullable = (await prisma.$queryRaw<{ n: string }[]>`SELECT is_nullable AS n FROM information_schema.columns WHERE table_name = 'validation_runs' AND column_name = 'facility_regulatory_profile_id'`)[0]?.n
