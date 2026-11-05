@@ -1295,7 +1295,11 @@ async function main() {
   check('T103', 'No A7.1 change', (await sourceHash()) === sourcesBefore101 && same((await get(`/api/revenue-source-evidence/${E1}`)).body?.revenueSourceEvidenceId, E1), "every byte of this run's A7.1 sources is identical after readiness records")
   check('T104', 'No A7.2 change', (await classificationHash()) === classificationsBefore101 && same((await get(`/api/revenue-evidence-classifications/${C1}`)).body, c1ReadBefore101), "every byte of this run's A7.2 classifications and the A7.2 read are identical after readiness records")
   const laterRoutes = [await post(`${resultPath(R1.body.readinessId)}/adjudications`, {}), await post(`/api/claim-submissions/${S1}/adjudications`, {}), await post(`/api/claim-submissions/${S1}/settlements`, {}), await post(`/api/claim-submissions/${S1}/remittances`, {})]
-  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg)'`).map((row) => row.t)
+  // Tables a later phase adds are recognized from git, never by name: those created by migrations committed after
+  // A7.3's own merge (harness correction before CRG-01). On A7.3's own branch the set is empty, so this boundary is
+  // unchanged there; every table that existed when A7.3 merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   // Judged on behaviour: no such route answers and no such table exists. A later A7 suite's own files are not a
   // later domain (the start gate, T001, still reads them as later code).
   check('T105', 'No A7.4+ or A9 domain', laterRoutes.every((res) => res.status === 404) && laterTables.length === 0, 'no adjudication, settlement or remittance route or table, and no import, outbox, queue or transmission table')

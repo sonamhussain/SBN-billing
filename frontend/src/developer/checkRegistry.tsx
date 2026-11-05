@@ -66,6 +66,7 @@ import RevenueContinuityCheck from '../modules/revenue-continuity/RevenueContinu
 import ExceptionIntakeCheck from '../modules/exception-intake/ExceptionIntakeCheck.tsx'
 import ExceptionTriageCheck from '../modules/exception-triage/ExceptionTriageCheck.tsx'
 import ExceptionInvestigationCheck from '../modules/exception-investigation/ExceptionInvestigationCheck.tsx'
+import CodingReleaseCheck from '../modules/coding-release/CodingReleaseCheck.tsx'
 
 // FE-01 — every existing engineering check, moved unchanged from the former Development Check page.
 // Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4 -> A5. A new backend *Check is registered
@@ -145,4 +146,5 @@ export const developerChecks: DeveloperCheck[] = [
   { key: 'exception-intake', label: 'Exception intakes', Component: ExceptionIntakeCheck },
   { key: 'exception-triage', label: 'Exception triage', Component: ExceptionTriageCheck },
   { key: 'exception-investigation', label: 'Exception investigation', Component: ExceptionInvestigationCheck },
+  { key: 'coding-release', label: 'Coding release check', Component: CodingReleaseCheck },
 ]

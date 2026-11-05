@@ -1428,7 +1428,11 @@ async function main() {
     await post(`/api/claim-submissions/${S1}/payments`, {}),
     await post(`/api/claim-submissions/${S1}/adjudications`, {}),
   ]
-  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|payer_response)'`).map((row) => row.t)
+  // Tables a later phase adds are recognized from git, never by name: those created by migrations committed after
+  // A7.5's own merge (harness correction before CRG-01). On A7.5's own branch the set is empty, so this boundary is
+  // unchanged there; every table that existed when A7.5 merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|payer_response)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const jobsChanged = changedPaths.filter((file) => /^backend\/src\/jobs\//.test(file))
   // Judged on behaviour, not vocabulary: an awaited in-request pause (the lock-wait jitter) is not background work.
   const awaitedPause = /new Promise\(\(resolve\) => setTimeout\(resolve, [^\n]*/g

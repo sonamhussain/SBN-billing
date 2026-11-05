@@ -1286,7 +1286,11 @@ async function main() {
   check('T105', 'A7.2 classifications untouched', (await classificationHash()) === before101b.classifications, "every byte of this run's A7.2 classifications is identical after a case")
   check('T106', 'A7.3 readiness untouched', (await readinessHash()) === before101b.readiness, "every byte of this run's A7.3 readiness results is identical after a case")
   const laterRoutes = [await post(`${casePath(CASE1.body.caseId)}/adjudications`, {}), await post(`/api/claim-submissions/${S1}/settlements`, {}), await post(`/api/claim-submissions/${S1}/remittances`, {}), await post(`/api/claim-submissions/${S1}/payments`, {})]
-  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure)'`).map((row) => row.t)
+  // Tables a later phase adds are recognized from git, never by name: those created by migrations committed after
+  // A7.4's own merge (harness correction before CRG-01). On A7.4's own branch the set is empty, so this boundary is
+  // unchanged there; every table that existed when A7.4 merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   // Judged on behaviour: no such route answers and no such table exists. A later A7 suite's own files are not later
   // work (the start gate, T001, still reads them as later code).
   check('T107', 'No A7.5 or A9 work', laterRoutes.every((res) => res.status === 404) && laterTables.length === 0, 'no adjudication, settlement, remittance, payment or closure route or table')

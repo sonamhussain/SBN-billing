@@ -264,6 +264,9 @@ export const permissionCodes = [
   // assigns, resolves, closes, escalates, pays or changes the intake, its triage or any source.
   'exceptionInvestigation.record',
   'exceptionInvestigation.read',
+  // CRG-01 Checkpoint A - reading the coding-release decision of one encounter's codes (Admin, Viewer). It never blocks a claim,
+  // writes a finding or activates a release (Checkpoint B).
+  'codingRelease.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

@@ -721,7 +721,11 @@ async function main() {
     sourceE1.sourceVersion === SOURCE_CONTRACT && fingerprintText.includes(`\nsourceVersion=${SOURCE_CONTRACT}\n`) && (await sourceHash()) === sourceRowsBefore,
     'the A7.1 contract A7-REVENUE-SOURCE-1 is bound into the fingerprint, and every byte of this run\'s A7.1 records is unchanged',
   )
-  const payerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(payer_response|remittance|import|inbound|adjudicat)'`).map((row) => row.t)
+  // Tables a later phase adds are recognized from git, never by name: those created by migrations committed after
+  // A7.2's own merge (harness correction before CRG-01). On A7.2's own branch the set is empty, so this boundary is
+  // unchanged there; every table that existed when A7.2 merged is judged as before.
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const payerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(payer_response|remittance|import|inbound|adjudicat)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   check(
     'T026',
     'No imported payer source fabricated',

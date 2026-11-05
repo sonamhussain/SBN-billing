@@ -99,6 +99,7 @@ import { continuityRouter } from './modules/revenue-continuity/revenue-continuit
 import { exceptionIntakeRouter } from './modules/exception-intake/exception-intake.route.ts'
 import { exceptionTriageRouter } from './modules/exception-triage/exception-triage.route.ts'
 import { exceptionInvestigationRouter } from './modules/exception-investigation/exception-investigation.route.ts'
+import { codingReleaseRouter } from './modules/coding-release/coding-release.route.ts'
 
 export const app = express()
 
@@ -413,6 +414,10 @@ app.use('/api/claims', exceptionTriageRouter)
 // current A8.2 assignee, read the history and the derived summary). No PUT, PATCH or DELETE, and no assignment,
 // resolution, closure, escalation or export route.
 app.use('/api/claims', exceptionInvestigationRouter)
+
+// CRG-01 Checkpoint A - the read-only coding-release check of one encounter (the governing coding edition by service date and
+// jurisdiction, and each code's membership in it). No write, search, catalogue or activation route.
+app.use('/api/encounters', codingReleaseRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

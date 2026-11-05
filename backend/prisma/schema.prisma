@@ -947,6 +947,7 @@ model ReferenceDataset {
 
   versions         ReferenceDatasetVersion[]
   lifecycleEvents  ReferenceDatasetLifecycleEvent[]
+  crgCodeSystem    CrgCodeSystemDataset?
 
   @@unique([datasetKey])
   @@index([jurisdictionCode])
@@ -974,6 +975,9 @@ model ReferenceDatasetVersion {
   dataset         ReferenceDataset                 @relation(fields: [datasetId], references: [id], onDelete: Restrict)
   sourceVersion   RuleSourceVersion?               @relation(fields: [sourceVersionId], references: [id], onDelete: Restrict)
   lifecycleEvents ReferenceDatasetLifecycleEvent[]
+  crgImport       CrgReleaseImport?
+  crgMemberships  CrgReleaseCodeMembership[]
+  crgRetirement   CrgRetirementClassification?
   validationFindings ValidationFinding[]
   validationFindingDatasets ValidationFindingReferenceDatasetVersion[]
 
@@ -2556,4 +2560,105 @@ model ExceptionInvestigationEvent {
   @@index([recordedByMembershipId])
   @@index([recordedByUserId])
   @@map("exception_investigation_events")
+}
+
+// CRG-01 FINAL Checkpoint A — the identity of an A3 reference dataset as a coding catalogue: one controlled code system
+// and one purpose, set once. The dataset's jurisdiction and authority are copied at registration and held equal by
+// the database; A3's own lifecycle, activation rules and source registry are unchanged.
+model CrgCodeSystemDataset {
+  id               String   @id @default(uuid()) @db.Uuid
+  datasetId        String   @map("dataset_id") @db.Uuid
+  codeSystem       String   @map("code_system") @db.Text
+  purpose          String   @db.Text
+  jurisdictionCode String   @map("jurisdiction_code") @db.Text
+  authorityCode    String   @map("authority_code") @db.Text
+  contractVersion  String   @map("contract_version") @db.Text
+  recordedAt       DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  dataset ReferenceDataset @relation(fields: [datasetId], references: [id], onDelete: Restrict)
+
+  @@unique([datasetId], map: "crg_code_system_datasets_dataset_key")
+  @@map("crg_code_system_datasets")
+}
+
+// CRG-01 FINAL Checkpoint A — the append-only, numbered rights decisions for one code system in one jurisdiction and
+// authority. The latest decision governs; no decision means BLOCKED.
+model CrgCodeSystemRight {
+  id                String   @id @default(uuid()) @db.Uuid
+  jurisdictionCode  String   @map("jurisdiction_code") @db.Text
+  authorityCode     String   @map("authority_code") @db.Text
+  codeSystem        String   @map("code_system") @db.Text
+  sequence          Int
+  rightsStatus      String   @map("rights_status") @db.Text
+  decisionReference String   @map("decision_reference") @db.Text
+  contractVersion   String   @map("contract_version") @db.Text
+  recordedAt        DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([jurisdictionCode, authorityCode, codeSystem, sequence], map: "crg_code_system_rights_sequence_key")
+  @@map("crg_code_system_rights")
+}
+
+// CRG-01 FINAL Checkpoint A — the one complete import of a coding edition (an A3 dataset version): the source file's
+// SHA-256 (equal to the edition's content hash), its source, publisher and declared row count. All of its rows are
+// written in the same transaction, and the database refuses a commit whose row count differs.
+model CrgReleaseImport {
+  id               String   @id @default(uuid()) @db.Uuid
+  datasetVersionId String   @map("dataset_version_id") @db.Uuid
+  codeSystem       String   @map("code_system") @db.Text
+  sourceFileSha256 String   @map("source_file_sha256") @db.Text
+  sourceUri        String   @map("source_uri") @db.Text
+  publisher        String   @db.Text
+  expectedRowCount Int      @map("expected_row_count")
+  contractVersion  String   @map("contract_version") @db.Text
+  recordedAt       DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  datasetVersion ReferenceDatasetVersion    @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
+  memberships    CrgReleaseCodeMembership[]
+
+  @@unique([datasetVersionId], map: "crg_release_imports_version_key")
+  @@map("crg_release_imports")
+}
+
+// CRG-01 FINAL Checkpoint A — the immutable membership of one coding edition: each canonical code with its source row
+// id, the row's SHA-256 and the parent release checksum. No descriptor text and no A2 master row (A2 masters are
+// organization-scoped; a release is shared).
+model CrgReleaseCodeMembership {
+  id                 String   @id @default(uuid()) @db.Uuid
+  importId           String   @map("import_id") @db.Uuid
+  datasetVersionId   String   @map("dataset_version_id") @db.Uuid
+  codeSystem         String   @map("code_system") @db.Text
+  code               String   @db.Text
+  sourceRowId        String   @map("source_row_id") @db.Text
+  sourceRowSha256    String   @map("source_row_sha256") @db.Text
+  releaseContentHash String   @map("release_content_hash") @db.Text
+  contractVersion    String   @map("contract_version") @db.Text
+  recordedAt         DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  import         CrgReleaseImport        @relation(fields: [importId], references: [id], onDelete: Restrict)
+  datasetVersion ReferenceDatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([datasetVersionId, codeSystem, code], map: "crg_release_code_memberships_code_key")
+  @@unique([importId, sourceRowId], map: "crg_release_code_memberships_row_key")
+  @@index([importId])
+  @@map("crg_release_code_memberships")
+}
+
+// CRG-01 FINAL Checkpoint A — what a RETIRED edition's retirement means for the dates it governed, set once:
+// PROSPECTIVE keeps its historical authority, HISTORICALLY_INVALIDATED withdraws it. Unclassified fails closed.
+model CrgRetirementClassification {
+  id               String   @id @default(uuid()) @db.Uuid
+  datasetVersionId String   @map("dataset_version_id") @db.Uuid
+  classification   String   @db.Text
+  contractVersion  String   @map("contract_version") @db.Text
+  recordedAt       DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  datasetVersion ReferenceDatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([datasetVersionId], map: "crg_retirement_classifications_version_key")
+  @@map("crg_retirement_classifications")
 }
