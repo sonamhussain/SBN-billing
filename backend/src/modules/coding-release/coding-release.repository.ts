@@ -62,6 +62,7 @@ export async function findMappedEditions(jurisdictionCode: string, authorityCode
       lifecycle: { action: string; previousActivationStatus: string; nextActivationStatus: string; nextValidationStatus: string }[]
       import_id: string | null
       import_source_file_sha256: string | null
+      import_membership_fingerprint_sha256: string | null
       import_expected_row_count: number | null
       import_row_count: number
       retirement_classification: string | null
@@ -76,7 +77,8 @@ export async function findMappedEditions(jurisdictionCode: string, authorityCode
                                                       'nextActivationStatus', e."next_activation_status", 'nextValidationStatus', e."next_validation_status")
                                      ORDER BY e."sequence")
                      FROM "reference_dataset_lifecycle_events" e WHERE e."dataset_version_id" = v."id"), '[]'::json) AS lifecycle,
-           i."id"::text AS import_id, i."source_file_sha256" AS import_source_file_sha256, i."expected_row_count" AS import_expected_row_count,
+           i."id"::text AS import_id, i."source_file_sha256" AS import_source_file_sha256,
+           i."membership_fingerprint_sha256" AS import_membership_fingerprint_sha256, i."expected_row_count" AS import_expected_row_count,
            (SELECT count(*)::int FROM "crg_release_code_memberships" c WHERE c."import_id" = i."id") AS import_row_count,
            r."classification" AS retirement_classification
     FROM "crg_code_system_datasets" m
@@ -137,12 +139,23 @@ export async function insertRightsDecision(data: { jurisdictionCode: string; aut
 }
 
 export async function insertReleaseImport(
-  data: { datasetVersionId: string; codeSystem: string; sourceFileSha256: string; sourceUri: string; publisher: string; expectedRowCount: number; contractVersion: string },
+  data: {
+    datasetVersionId: string
+    codeSystem: string
+    sourceFileSha256: string
+    artifactFormat: string
+    artifactByteLength: number
+    membershipFingerprintSha256: string
+    sourceUri: string
+    publisher: string
+    expectedRowCount: number
+    contractVersion: string
+  },
   db: DbClient,
 ) {
   const [row] = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
-    INSERT INTO "crg_release_imports" ("id", "dataset_version_id", "code_system", "source_file_sha256", "source_uri", "publisher", "expected_row_count", "contract_version")
-    VALUES (gen_random_uuid(), ${data.datasetVersionId}::uuid, ${data.codeSystem}, ${data.sourceFileSha256}, ${data.sourceUri}, ${data.publisher}, ${data.expectedRowCount}, ${data.contractVersion})
+    INSERT INTO "crg_release_imports" ("id", "dataset_version_id", "code_system", "source_file_sha256", "artifact_format", "artifact_byte_length", "membership_fingerprint_sha256", "source_uri", "publisher", "expected_row_count", "contract_version")
+    VALUES (gen_random_uuid(), ${data.datasetVersionId}::uuid, ${data.codeSystem}, ${data.sourceFileSha256}, ${data.artifactFormat}, ${data.artifactByteLength}::bigint, ${data.membershipFingerprintSha256}, ${data.sourceUri}, ${data.publisher}, ${data.expectedRowCount}, ${data.contractVersion})
     RETURNING "id"::text AS "id"`)
   return row.id
 }

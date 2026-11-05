@@ -1522,6 +1522,16 @@ async function main() {
         ['PROSPECTIVE', 'HISTORICALLY_INVALIDATED'].every((code) => (replay.constraints.find((line) => line.includes('crg_retirement_classifications_value_chk')) ?? '').includes(`'${code}'`)),
       crgSystems.slice(0, 160),
     )
+    // Audit CRG-F01/F02: two separate fingerprints on every import, only the synthetic artifact format, and no
+    // release-size ceiling (any positive count).
+    const crgImportFingerprint = replay.constraints.find((line) => line.includes('crg_release_imports_fingerprint_chk')) ?? ''
+    const crgImportArtifact = replay.constraints.find((line) => line.includes('crg_release_imports_artifact_chk')) ?? ''
+    const crgImportRows = replay.constraints.find((line) => line.includes('crg_release_imports_row_count_chk')) ?? ''
+    check(
+      'every CRG import carries a source artifact SHA-256 and a separate membership fingerprint, only the synthetic artifact format and no release-size ceiling after a clean replay',
+      /source_file_sha256/.test(crgImportFingerprint) && /membership_fingerprint_sha256/.test(crgImportFingerprint) && crgImportArtifact.includes("'CRG-SYNTHETIC-TSV-1'") && /expected_row_count >= 1/.test(crgImportRows) && !/5000|BETWEEN/i.test(crgImportRows),
+      `${crgImportArtifact.slice(0, 120)} | ${crgImportRows.slice(0, 120)}`,
+    )
     check(
       'one identity per dataset, one import per edition, one membership per (edition, system, code) and per (import, source row), one classification per edition and numbered rights are unique after a clean replay',
       [
@@ -1533,7 +1543,7 @@ async function main() {
     const crgColumns: Record<string, string[]> = {
       crg_code_system_datasets: ['id', 'dataset_id', 'code_system', 'purpose', 'jurisdiction_code', 'authority_code', 'contract_version', 'recorded_at', 'created_at'],
       crg_code_system_rights: ['id', 'jurisdiction_code', 'authority_code', 'code_system', 'sequence', 'rights_status', 'decision_reference', 'contract_version', 'recorded_at', 'created_at'],
-      crg_release_imports: ['id', 'dataset_version_id', 'code_system', 'source_file_sha256', 'source_uri', 'publisher', 'expected_row_count', 'contract_version', 'recorded_at', 'created_at'],
+      crg_release_imports: ['id', 'dataset_version_id', 'code_system', 'source_file_sha256', 'artifact_format', 'artifact_byte_length', 'membership_fingerprint_sha256', 'source_uri', 'publisher', 'expected_row_count', 'contract_version', 'recorded_at', 'created_at'],
       crg_release_code_memberships: ['id', 'import_id', 'dataset_version_id', 'code_system', 'code', 'source_row_id', 'source_row_sha256', 'release_content_hash', 'contract_version', 'recorded_at', 'created_at'],
       crg_retirement_classifications: ['id', 'dataset_version_id', 'classification', 'contract_version', 'recorded_at', 'created_at'],
     }

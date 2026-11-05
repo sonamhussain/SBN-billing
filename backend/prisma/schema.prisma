@@ -2600,20 +2600,24 @@ model CrgCodeSystemRight {
   @@map("crg_code_system_rights")
 }
 
-// CRG-01 FINAL Checkpoint A — the one complete import of a coding edition (an A3 dataset version): the source file's
-// SHA-256 (equal to the edition's content hash), its source, publisher and declared row count. All of its rows are
-// written in the same transaction, and the database refuses a commit whose row count differs.
+// CRG-01 FINAL Checkpoint A — the one complete import of a coding edition (an A3 dataset version): the source
+// artifact's SHA-256 (equal to the edition's content hash), its format and byte length, the membership fingerprint of
+// its normalized rows (a different value), its source, publisher and declared row count. All of its rows are written
+// in the same transaction, and the database refuses a commit whose row count or membership fingerprint differs.
 model CrgReleaseImport {
   id               String   @id @default(uuid()) @db.Uuid
   datasetVersionId String   @map("dataset_version_id") @db.Uuid
   codeSystem       String   @map("code_system") @db.Text
-  sourceFileSha256 String   @map("source_file_sha256") @db.Text
-  sourceUri        String   @map("source_uri") @db.Text
-  publisher        String   @db.Text
-  expectedRowCount Int      @map("expected_row_count")
-  contractVersion  String   @map("contract_version") @db.Text
-  recordedAt       DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  sourceFileSha256            String   @map("source_file_sha256") @db.Text
+  artifactFormat              String   @map("artifact_format") @db.Text
+  artifactByteLength          BigInt   @map("artifact_byte_length")
+  membershipFingerprintSha256 String   @map("membership_fingerprint_sha256") @db.Text
+  sourceUri                   String   @map("source_uri") @db.Text
+  publisher                   String   @db.Text
+  expectedRowCount            Int      @map("expected_row_count")
+  contractVersion             String   @map("contract_version") @db.Text
+  recordedAt                  DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   datasetVersion ReferenceDatasetVersion    @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
   memberships    CrgReleaseCodeMembership[]

@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
 import {
   CANONICAL_CODE,
   CODE_SYSTEM_SUBJECT,
+  SHA256_HEX,
   codeSystems,
   mappingPurposes,
   retirementClassifications,
@@ -10,7 +10,6 @@ import {
   type CodeSystem,
   type EditionFacts,
   type EditionResult,
-  type ImportRow,
   type MappingPurpose,
   type MembershipBasis,
   type ResolutionScope,
@@ -33,8 +32,8 @@ import {
 //   4. Retirement: a RETIRED covering edition is used only when classified PROSPECTIVE (its historical authority is
 //      kept); HISTORICALLY_INVALIDATED or unclassified refuses the decision (RELEASE_NOT_AUTHORIZED).
 //   5. Approved: VALIDATED, activated at least once by its lifecycle history, ACTIVE or SUPERSEDED or PROSPECTIVE
-//      RETIRED now, and imported completely through CRG (its import's hash equals the edition's content hash and its
-//      row count equals the declared count).
+//      RETIRED now, and imported completely through CRG (its import's source artifact SHA-256 equals the edition's
+//      content hash, it carries its own membership fingerprint, and its row count equals the declared count).
 //   6. None approved: NO_APPROVED_RELEASE when nothing covers the date, RELEASE_NOT_AUTHORIZED when something covers it
 //      but is not approved. More than one approved: CONFLICTING_RELEASES. Exactly one: that edition.
 //   7. The code must be a member of exactly that edition: APPLICABLE, otherwise CODE_NOT_IN_RELEASE.
@@ -61,8 +60,14 @@ function inconsistency(edition: EditionFacts): string | null {
   if (edition.activationStatus === 'ACTIVE' && edition.validationStatus !== 'VALIDATED') return 'an ACTIVE edition is not VALIDATED'
   if (edition.retirementClassification !== null && (!isClassification(edition.retirementClassification) || edition.activationStatus !== 'RETIRED'))
     return 'a retirement classification names an edition that is not RETIRED'
-  if (edition.importId !== null && (edition.importSourceFileSha256 !== edition.contentHash || edition.importExpectedRowCount !== edition.importRowCount))
-    return "an edition's CRG import does not match its content hash or its declared row count"
+  if (
+    edition.importId !== null &&
+    (edition.importSourceFileSha256 !== edition.contentHash ||
+      edition.importExpectedRowCount !== edition.importRowCount ||
+      edition.importMembershipFingerprint === null ||
+      !SHA256_HEX.test(edition.importMembershipFingerprint))
+  )
+    return "an edition's CRG import does not match its content hash, its declared row count or its membership fingerprint"
   return null
 }
 
@@ -107,6 +112,7 @@ export function resolveEdition(scope: ResolutionScope, codeSystem: CodeSystem, e
         effectiveTo: chosen.effectiveTo,
         sourceVersionId: chosen.sourceVersionId,
         contentHash: chosen.contentHash,
+        membershipFingerprintSha256: chosen.importMembershipFingerprint as string,
         importId: chosen.importId as string,
         activationStatus: chosen.activationStatus,
         retirementClassification: chosen.retirementClassification as RetirementClassification | null,
@@ -165,12 +171,4 @@ export function decideCode(
       ? { decisionCode: 'APPLICABLE', codeSystem: identity.codeSystem, edition: edition.value.edition, membership }
       : { decisionCode: 'CODE_NOT_IN_RELEASE', codeSystem: identity.codeSystem, edition: edition.value.edition, membership: null },
   }
-}
-
-// The content fingerprint of one release import: SHA-256 over its rows ordered by source row id, one line each,
-// `sourceRowId TAB code TAB sourceRowSha256 LF`. An import is accepted only when this equals both the declared source
-// file hash and the A3 edition's content hash, so the stored membership is exactly the approved content.
-export function releaseContentFingerprint(rows: readonly ImportRow[]): string {
-  const lines = [...rows].sort((a, b) => (a.sourceRowId < b.sourceRowId ? -1 : a.sourceRowId > b.sourceRowId ? 1 : 0)).map((row) => `${row.sourceRowId}\t${row.code}\t${row.sourceRowSha256}\n`)
-  return createHash('sha256').update(lines.join(''), 'utf8').digest('hex')
 }

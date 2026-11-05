@@ -20,7 +20,7 @@ import {
   validateReferenceDatasetVersion,
 } from '../../modules/reference-dataset/reference-dataset.maintenance.ts'
 import { classifyRetirement, getCodingReleaseCheckOf, importRelease, recordRightsDecision, registerDatasetCodeSystem } from '../../modules/coding-release/coding-release.service.ts'
-import { releaseContentFingerprint, resolveEdition } from '../../modules/coding-release/coding-release.resolver.ts'
+import { resolveEdition } from '../../modules/coding-release/coding-release.resolver.ts'
 import { CODESET_CONTRACT_VERSION, codeSystems, decisionCodes, type EditionFacts, type ImportRow } from '../../modules/coding-release/coding-release.types.ts'
 
 // CRG-01 FINAL (v2.0), Checkpoint A — acceptance for the Medical Coding Release Governance foundation
@@ -162,7 +162,7 @@ const JUR = 'AE-DU'
 const AUTH = `SYN-CRG-${runToken}`
 const CHECK_KEYS = ['contractVersion', 'encounterId', 'serviceDate', 'jurisdictionCode', 'authorityCode', 'items', 'evaluatedAt']
 const ITEM_KEYS = ['subjectKind', 'subjectId', 'masterCodeId', 'decisionCode', 'codeSystem', 'edition', 'membership']
-const EDITION_KEYS = ['referenceDatasetVersionId', 'datasetId', 'codeSystem', 'purpose', 'edition', 'effectiveFrom', 'effectiveTo', 'sourceVersionId', 'contentHash', 'importId', 'activationStatus', 'retirementClassification']
+const EDITION_KEYS = ['referenceDatasetVersionId', 'datasetId', 'codeSystem', 'purpose', 'edition', 'effectiveFrom', 'effectiveTo', 'sourceVersionId', 'contentHash', 'membershipFingerprintSha256', 'importId', 'activationStatus', 'retirementClassification']
 // The harness correction bundled in this PR by the head developer's decision (docs/Harness_Corrections.md, disclosed in
 // the PR): A7.2 T026, A7.3 T105, A7.4 T107 and A7.5 T108 subtract the tables created by migrations committed after their
 // own merge, exactly as the accepted A6.10 T110 and A8.1 T100/T119 corrections. CRG-003 proves nothing else changed.
@@ -224,6 +224,20 @@ function suiteLines(output: string, tag: string): SuiteLine[] {
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const sha256Of = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const fingerprint = (label: string) => sha256Of(Buffer.from(`${runId}:${label}`))
+// A synthetic source artifact (CRG-SYNTHETIC-TSV-1: one `sourceRowId TAB code LF` record per code) and the two
+// fingerprints of it, computed here independently of the production reader: the artifact bytes' own SHA-256, each
+// record's SHA-256 over its own line, and the membership fingerprint over the normalized rows (audit CRG-F02).
+const ARTIFACT_FORMAT = 'CRG-SYNTHETIC-TSV-1'
+type Artifact = { bytes: Buffer; sourceFileSha256: string; rows: ImportRow[]; membershipFingerprint: string }
+const membershipFingerprintOf = (rows: readonly ImportRow[]) =>
+  sha256Of(Buffer.from([...rows].sort((a, b) => Buffer.compare(Buffer.from(a.sourceRowId), Buffer.from(b.sourceRowId))).map((r) => `${r.sourceRowId}\t${r.code}\t${r.sourceRowSha256}\n`).join(''), 'utf8'))
+const artifactFromRecords = (records: readonly [string, string][]): Artifact => {
+  const lines = records.map(([id, code]) => `${id}\t${code}`)
+  const bytes = Buffer.from(lines.map((line) => `${line}\n`).join(''), 'utf8')
+  const rows = records.map(([sourceRowId, code], i) => ({ sourceRowId, code, sourceRowSha256: sha256Of(Buffer.from(lines[i], 'utf8')) }))
+  return { bytes, sourceFileSha256: sha256Of(bytes), rows, membershipFingerprint: membershipFingerprintOf(rows) }
+}
+const artifactOf = (label: string, codes: readonly string[]) => artifactFromRecords(codes.map((code, i) => [`${label}-r${i + 1}`, code]))
 const withoutEvaluatedAt = (body: unknown) => JSON.stringify(body, (k, v) => (k === 'evaluatedAt' || k === 'requestId' ? undefined : v))
 // The basis reports an edition's current A3 state, which legitimately moves from ACTIVE to SUPERSEDED when its successor
 // is activated; everything else in the answer must stay byte-identical.
@@ -414,21 +428,26 @@ async function main() {
   // A synthetic source authority behind edition A (A3 rule-source owner), so its basis names a source version.
   const source = must('rule source', (await post(`/api/organizations/${org}/rule-sources`, { jurisdictionCode: JUR, issuingAuthority: AUTH, sourceCategory: 'REGULATORY_AUTHORITY', referenceNumber: `SYN-GC-${runToken}`, title: `${runId} synthetic coding source` })).body)
   const sourceVersion = must('rule source version', (await post(`/api/rule-sources/${source.id}/versions`, { version: `SYN-${runToken}`, rawEvidenceRef: `synthetic:${runId}` })).body)
-  type Release = { datasetId: string; versionId: string; rows: ImportRow[]; contentHash: string }
-  const rowsOf = (label: string, codes: string[]): ImportRow[] => codes.map((code, i) => ({ sourceRowId: `${label}-r${i + 1}`, code, sourceRowSha256: fingerprint(`${label}:${code}`) }))
+  type Release = { datasetId: string; versionId: string; rows: ImportRow[]; contentHash: string; membershipFingerprint: string; artifact: Artifact }
+  const rowsOf = (label: string, codes: string[]): ImportRow[] => artifactOf(label, codes).rows
+  // The import request for one artifact: its bytes and the two fingerprints this harness computed on its own.
+  const importBodyOf = (versionId: string, artifact: Artifact, label: string, overrides: Record<string, unknown> = {}) => ({
+    datasetVersionId: versionId, artifactFormat: ARTIFACT_FORMAT, artifactBase64: artifact.bytes.toString('base64'), sourceFileSha256: artifact.sourceFileSha256,
+    membershipFingerprintSha256: artifact.membershipFingerprint, sourceUri: `synthetic:${runId}/${label}`, publisher: 'Synthetic CRG fixture', expectedRowCount: artifact.rows.length, ...overrides,
+  })
   const datasetFor = async (label: string, authority: string, codeSystem: string, jurisdiction = JUR) => {
     const datasetId = okValue(`${label} dataset`, await importReferenceDataset({ datasetKey: key(label), displayName: `${runId} ${label}`, jurisdictionCode: jurisdiction, authorityCode: authority })).id
     okValue(`${label} identity`, await registerDatasetCodeSystem({ datasetId, codeSystem, purpose: 'CLAIM_CODING' }))
     return datasetId
   }
-  // One edition: an A3 version whose content hash is the fingerprint of its rows, imported completely through CRG
-  // (unless `imported` is false) before it is ever validated.
+  // One edition: an A3 version whose content hash is, in A3's own meaning, the SHA-256 of its retrieved source
+  // artifact; imported completely through CRG (unless `imported` is false) before it is ever validated.
   const editionOf = async (label: string, datasetId: string, window: { from: string | null; to: string | null }, codes: string[], options: { sourceVersionId?: string | null; imported?: boolean } = {}): Promise<Release> => {
-    const rows = rowsOf(label, codes.length > 0 ? codes : [`Z${runToken}`])
-    const contentHash = releaseContentFingerprint(rows)
+    const artifact = artifactOf(label, codes.length > 0 ? codes : [`Z${runToken}`])
+    const contentHash = artifact.sourceFileSha256
     const versionId = okValue(`${label} version`, await importReferenceDatasetVersion({ datasetId, sourceVersionId: options.sourceVersionId ?? null, version: label, retrievedAt: new Date().toISOString(), effectiveFrom: window.from, effectiveTo: window.to, contentHash })).id
-    if (options.imported !== false) okValue(`${label} import`, await importRelease({ datasetVersionId: versionId, sourceFileSha256: contentHash, sourceUri: `synthetic:${runId}/${label}`, publisher: 'Synthetic CRG fixture', expectedRowCount: rows.length, rows }))
-    return { datasetId, versionId, rows, contentHash }
+    if (options.imported !== false) okValue(`${label} import`, await importRelease(importBodyOf(versionId, artifact, label)))
+    return { datasetId, versionId, rows: artifact.rows, contentHash, membershipFingerprint: artifact.membershipFingerprint, artifact }
   }
   const validated = async (release: Release, statusValue = 'VALIDATED') => okValue('validate', await validateReferenceDatasetVersion(release.versionId, statusValue, maintenanceActor))
   const activated = async (release: Release) => okValue('activate', await activateReferenceDatasetVersion(release.versionId, maintenanceActor))
@@ -743,7 +762,7 @@ async function main() {
       a1?.membership?.releaseContentHash === EA.contentHash && b1?.membership?.releaseContentHash === EB.contentHash && a1?.membership?.membershipId !== b1?.membership?.membershipId,
     'the same code answers two membership rows with their own source rows, row SHA-256 and release checksums, each bound to its own edition',
   )
-  const dupRows = await importRelease({ datasetVersionId: EB.versionId, sourceFileSha256: EB.contentHash, sourceUri: 'synthetic:x', publisher: 'x', expectedRowCount: 2, rows: [EB.rows[0], { ...EB.rows[0], sourceRowId: 'other' }] })
+  const dupRows = await importRelease(importBodyOf(EB.versionId, artifactFromRecords([[EB.rows[0].sourceRowId, C1], ['other', C1]]), 'dup'))
   const sqlDupMembership = await one(
     `INSERT INTO crg_release_code_memberships (id, import_id, dataset_version_id, code_system, code, source_row_id, source_row_sha256, release_content_hash, contract_version) SELECT gen_random_uuid(), i.id, i.dataset_version_id, i.code_system, $2, 'dup-row', $3, $4, '${CONTRACT}' FROM crg_release_imports i WHERE i.dataset_version_id = $1::uuid`,
     [EA.versionId, C1, fingerprint('dup'), EA.contentHash], true,
@@ -790,22 +809,37 @@ async function main() {
   // ---------------------------------------------------------------- 03 import and source integrity (CRG-021–030)
   section('03 Import and source integrity: an unimported edition is never selected, hashes and counts are verified before commit, partial imports roll back, unverified, rejected and rights-blocked catalogues are never selected')
   const rNoimp = await checkOf(NOIMP.encounters[0])
-  const noHash = await importRelease({ datasetVersionId: BLK.releases[0].versionId, sourceUri: 'synthetic:x', publisher: 'x', expectedRowCount: 1, rows: BLK.releases[0].rows })
-  check('CRG-021', 'Missing source file or checksum blocks approval', decisionOf(rNoimp.body, DX1) === 'RELEASE_NOT_AUTHORIZED' && noHash.ok === false && noHash.code === 'VALIDATION_ERROR', 'a validated, activated edition without a complete CRG import is never selected (RELEASE_NOT_AUTHORIZED); an import without a source SHA-256 is a 400')
-  // A fresh, unvalidated edition to attack the import path on.
+  const noHash = await importRelease(importBodyOf(BLK.releases[0].versionId, BLK.releases[0].artifact, 'nohash', { sourceFileSha256: undefined }))
+  check('CRG-021', 'Missing source file or checksum blocks approval', decisionOf(rNoimp.body, DX1) === 'RELEASE_NOT_AUTHORIZED' && noHash.ok === false && noHash.code === 'VALIDATION_ERROR', 'a validated, activated edition without a complete CRG import is never selected (RELEASE_NOT_AUTHORIZED); an import without a source artifact SHA-256 is a 400')
+  // A fresh, unvalidated edition to attack the import path on. Its A3 content hash is its artifact's SHA-256.
   const PART_DS = await datasetFor('part', `${AUTH}-PART`, 'ICD-10-CM')
-  const partRows = rowsOf('part', [C1, C2])
-  const partHash = releaseContentFingerprint(partRows)
+  const partArtifact = artifactOf('part', [C1, C2])
+  const partRows = partArtifact.rows
+  const partHash = partArtifact.sourceFileSha256
   const PART = okValue('part version', await importReferenceDatasetVersion({ datasetId: PART_DS, version: 'part', retrievedAt: new Date().toISOString(), effectiveFrom: '2021-01-01', effectiveTo: null, contentHash: partHash })).id
-  const importOf = (o: Record<string, unknown>) => importRelease({ datasetVersionId: PART, sourceFileSha256: partHash, sourceUri: 'synthetic:part', publisher: 'Synthetic', expectedRowCount: 2, rows: partRows, ...o })
+  const importOf = (o: Record<string, unknown>) => importRelease(importBodyOf(PART, partArtifact, 'part', o))
+  const importInsert = (sourceSha: string, membershipSha: string, rows: number) =>
+    `INSERT INTO crg_release_imports (id, dataset_version_id, code_system, source_file_sha256, artifact_format, artifact_byte_length, membership_fingerprint_sha256, source_uri, publisher, expected_row_count, contract_version) VALUES (gen_random_uuid(), '${PART}'::uuid, 'ICD-10-CM', '${sourceSha}', '${ARTIFACT_FORMAT}', ${partArtifact.bytes.length}, '${membershipSha}', 'synthetic:x', 'x', ${rows}, '${CONTRACT}')`
+  const memberInsert = (row: ImportRow) =>
+    `INSERT INTO crg_release_code_memberships (id, import_id, dataset_version_id, code_system, code, source_row_id, source_row_sha256, release_content_hash, contract_version) SELECT gen_random_uuid(), i.id, i.dataset_version_id, 'ICD-10-CM', '${row.code}', '${row.sourceRowId}', '${row.sourceRowSha256}', '${partHash}', '${CONTRACT}' FROM crg_release_imports i WHERE i.dataset_version_id = '${PART}'::uuid`
   const wrongDeclared = await importOf({ sourceFileSha256: fingerprint('wrong') })
-  const tamperedRows = await importOf({ rows: [partRows[0], { ...partRows[1], code: C3 }] })
-  const sqlWrongHash = await one(`INSERT INTO crg_release_imports (id, dataset_version_id, code_system, source_file_sha256, source_uri, publisher, expected_row_count, contract_version) VALUES (gen_random_uuid(), $1::uuid, 'ICD-10-CM', $2, 'synthetic:x', 'x', 2, '${CONTRACT}')`, [PART, fingerprint('wrong')])
+  // A self-consistent artifact whose bytes differ from the retrieved one A3 recorded.
+  const tamperedArtifact = artifactFromRecords([[partRows[0].sourceRowId, C1], [partRows[1].sourceRowId, C3]])
+  const tampered = await importRelease(importBodyOf(PART, tamperedArtifact, 'part'))
+  const wrongMembership = await importOf({ membershipFingerprintSha256: fingerprint('wrong membership') })
+  const sqlWrongHash = await one(importInsert(fingerprint('wrong'), partArtifact.membershipFingerprint, 2), [])
+  // A direct import whose rows do not reproduce its recorded membership fingerprint: the database recomputes it at commit.
+  const sqlWrongMembership = await rolledBack(async (tx) => {
+    await tx.$executeRawUnsafe(importInsert(partHash, fingerprint('wrong membership'), 2))
+    for (const row of partRows) await tx.$executeRawUnsafe(memberInsert(row))
+    await tx.$executeRawUnsafe('SET CONSTRAINTS crg_release_imports_complete_trg IMMEDIATE')
+  })
   check(
     'CRG-022',
     'Wrong source hash refused before import commit',
-    [wrongDeclared, tamperedRows].every((r) => r.ok === false && r.code === 'SOURCE_INTEGRITY_CONFLICT') && sqlWrongHash.refused && /crg_import_hash/.test(sqlWrongHash.message) && (await prisma.crgReleaseImport.count({ where: { datasetVersionId: PART } })) === 0,
-    "a declared SHA-256 that is not the rows' fingerprint, and rows altered after fingerprinting, are refused before any write; a direct import whose hash is not the edition's content hash is refused by the guard; nothing was imported",
+    [wrongDeclared, tampered, wrongMembership].every((r) => r.ok === false && r.code === 'SOURCE_INTEGRITY_CONFLICT') && sqlWrongHash.refused && /crg_import_hash/.test(sqlWrongHash.message) &&
+      /crg_import_fingerprint/.test(sqlWrongMembership.message) && sqlWrongMembership.clean && (await prisma.crgReleaseImport.count({ where: { datasetVersionId: PART } })) === 0,
+    "an artifact whose bytes do not reproduce the declared source SHA-256, an artifact whose bytes differ from the one A3 recorded, and records that do not reproduce the declared membership fingerprint are refused before any write; the database refuses a direct import whose source SHA-256 is not the edition's content hash (guard) and one whose rows do not reproduce its membership fingerprint (recomputed at commit); nothing was imported",
   )
   clearConcurrencyProbes()
   const failRows = { reached: 0 }
@@ -816,11 +850,8 @@ async function main() {
   const crashed = await attemptAdversarial(() => importOf({}))
   clearConcurrencyProbes()
   const halfCommit = await rolledBack(async (tx) => {
-    await tx.$executeRawUnsafe(`INSERT INTO crg_release_imports (id, dataset_version_id, code_system, source_file_sha256, source_uri, publisher, expected_row_count, contract_version) VALUES (gen_random_uuid(), $1::uuid, 'ICD-10-CM', $2, 'synthetic:x', 'x', 2, '${CONTRACT}')`, PART, partHash)
-    await tx.$executeRawUnsafe(
-      `INSERT INTO crg_release_code_memberships (id, import_id, dataset_version_id, code_system, code, source_row_id, source_row_sha256, release_content_hash, contract_version) SELECT gen_random_uuid(), i.id, i.dataset_version_id, 'ICD-10-CM', $2, $3, $4, $5, '${CONTRACT}' FROM crg_release_imports i WHERE i.dataset_version_id = $1::uuid`,
-      PART, partRows[0].code, partRows[0].sourceRowId, partRows[0].sourceRowSha256, partHash,
-    )
+    await tx.$executeRawUnsafe(importInsert(partHash, partArtifact.membershipFingerprint, 2))
+    await tx.$executeRawUnsafe(memberInsert(partRows[0]))
     await tx.$executeRawUnsafe('SET CONSTRAINTS crg_release_imports_complete_trg IMMEDIATE')
   })
   check(
@@ -830,13 +861,13 @@ async function main() {
       (await prisma.crgReleaseCodeMembership.count({ where: { datasetVersionId: PART } })) === 0,
     'a failure after the rows were written rolled back the import and every row; a direct import holding 1 of its declared 2 rows is refused by the completeness trigger; nothing remains',
   )
-  const shortRows = await importOf({ rows: [partRows[0]] })
-  const dupRowIds = await importOf({ rows: [partRows[0], { ...partRows[1], sourceRowId: partRows[0].sourceRowId }] })
+  const shortRows = await importOf({ expectedRowCount: 3 })
+  const dupRowIds = await importRelease(importBodyOf(PART, artifactFromRecords([[partRows[0].sourceRowId, C1], [partRows[0].sourceRowId, C2]]), 'part'))
   check(
     'CRG-024',
     'Duplicate source rows and mismatched row count refused',
     shortRows.ok === false && shortRows.code === 'SOURCE_INTEGRITY_CONFLICT' && dupRowIds.ok === false && dupRowIds.code === 'VALIDATION_ERROR' && /crg_import_incomplete/.test(halfCommit.message),
-    'rows fewer than the declared count are refused before any write; a repeated source row id is a 400; and the database refuses a short import (CRG-023)',
+    'an artifact with fewer records than the declared count is refused before any write; an artifact repeating a source row id is a 400; and the database refuses a short import (CRG-023)',
   )
   const rNod = await checkOf(NOD.encounters[0])
   check('CRG-025', 'Invalid effective window refused', contradictory.ok === false && decisionOf(rNod.body, DX1) === 'NO_APPROVED_RELEASE', 'A3 refuses a window that ends before it starts; an edition without an effective-from date is never selected')
@@ -855,12 +886,14 @@ async function main() {
     "an approved, imported edition is never used where its code system's rights are BLOCKED, absent, or APPROVED then revoked (the latest numbered decision, 2, governs)",
   )
   const crgColumns = (await prisma.$queryRawUnsafe<{ c: string }[]>(`SELECT column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ANY($1::text[])`, CRG_TABLES)).map((r) => r.c)
-  const withDescriptor = await importRelease({ datasetVersionId: PART, sourceFileSha256: partHash, sourceUri: 'synthetic:part', publisher: 'Synthetic', expectedRowCount: 2, rows: partRows.map((r) => ({ ...r, descriptor: 'licensed text' })) })
+  // An artifact record carrying a third (descriptor) field, and a request carrying rows or descriptors beside the artifact.
+  const withDescriptor = await importOf({ artifactBase64: Buffer.from(`${partRows[0].sourceRowId}\t${C1}\tlicensed descriptor text\n${partRows[1].sourceRowId}\t${C2}\n`, 'utf8').toString('base64') })
+  const withRows = await importOf({ rows: partRows.map((r) => ({ ...r, descriptor: 'licensed text' })) })
   check(
     'CRG-028',
     'Metadata-only import works with descriptors blocked',
-    !!a1?.membership && !crgColumns.some((c) => /descr|display|name|text|title|label/.test(c)) && withDescriptor.ok === false && withDescriptor.code === 'VALIDATION_ERROR',
-    'every edition was imported as identifiers and fingerprints only; no CRG column can hold descriptor text and a row carrying one is refused',
+    !!a1?.membership && !crgColumns.some((c) => /descr|display|name|text|title|label/.test(c)) && [withDescriptor, withRows].every((r) => r.ok === false && r.code === 'VALIDATION_ERROR'),
+    'every edition was imported as identifiers and fingerprints only (the artifact bytes are never stored); no CRG column can hold descriptor text, an artifact record carrying one is refused and supplied rows are never accepted',
   )
   const rMasq = await checkOf(MASQ.encounters[0])
   const sqlMasq = await one(`INSERT INTO crg_code_system_datasets (id, dataset_id, code_system, purpose, jurisdiction_code, authority_code, contract_version) VALUES (gen_random_uuid(), $1::uuid, 'ICD-10-CM', 'CLAIM_CODING', $2, 'DHA', '${CONTRACT}')`, [PART_DS, JUR])
@@ -980,7 +1013,7 @@ async function main() {
     {
       datasetVersionId: EA.versionId, datasetId: DX, datasetJurisdictionCode: JUR, datasetAuthorityCode: AUTH, mappingCodeSystem: 'ICD-10-CM', mappingPurpose: 'CLAIM_CODING', mappingJurisdictionCode: JUR, mappingAuthorityCode: AUTH,
       version: '2021', effectiveFrom: '2021-01-01', effectiveTo: '2026-12-31', validationStatus: 'VALIDATED', activationStatus: 'SUPERSEDED', contentHash: EA.contentHash, sourceVersionId: sourceVersion.id, lifecycle: lifecycleA,
-      importId: a1?.edition?.importId ?? randomUUID(), importSourceFileSha256: EA.contentHash, importExpectedRowCount: 2, importRowCount: 2, retirementClassification: null,
+      importId: a1?.edition?.importId ?? randomUUID(), importSourceFileSha256: EA.contentHash, importMembershipFingerprint: EA.membershipFingerprint, importExpectedRowCount: 2, importRowCount: 2, retirementClassification: null,
     },
   ]
   const pure = new Set(Array.from({ length: 100 }, () => JSON.stringify(resolveEdition({ serviceDate: '2026-12-31', jurisdictionCode: JUR, authorityCode: AUTH, rights: { 'ICD-10-CM': 'APPROVED' } }, 'ICD-10-CM', pureInput))))
@@ -1065,7 +1098,7 @@ async function main() {
     act1.ok && act2.ok && raceStates.filter((s) => s.activationStatus === 'ACTIVE').length === 1 && raceStates.filter((s) => s.activationStatus === 'SUPERSEDED').length === 1 && decisionOf(rOvl.body, DX1) === 'CONFLICTING_RELEASES',
     "two activations of one dataset at once leave exactly one ACTIVE and one SUPERSEDED (A3's lock); editions overlapping across datasets are refused as CONFLICTING_RELEASES, never silently replaced",
   )
-  block('CRG-114', 'Catalogue-size scale test meets approved latency budget', 'no latency budget has been approved yet (A10); the import path is bounded at 5000 rows per edition and every read is one indexed snapshot')
+  block('CRG-114', 'Catalogue-size scale test meets approved latency budget', 'no latency budget has been approved yet (A10); the full-size synthetic import and read are executed and measured in CRG-G07, and those measurements await an approved budget')
   const UNK = okValue('unknown-outcome version', await importReferenceDatasetVersion({ datasetId: PART_DS, version: 'unknown-outcome', retrievedAt: new Date().toISOString(), effectiveFrom: '2021-01-01', effectiveTo: null, contentHash: partHash })).id
   clearConcurrencyProbes()
   const lost = { reached: 0 }
@@ -1073,7 +1106,7 @@ async function main() {
     lost.reached += 1
     throw new Error('Connection terminated unexpectedly')
   })
-  const lostOutcome = await attemptAdversarial(() => importRelease({ datasetVersionId: UNK, sourceFileSha256: partHash, sourceUri: 'synthetic:unknown', publisher: 'Synthetic', expectedRowCount: 2, rows: partRows }))
+  const lostOutcome = await attemptAdversarial(() => importRelease(importBodyOf(UNK, partArtifact, 'unknown')))
   clearConcurrencyProbes()
   check(
     'CRG-115',
@@ -1246,6 +1279,134 @@ async function main() {
   const goldenAfter = { r26: withoutEvaluatedAt((await checkOf(E26)).body), r27: withoutEvaluatedAt((await checkOf(E27)).body), t03: withoutEvaluatedAt((await checkOf(T03.encounterId)).body) }
   progress(`golden decisions: encounter ${E26} (2026-12-31) → edition 2021 ${EA.versionId}; encounter ${E27} (2027-01-01) → edition 2024 ${EB.versionId}; resubmitted claim ${T03.claimId} stays on 2021`)
   check('CRG-G06', 'Golden decisions byte-stable after restart', same(goldenAfter, goldenBefore), 'after the nested chain, its database restarts and an outage, the 2026, 2027 and resubmitted-claim decisions read back identically')
+
+  // ---------------------------------------------------------------- audit CRG-F01: a full-size synthetic catalogue
+  // 100,000 records, more than the largest real catalogue (ICD-10-CM, about 74,000 codes): written as 20 batches of
+  // IMPORT_BATCH_ROWS inside ONE transaction. A failure after the last batch leaves nothing; the successful import is
+  // complete, selected and read. Timings are measured and reported; CRG-114 stays BLOCKED until a budget is approved.
+  const SCALE_ROWS = 100_000
+  const scaleAuthority = `${AUTH}-SCALE`
+  await rights(scaleAuthority, 'ICD-10-CM', 'APPROVED')
+  const SCALE_DS = await datasetFor('scale', scaleAuthority, 'ICD-10-CM')
+  const scaleCodes = Array.from({ length: SCALE_ROWS }, (_, i) => `S${runToken}.${i}`)
+  const scaleArtifact = artifactOf('scale', scaleCodes)
+  const failArtifact = artifactOf('scale-fail', scaleCodes)
+  const scaleVersion = async (label: string, artifact: Artifact) =>
+    okValue(`${label} version`, await importReferenceDatasetVersion({ datasetId: SCALE_DS, version: label, retrievedAt: new Date().toISOString(), effectiveFrom: '2021-01-01', effectiveTo: label === 'scale' ? null : '2021-01-01', contentHash: artifact.sourceFileSha256 })).id
+  const SCALE_FAIL = await scaleVersion('scale-fail', failArtifact)
+  const SCALE = await scaleVersion('scale', scaleArtifact)
+  clearConcurrencyProbes()
+  // Probes are one-shot; the batch counter re-arms itself so it sees every batch.
+  const scaleBatches = { failing: 0 }
+  const countBatch = async () => {
+    scaleBatches.failing += 1
+    setConcurrencyProbe('codingRelease.batch_recorded', countBatch)
+  }
+  setConcurrencyProbe('codingRelease.batch_recorded', countBatch)
+  setConcurrencyProbe('codingRelease.rows_recorded', async () => {
+    throw new Error('injected failure after the last batch')
+  })
+  const failStarted = Date.now()
+  const scaleFailure = await attemptAdversarial(() => importRelease(importBodyOf(SCALE_FAIL, failArtifact, 'scale-fail')))
+  const failMs = Date.now() - failStarted
+  clearConcurrencyProbes()
+  const failedLeftovers = (await prisma.crgReleaseImport.count({ where: { datasetVersionId: SCALE_FAIL } })) + (await prisma.crgReleaseCodeMembership.count({ where: { datasetVersionId: SCALE_FAIL } }))
+  const importStarted = Date.now()
+  const scaleImport = await importRelease(importBodyOf(SCALE, scaleArtifact, 'scale'))
+  const importMs = Date.now() - importStarted
+  const scaleStored = await prisma.crgReleaseCodeMembership.count({ where: { datasetVersionId: SCALE } })
+  const scaleRelease: Release = { datasetId: SCALE_DS, versionId: SCALE, rows: scaleArtifact.rows, contentHash: scaleArtifact.sourceFileSha256, membershipFingerprint: scaleArtifact.membershipFingerprint, artifact: scaleArtifact }
+  await live(scaleRelease)
+  const scaleFacility = await facilityFor('scale', JUR, scaleAuthority)
+  const scaleLast = await dx(scaleCodes[SCALE_ROWS - 1])
+  const scaleEncounter = await encounterAt(scaleFacility, '2026-06-15', [scaleLast])
+  const readTimes: number[] = []
+  let scaleRead: { status: number; body: any } = { status: 0, body: null }
+  for (let i = 0; i < 5; i += 1) {
+    const started = Date.now()
+    scaleRead = await checkOf(scaleEncounter)
+    readTimes.push(Date.now() - started)
+  }
+  const medianRead = [...readTimes].sort((a, b) => a - b)[2]
+  check(
+    'CRG-G07',
+    'Full-size synthetic catalogue imports atomically',
+    /injected failure after the last batch/.test(scaleFailure) && scaleBatches.failing === SCALE_ROWS / 5000 && failedLeftovers === 0 &&
+      scaleImport.ok && scaleImport.value.recorded === SCALE_ROWS && scaleImport.value.batches === SCALE_ROWS / 5000 && scaleStored === SCALE_ROWS &&
+      scaleRead.status === 200 && decisionOf(scaleRead.body, scaleLast) === 'APPLICABLE' && editionIdOf(scaleRead.body, scaleLast) === SCALE,
+    `${SCALE_ROWS} records in ${SCALE_ROWS / 5000} batches of 5000 inside one transaction: a failure after the last of ${scaleBatches.failing} written batches (${failMs} ms) left ${failedLeftovers} rows; the import committed all ${scaleStored} rows in ${importMs} ms; the code in its last record resolves APPLICABLE on that edition, median read ${medianRead} ms (reads ${readTimes.join('/')} ms)`,
+  )
+
+  // ---------------------------------------------------------------- audit CRG-F02: source and membership fingerprints
+  // For every edition this run imported through the full path, re-derive both fingerprints from the artifact bytes
+  // independently of the production reader, and compare them with the A3 edition, the CRG import, every membership
+  // row, a database-side recomputation and the read's basis.
+  const verifyRelease = async (release: Release) => {
+    const version = await prisma.referenceDatasetVersion.findUniqueOrThrow({ where: { id: release.versionId }, select: { contentHash: true } })
+    const record = await prisma.crgReleaseImport.findUniqueOrThrow({ where: { datasetVersionId: release.versionId } })
+    const stored = await prisma.crgReleaseCodeMembership.findMany({ where: { importId: record.id }, select: { sourceRowId: true, code: true, sourceRowSha256: true, releaseContentHash: true } })
+    const lines = new Map(release.artifact.bytes.toString('utf8').slice(0, -1).split('\n').map((line) => [line.split('\t')[0], line]))
+    const recomputed = (await prisma.$queryRawUnsafe<{ h: string }[]>(
+      `SELECT encode(sha256(convert_to(string_agg(m.source_row_id || E'\\t' || m.code || E'\\t' || m.source_row_sha256 || E'\\n', '' ORDER BY m.source_row_id COLLATE "C"), 'UTF8')), 'hex') AS h FROM crg_release_code_memberships m WHERE m.import_id = $1::uuid`,
+      record.id,
+    ))[0].h
+    const artifactSha = sha256Of(release.artifact.bytes)
+    const membershipSha = membershipFingerprintOf(stored)
+    return (
+      version.contentHash === artifactSha && record.sourceFileSha256 === artifactSha && record.artifactFormat === ARTIFACT_FORMAT && Number(record.artifactByteLength) === release.artifact.bytes.length &&
+      record.membershipFingerprintSha256 === membershipSha && membershipSha === release.membershipFingerprint && recomputed === membershipSha && membershipSha !== artifactSha &&
+      stored.length === lines.size && stored.every((row) => lines.has(row.sourceRowId) && sha256Of(Buffer.from(lines.get(row.sourceRowId) as string, 'utf8')) === row.sourceRowSha256 && row.releaseContentHash === artifactSha)
+    )
+  }
+  const verifiedReleases = [EA, EB, EP, scaleRelease]
+  const verified = await Promise.all(verifiedReleases.map(verifyRelease))
+  const basisA = itemOf((await checkOf(E26)).body, 'DIAGNOSIS', DX1)?.edition
+  check(
+    'CRG-G09',
+    'Source and membership fingerprints independently verified',
+    verified.every(Boolean) && basisA?.contentHash === EA.artifact.sourceFileSha256 && basisA?.membershipFingerprintSha256 === EA.membershipFingerprint && basisA.contentHash !== basisA.membershipFingerprintSha256,
+    `for ${verifiedReleases.length} editions (${verifiedReleases.map((r) => r.rows.length).join(', ')} records): artifact bytes → A3 content hash = import source SHA-256 (A3 meaning kept); each record's line → its row SHA-256; rows → membership fingerprint, equal in the import, recomputed in SQL and in this harness, and different from the artifact hash; the read's basis carries both`,
+  )
+
+  // ---------------------------------------------------------------- review of the four bundled A7 harness corrections
+  // For A7.2 T026, A7.3 T105, A7.4 T107 and A7.5 T108: the pattern is the one they had before; on their own branch the
+  // later-phase set is empty (the original predicate); at this HEAD the only live table the correction excludes is
+  // CRG-01's own import table; and a table no committed migration creates (rolled back) is still refused.
+  const BUNDLED_REVIEW = [
+    { path: BUNDLED_HARNESS_FIXES[0], branchConst: 'a72Branch', branchName: 'feature/a7-2-evidence-classification', check: 'T026' },
+    { path: BUNDLED_HARNESS_FIXES[1], branchConst: 'a73Branch', branchName: 'feature/a7-3-adjudication-evidence-readiness', check: 'T105' },
+    { path: BUNDLED_HARNESS_FIXES[2], branchConst: 'a74Branch', branchName: 'feature/a7-4-revenue-evidence-case-assembly', check: 'T107' },
+    { path: BUNDLED_HARNESS_FIXES[3], branchConst: 'a75Branch', branchName: 'feature/a7-5-case-closure-prerequisite-assessment', check: 'T108' },
+  ]
+  const patternIn = (text: string) => (text.split(/\r?\n/).find((line) => /table_name ~\* '\([^']*\)'/.test(line) && /import/.test(line)) ?? '').match(/table_name ~\* '(\([^']*\))'/)?.[1] ?? ''
+  const createdAfter = (merge: string) =>
+    migrationDirsAt(ownTip).filter((dir) => !migrationDirsAt(merge).includes(dir)).flatMap((dir) => [...gitArgs(['show', `${ownTip}:${dir}/migration.sql`]).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]))
+  const probeTable = `remittance_import_probe_${runToken}`
+  const reviews = await Promise.all(
+    BUNDLED_REVIEW.map(async (suite) => {
+      const before = patternIn(gitArgs(['show', `${ownBase}:${suite.path}`]))
+      const after = patternIn(gitArgs(['show', `${ownTip}:${suite.path}`]))
+      const merge = mergeOf(suite.branchName)
+      const later = new Set(merge ? createdAfter(merge) : [])
+      const liveMatches = (await prisma.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* $1 ORDER BY 1`, before)).map((r) => r.t)
+      const ownBranchForm = gitArgs(['show', `${ownTip}:${suite.path}`]).includes(`const ownMerge = branch === ${suite.branchConst} ? '' : mergeOf(${suite.branchConst})`)
+      return { suite, before, after, merge, later, excluded: liveMatches.filter((t) => later.has(t)), stillJudged: liveMatches.filter((t) => !later.has(t)), ownBranchForm }
+    }),
+  )
+  const probe = await rolledBack(async (tx) => {
+    await tx.$executeRawUnsafe(`CREATE TABLE "${probeTable}" (id integer)`)
+    return Promise.all(
+      reviews.map(async (review) => (await tx.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* $1`, review.before)).map((r) => r.t).filter((t) => !review.later.has(t))),
+    )
+  })
+  const probeGone = (await prisma.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_name = $1`, probeTable)).length === 0
+  check(
+    'CRG-G08',
+    'Bundled A7 corrections weaken no protection',
+    reviews.every((r) => r.before.length > 0 && r.after === r.before && r.merge.length === 40 && r.ownBranchForm && same(r.excluded, ['crg_release_imports']) && r.stillJudged.length === 0 && createdAfter(r.merge).includes('crg_release_imports')) &&
+      (probe.value ?? []).length === 4 && (probe.value ?? []).every((caught) => caught.includes(probeTable)) && probeGone,
+    `${reviews.map((r) => `${r.suite.path.split('/')[3]} ${r.suite.check}`).join(', ')}: each pattern is byte-identical to its accepted one; on its own branch (ownMerge '') nothing is excluded; at this HEAD each excludes exactly crg_release_imports (created by this package's migration) and nothing else; a hand-made ${probeTable} (no migration, rolled back) is still refused by all four`,
+  )
   check('CRG-126', 'Zero unexpected 5xx', serverErrors === 0 && connectionResets === 0, `${serverErrors} HTTP 5xx answers and ${connectionResets} connection resets in this run`)
   const headNow = git('rev-parse HEAD')
   check(

@@ -7,8 +7,10 @@ import { refusedReadRequest, validateDatasetCodeSystem, validateReleaseImport, v
 const D = '00000000-0000-4000-8000-0000000000d1'
 const V = '00000000-0000-4000-8000-0000000000e1'
 const sha = (c: string) => c.repeat(64)
-const row = (n: number, o: Record<string, unknown> = {}) => ({ sourceRowId: `row-${n}`, code: `C${n}`, sourceRowSha256: sha('a'), ...o })
-const importBody = (o: Record<string, unknown> = {}) => ({ datasetVersionId: V, sourceFileSha256: sha('b'), sourceUri: 'synthetic:test', publisher: 'Synthetic', expectedRowCount: 1, rows: [row(1)], ...o })
+const artifactBase64 = Buffer.from('row-1\tC1\n', 'utf8').toString('base64')
+const importBody = (o: Record<string, unknown> = {}) => ({
+  datasetVersionId: V, artifactFormat: 'CRG-SYNTHETIC-TSV-1', artifactBase64, sourceFileSha256: sha('b'), membershipFingerprintSha256: sha('a'), sourceUri: 'synthetic:test', publisher: 'Synthetic', expectedRowCount: 1, ...o,
+})
 
 test('a dataset identity is exactly a dataset id, one controlled code system and one purpose (CRG-011, 012)', () => {
   assert.deepEqual(validateDatasetCodeSystem({ datasetId: D.toUpperCase(), codeSystem: 'ICD-10-CM', purpose: 'CLAIM_CODING' }), { ok: true, value: { datasetId: D, codeSystem: 'ICD-10-CM', purpose: 'CLAIM_CODING' } })
@@ -34,14 +36,21 @@ test('a rights decision is controlled and carries a basis reference (CRG-008, 02
   }
 })
 
-test('an import is a fingerprinted, counted set of unique source rows, never descriptor text (CRG-021–024, 028)', () => {
-  assert.deepEqual(validateReleaseImport(importBody({ rows: [row(1, { code: ' c1 ' })] })).ok, true)
+test('an import is an original artifact with two separate fingerprints and a declared count, no size ceiling and never supplied rows (CRG-021–024, 028, F01, F02)', () => {
+  const accepted = validateReleaseImport(importBody())
+  assert.ok(accepted.ok)
+  assert.equal(accepted.value.artifact.toString('utf8'), 'row-1\tC1\n')
+  // No release-size limit: a count far above the old 5,000 is a valid declaration.
+  assert.equal(validateReleaseImport(importBody({ expectedRowCount: 250_000 })).ok, true)
+  // A multi-megabyte artifact (100,000 records) validates in linear time, without exhausting the stack.
+  const large = Buffer.from(Array.from({ length: 100_000 }, (_, i) => `row-${i}\tC${i}\n`).join(''), 'utf8').toString('base64')
+  assert.equal(validateReleaseImport(importBody({ artifactBase64: large, expectedRowCount: 100_000 })).ok, true)
   for (const body of [
-    importBody({ sourceFileSha256: sha('B') }), importBody({ sourceFileSha256: undefined }), importBody({ sourceUri: 'http://insecure.invalid/x' }), importBody({ publisher: '' }),
-    importBody({ expectedRowCount: 0 }), importBody({ expectedRowCount: 1.5 }), importBody({ rows: [] }), importBody({ rows: [row(1, { descriptor: 'licensed text' })] }),
-    importBody({ rows: [row(1), row(1)] }), importBody({ rows: [row(1), row(2, { code: 'C1' })] }), importBody({ rows: [row(1, { code: 'C 1' })] }), importBody({ rows: [row(1, { sourceRowId: ' bad id' })] }),
-    importBody({ rows: [row(1, { sourceRowSha256: 'abc' })] }), importBody({ datasetVersionId: 'x' }), importBody({ effectiveFrom: '2027-01-01' }),
-    importBody({ rows: Array.from({ length: 5001 }, (_, i) => row(i)) }),
+    importBody({ sourceFileSha256: sha('B') }), importBody({ sourceFileSha256: undefined }), importBody({ membershipFingerprintSha256: undefined }), importBody({ membershipFingerprintSha256: 'abc' }),
+    importBody({ sourceUri: 'http://insecure.invalid/x' }), importBody({ publisher: '' }), importBody({ expectedRowCount: 0 }), importBody({ expectedRowCount: 1.5 }), importBody({ expectedRowCount: 2 ** 31 }),
+    importBody({ artifactFormat: 'ICD10CM-ORDER-2024' }), importBody({ artifactFormat: undefined }), importBody({ artifactBase64: '' }), importBody({ artifactBase64: 'not base64!' }),
+    importBody({ artifactBase64: `${artifactBase64}=` }), importBody({ rows: [{ sourceRowId: 'row-1', code: 'C1', sourceRowSha256: sha('a') }] }), importBody({ descriptors: ['licensed text'] }),
+    importBody({ datasetVersionId: 'x' }), importBody({ effectiveFrom: '2027-01-01' }),
   ]) {
     assert.equal(validateReleaseImport(body).ok, false, JSON.stringify(body).slice(0, 140))
   }

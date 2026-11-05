@@ -3,11 +3,12 @@
 -- Creates exactly five append-only, CRG-owned tables beside the reused A3 reference-dataset model:
 -- crg_code_system_datasets (a dataset's code system and purpose), crg_code_system_rights (numbered rights decisions
 -- per jurisdiction, authority and code system), crg_release_imports (one complete import per edition, bound to the
--- edition's content hash), crg_release_code_memberships (the immutable code membership of an edition) and
+-- edition's content hash as its source artifact SHA-256 and carrying its own membership fingerprint),
+-- crg_release_code_memberships (the immutable code membership of an edition) and
 -- crg_retirement_classifications (what a RETIRED edition's retirement means). Each has RESTRICT foreign keys, unique
 -- keys, CHECKs, an insert guard (database time and the coherence of each record with its A3 parent) and append-only
 -- and TRUNCATE triggers; a deferred constraint trigger refuses any import whose rows do not reproduce its declared
--- count and SHA-256 at commit. No applied migration is modified, no existing table is altered, and the generated
+-- count and membership fingerprint at commit. No applied migration is modified, no existing table is altered, and the generated
 -- statements below were produced schema-to-schema with no unrelated drift.
 --
 -- This is Checkpoint A only: it imports no licensed catalogue, stores no descriptor text, blocks no claim and changes
@@ -50,6 +51,9 @@ CREATE TABLE "crg_release_imports" (
     "dataset_version_id" UUID NOT NULL,
     "code_system" TEXT NOT NULL,
     "source_file_sha256" TEXT NOT NULL,
+    "artifact_format" TEXT NOT NULL,
+    "artifact_byte_length" BIGINT NOT NULL,
+    "membership_fingerprint_sha256" TEXT NOT NULL,
     "source_uri" TEXT NOT NULL,
     "publisher" TEXT NOT NULL,
     "expected_row_count" INTEGER NOT NULL,
@@ -151,12 +155,21 @@ ALTER TABLE "crg_code_system_rights"
 ALTER TABLE "crg_release_imports"
   ADD CONSTRAINT "crg_release_imports_contract_chk" CHECK ("contract_version" IS NOT NULL AND "contract_version" = 'CRG-CODESET-1'),
   ADD CONSTRAINT "crg_release_imports_code_system_chk" CHECK ("code_system" IS NOT NULL AND "code_system" IN ('ICD-10-CM', 'CPT', 'HCPCS-LEVEL-II')),
-  ADD CONSTRAINT "crg_release_imports_fingerprint_chk" CHECK ("source_file_sha256" IS NOT NULL AND "source_file_sha256" ~ '^[0-9a-f]{64}$'),
+  -- Two different fingerprints (audit CRG-F02): the source artifact's SHA-256 and the normalized membership's.
+  ADD CONSTRAINT "crg_release_imports_fingerprint_chk" CHECK (
+    "source_file_sha256" IS NOT NULL AND "source_file_sha256" ~ '^[0-9a-f]{64}$'
+    AND "membership_fingerprint_sha256" IS NOT NULL AND "membership_fingerprint_sha256" ~ '^[0-9a-f]{64}$'
+  ),
+  -- Only the synthetic artifact format is readable in Checkpoint A; a real catalogue format is a later, approved change.
+  ADD CONSTRAINT "crg_release_imports_artifact_chk" CHECK (
+    "artifact_format" IS NOT NULL AND "artifact_format" IN ('CRG-SYNTHETIC-TSV-1') AND "artifact_byte_length" IS NOT NULL AND "artifact_byte_length" >= 1
+  ),
   ADD CONSTRAINT "crg_release_imports_source_chk" CHECK (
     "source_uri" IS NOT NULL AND "source_uri" ~ '^(https://|synthetic:)' AND length("source_uri") <= 500
     AND "publisher" IS NOT NULL AND length(btrim("publisher")) BETWEEN 1 AND 120
   ),
-  ADD CONSTRAINT "crg_release_imports_row_count_chk" CHECK ("expected_row_count" IS NOT NULL AND "expected_row_count" BETWEEN 1 AND 5000);
+  -- No release-size limit (audit CRG-F01): any positive count the integer column holds.
+  ADD CONSTRAINT "crg_release_imports_row_count_chk" CHECK ("expected_row_count" IS NOT NULL AND "expected_row_count" >= 1);
 
 ALTER TABLE "crg_release_code_memberships"
   ADD CONSTRAINT "crg_release_code_memberships_contract_chk" CHECK ("contract_version" IS NOT NULL AND "contract_version" = 'CRG-CODESET-1'),
@@ -215,8 +228,8 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER crg_code_system_rights_insert_guard_trg BEFORE INSERT ON "crg_code_system_rights" FOR EACH ROW EXECUTE FUNCTION crg_code_system_rights_insert_guard();
 
 -- An import is recorded at the database's own time, for an edition whose dataset is mapped to exactly its code system,
--- whose content hash is exactly the source file's SHA-256, and which has never been validated or activated (an
--- activated release never changes meaning).
+-- whose content hash (A3's hash of the retrieved content) is exactly the source artifact's SHA-256, and which has never
+-- been validated or activated (an activated release never changes meaning).
 CREATE OR REPLACE FUNCTION crg_release_imports_insert_guard()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -249,9 +262,9 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER crg_release_imports_insert_guard_trg BEFORE INSERT ON "crg_release_imports" FOR EACH ROW EXECUTE FUNCTION crg_release_imports_insert_guard();
 
--- At commit, an import holds exactly its declared number of rows and their content fingerprint (SHA-256 over
--- `source_row_id TAB code TAB source_row_sha256 LF`, ordered by source row id) is exactly its source file SHA-256.
--- A partial, padded or altered import never commits.
+-- At commit, an import holds exactly its declared number of rows and their membership fingerprint (SHA-256 over
+-- `source_row_id TAB code TAB source_row_sha256 LF`, ordered by source row id), recomputed here, is exactly its
+-- recorded membership fingerprint. A partial, padded or altered import never commits, however many batches wrote it.
 CREATE OR REPLACE FUNCTION crg_release_imports_complete()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -264,8 +277,8 @@ BEGIN
   IF stored IS DISTINCT FROM NEW."expected_row_count" THEN
     RAISE EXCEPTION 'crg_import_incomplete: the import holds % rows, not the declared %', stored, NEW."expected_row_count" USING ERRCODE = 'check_violation';
   END IF;
-  IF fingerprint IS DISTINCT FROM NEW."source_file_sha256" THEN
-    RAISE EXCEPTION 'crg_import_hash: the imported rows do not reproduce the source file SHA-256' USING ERRCODE = 'check_violation';
+  IF fingerprint IS DISTINCT FROM NEW."membership_fingerprint_sha256" THEN
+    RAISE EXCEPTION 'crg_import_fingerprint: the imported rows do not reproduce the membership fingerprint' USING ERRCODE = 'check_violation';
   END IF;
   RETURN NULL;
 END;
@@ -273,42 +286,42 @@ $$ LANGUAGE plpgsql;
 
 CREATE CONSTRAINT TRIGGER crg_release_imports_complete_trg AFTER INSERT ON "crg_release_imports" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION crg_release_imports_complete();
 
--- A membership row is recorded at the database's own time, in the same transaction as its import (no row is ever
--- added later), for the import's own edition and code system, with the edition's content hash as its release
--- checksum, and never beyond the import's declared row count.
+-- Membership rows are recorded at the database's own time, in the same transaction as their import (no row is ever
+-- added later), for the import's own edition and code system, with the edition's content hash as their release
+-- checksum, and never beyond the import's declared row count. Judged once per INSERT statement over all of its rows
+-- (set-based, audit CRG-F01), so a release of any size costs a constant number of checks per batch, not per row.
 CREATE OR REPLACE FUNCTION crg_release_code_memberships_insert_guard()
 RETURNS TRIGGER AS $$
-DECLARE
-  parent RECORD;
-  release_hash text;
-  stored integer;
 BEGIN
-  IF NEW."recorded_at" IS DISTINCT FROM now() OR NEW."created_at" IS DISTINCT FROM now() THEN
+  IF EXISTS (SELECT 1 FROM inserted n WHERE n."recorded_at" IS DISTINCT FROM now() OR n."created_at" IS DISTINCT FROM now()) THEN
     RAISE EXCEPTION 'crg_time: a CRG record is written at the database''s own time' USING ERRCODE = 'check_violation';
   END IF;
-  SELECT i."dataset_version_id", i."code_system", i."expected_row_count", i."recorded_at" INTO parent FROM "crg_release_imports" i WHERE i."id" = NEW."import_id";
-  IF NOT FOUND THEN
-    RETURN NEW; -- the foreign key reports a missing import
-  END IF;
-  IF parent."recorded_at" IS DISTINCT FROM now() THEN
+  IF EXISTS (SELECT 1 FROM inserted n JOIN "crg_release_imports" i ON i."id" = n."import_id" WHERE i."recorded_at" IS DISTINCT FROM now()) THEN
     RAISE EXCEPTION 'crg_import_closed: membership rows are written only in their import''s own transaction' USING ERRCODE = 'check_violation';
   END IF;
-  IF NEW."dataset_version_id" IS DISTINCT FROM parent."dataset_version_id" OR NEW."code_system" IS DISTINCT FROM parent."code_system" THEN
+  IF EXISTS (
+    SELECT 1 FROM inserted n JOIN "crg_release_imports" i ON i."id" = n."import_id"
+    WHERE n."dataset_version_id" IS DISTINCT FROM i."dataset_version_id" OR n."code_system" IS DISTINCT FROM i."code_system"
+  ) THEN
     RAISE EXCEPTION 'crg_membership: a membership row carries exactly its import''s edition and code system' USING ERRCODE = 'check_violation';
   END IF;
-  SELECT v."content_hash" INTO release_hash FROM "reference_dataset_versions" v WHERE v."id" = NEW."dataset_version_id";
-  IF NEW."release_content_hash" IS DISTINCT FROM release_hash THEN
+  IF EXISTS (
+    SELECT 1 FROM inserted n JOIN "reference_dataset_versions" v ON v."id" = n."dataset_version_id"
+    WHERE n."release_content_hash" IS DISTINCT FROM v."content_hash"
+  ) THEN
     RAISE EXCEPTION 'crg_membership: a membership row''s release checksum is exactly its edition''s content hash' USING ERRCODE = 'check_violation';
   END IF;
-  SELECT count(*) INTO stored FROM "crg_release_code_memberships" m WHERE m."import_id" = NEW."import_id";
-  IF stored >= parent."expected_row_count" THEN
-    RAISE EXCEPTION 'crg_import_incomplete: the import already holds its declared % rows', parent."expected_row_count" USING ERRCODE = 'check_violation';
+  IF EXISTS (
+    SELECT 1 FROM (SELECT DISTINCT n."import_id" FROM inserted n) s JOIN "crg_release_imports" i ON i."id" = s."import_id"
+    WHERE (SELECT count(*) FROM "crg_release_code_memberships" m WHERE m."import_id" = s."import_id") > i."expected_row_count"
+  ) THEN
+    RAISE EXCEPTION 'crg_import_incomplete: the import would hold more than its declared rows' USING ERRCODE = 'check_violation';
   END IF;
-  RETURN NEW;
+  RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER crg_release_code_memberships_insert_guard_trg BEFORE INSERT ON "crg_release_code_memberships" FOR EACH ROW EXECUTE FUNCTION crg_release_code_memberships_insert_guard();
+CREATE TRIGGER crg_release_code_memberships_insert_guard_trg AFTER INSERT ON "crg_release_code_memberships" REFERENCING NEW TABLE AS inserted FOR EACH STATEMENT EXECUTE FUNCTION crg_release_code_memberships_insert_guard();
 
 -- A retirement classification is recorded at the database's own time, once, for an edition A3 has RETIRED.
 CREATE OR REPLACE FUNCTION crg_retirement_classifications_insert_guard()

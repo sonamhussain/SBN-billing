@@ -6,7 +6,8 @@ import { lockRowForUpdate } from '../../shared/database/row-lock.ts'
 import { formatDateOnly } from '../../shared/rules/date-only.ts'
 import { concurrencyProbe } from '../../shared/testing/concurrency-probe.ts'
 import { readTransactionTimestamp } from '../encounter-billing-context/encounter-billing-context.repository.ts'
-import { decideCode, diagnosisIdentity, procedureIdentity, releaseContentFingerprint } from './coding-release.resolver.ts'
+import { membershipFingerprint, parseReleaseArtifact } from './coding-release.artifact.ts'
+import { decideCode, diagnosisIdentity, procedureIdentity } from './coding-release.resolver.ts'
 import {
   findActiveCodedActivitiesOfEncounter,
   findActiveDiagnosesOfEncounter,
@@ -81,6 +82,7 @@ export async function getCodingReleaseCheckOf(encounterId: string, tx: DbClient)
     lifecycle: row.lifecycle,
     importId: row.import_id,
     importSourceFileSha256: row.import_source_file_sha256,
+    importMembershipFingerprint: row.import_membership_fingerprint_sha256,
     importExpectedRowCount: row.import_expected_row_count,
     importRowCount: row.import_row_count,
     retirementClassification: row.retirement_classification,
@@ -143,13 +145,13 @@ const isUniqueViolation = (error: unknown) =>
 
 // One SERIALIZABLE transaction per write. A refusal is answered; a database refusal is answered without its text; any
 // other failure (an unknown commit outcome included) is thrown to the caller and never retried here.
-async function maintain<T>(work: (tx: DbClient) => Promise<T>): Promise<CodingReleaseResult<T>> {
+async function maintain<T>(work: (tx: DbClient) => Promise<T>, timeout = 60_000): Promise<CodingReleaseResult<T>> {
   try {
-    return { ok: true, value: await prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 60_000 }) }
+    return { ok: true, value: await prisma.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout }) }
   } catch (error) {
     if (error instanceof Refusal) return { ok: false, code: error.code, message: error.message }
     if (isUniqueViolation(error)) return { ok: false, code: 'CODING_RELEASE_CONFLICT', message: 'the entry is already registered and is immutable; nothing was written' }
-    if (error instanceof Error && /crg_import_(hash|incomplete)/.test(error.message)) return integrity('the import does not reproduce its declared rows and SHA-256; nothing was written')
+    if (error instanceof Error && /crg_import_(hash|incomplete|fingerprint)/.test(error.message)) return integrity('the import does not reproduce its declared records, source artifact or membership fingerprint; nothing was written')
     if (error instanceof Error && /crg_/.test(error.message)) return { ok: false, code: 'CODING_RELEASE_CONFLICT', message: 'the database refused the entry; nothing was written' }
     throw error
   }
@@ -182,16 +184,36 @@ export async function recordRightsDecision(body: unknown): Promise<CodingRelease
   })
 }
 
-// Import one edition completely, before it is ever validated: the rows must reproduce the declared source file SHA-256,
-// which must equal the A3 edition's content hash, and their number must equal the declared count. The import and all
-// of its rows commit together or not at all (the database re-checks the count and the SHA-256 at commit). The dataset
-// row is locked first, so an A3 validation or activation of the same dataset cannot interleave.
-export async function importRelease(body: unknown): Promise<CodingReleaseResult<{ importId: string; datasetVersionId: string; codeSystem: CodeSystem; recorded: number }>> {
+// Membership rows per INSERT statement. This bounds one batch only (audit CRG-F01): a release of any size is written
+// as consecutive batches inside ONE transaction, so it commits completely or not at all and no partial release can
+// ever be selected.
+export const IMPORT_BATCH_ROWS = 5000
+// The import transaction's time budget grows with the release (5 ms per record, at least the usual minute).
+const importTimeout = (records: number) => Math.max(60_000, records * 5)
+
+// Import one edition completely, before it is ever validated (audit CRG-F01, CRG-F02). The importer reads the original
+// source artifact itself and trusts no declared value:
+//   - the artifact's own SHA-256 must equal the declared source artifact SHA-256 and the A3 edition's content hash
+//     (A3's meaning of that hash is unchanged: the hash of the retrieved content);
+//   - every record is read from the artifact, its own bytes hashed (sourceRowSha256) and its code normalized;
+//   - the records' number must equal the declared count, and their membership fingerprint (a different value, over the
+//     normalized rows) must equal the declared membership fingerprint.
+// The import header and every batch of its rows commit together or not at all; the database re-checks the count and
+// recomputes the membership fingerprint at commit. The dataset row is locked first, so an A3 validation or activation
+// of the same dataset cannot interleave.
+export async function importRelease(
+  body: unknown,
+): Promise<CodingReleaseResult<{ importId: string; datasetVersionId: string; codeSystem: CodeSystem; recorded: number; batches: number; sourceFileSha256: string; membershipFingerprintSha256: string }>> {
   const input = validateReleaseImport(body)
   if (!input.ok) return { ok: false, code: 'VALIDATION_ERROR', message: input.message }
-  const { datasetVersionId, sourceFileSha256, sourceUri, publisher, expectedRowCount, rows } = input.value
-  if (rows.length !== expectedRowCount) return integrity(`the import carries ${rows.length} rows, not the declared ${expectedRowCount}; nothing was written`)
-  if (releaseContentFingerprint(rows) !== sourceFileSha256) return integrity('the rows do not reproduce the declared source file SHA-256; nothing was written')
+  const { datasetVersionId, artifactFormat, artifact, sourceFileSha256, membershipFingerprintSha256, sourceUri, publisher, expectedRowCount } = input.value
+  const parsed = parseReleaseArtifact(artifactFormat, artifact)
+  if (!parsed.ok) return { ok: false, code: 'VALIDATION_ERROR', message: parsed.message }
+  const { rows, byteLength } = parsed.value
+  if (parsed.value.sourceFileSha256 !== sourceFileSha256) return integrity('the artifact bytes do not reproduce the declared source artifact SHA-256; nothing was written')
+  if (rows.length !== expectedRowCount) return integrity(`the artifact carries ${rows.length} records, not the declared ${expectedRowCount}; nothing was written`)
+  const fingerprint = membershipFingerprint(rows)
+  if (fingerprint !== membershipFingerprintSha256) return integrity('the artifact records do not reproduce the declared membership fingerprint; nothing was written')
   const located = await prisma.referenceDatasetVersion.findUnique({ where: { id: datasetVersionId }, select: { datasetId: true } })
   if (!located) return { ok: false, code: 'NOT_FOUND', message: 'reference dataset version not found' }
   return maintain(async (tx) => {
@@ -200,15 +222,24 @@ export async function importRelease(body: unknown): Promise<CodingReleaseResult<
     if (!version) return refuse('NOT_FOUND', 'reference dataset version not found')
     const mapping = await findDatasetCodeSystem(version.datasetId, tx)
     if (!mapping) return refuse('CODING_RELEASE_CONFLICT', "the version's dataset has no code-system identity")
-    if (version.contentHash !== sourceFileSha256) return refuse('SOURCE_INTEGRITY_CONFLICT', "the source file SHA-256 is not the edition's content hash; nothing was written")
+    if (version.contentHash !== sourceFileSha256) return refuse('SOURCE_INTEGRITY_CONFLICT', "the source artifact SHA-256 is not the edition's content hash; nothing was written")
     const everValidated = await tx.referenceDatasetLifecycleEvent.count({ where: { datasetVersionId: version.id, OR: [{ nextValidationStatus: 'VALIDATED' }, { action: { in: ['ACTIVATE', 'ROLLBACK'] } }] } })
     if (version.validationStatus !== 'UNVALIDATED' || version.activationStatus !== 'INACTIVE' || everValidated > 0) return refuse('CODING_RELEASE_CONFLICT', 'the edition has been validated or activated; it cannot be imported')
-    const importId = await insertReleaseImport({ datasetVersionId: version.id, codeSystem: mapping.codeSystem, sourceFileSha256, sourceUri, publisher, expectedRowCount, contractVersion: CODESET_CONTRACT_VERSION }, tx)
+    const importId = await insertReleaseImport(
+      { datasetVersionId: version.id, codeSystem: mapping.codeSystem, sourceFileSha256, artifactFormat, artifactByteLength: byteLength, membershipFingerprintSha256: fingerprint, sourceUri, publisher, expectedRowCount, contractVersion: CODESET_CONTRACT_VERSION },
+      tx,
+    )
     await concurrencyProbe('codingRelease.import_recorded')
-    const recorded = await insertReleaseMemberships({ importId, datasetVersionId: version.id, codeSystem: mapping.codeSystem, releaseContentHash: version.contentHash, contractVersion: CODESET_CONTRACT_VERSION, rows }, tx)
+    let recorded = 0
+    let batches = 0
+    for (let start = 0; start < rows.length; start += IMPORT_BATCH_ROWS) {
+      recorded += await insertReleaseMemberships({ importId, datasetVersionId: version.id, codeSystem: mapping.codeSystem, releaseContentHash: version.contentHash, contractVersion: CODESET_CONTRACT_VERSION, rows: rows.slice(start, start + IMPORT_BATCH_ROWS) }, tx)
+      batches += 1
+      await concurrencyProbe('codingRelease.batch_recorded')
+    }
     await concurrencyProbe('codingRelease.rows_recorded')
-    return { importId, datasetVersionId: version.id, codeSystem: mapping.codeSystem as CodeSystem, recorded }
-  })
+    return { importId, datasetVersionId: version.id, codeSystem: mapping.codeSystem as CodeSystem, recorded, batches, sourceFileSha256, membershipFingerprintSha256: fingerprint }
+  }, importTimeout(rows.length))
 }
 
 // Classify, once, what a RETIRED edition's retirement means for the dates it governed.

@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canonicalCode, decideCode, diagnosisIdentity, procedureIdentity, releaseContentFingerprint, resolveEdition } from './coding-release.resolver.ts'
+import { createHash } from 'node:crypto'
+import { membershipFingerprint, parseReleaseArtifact } from './coding-release.artifact.ts'
+import { canonicalCode, decideCode, diagnosisIdentity, procedureIdentity, resolveEdition } from './coding-release.resolver.ts'
 import type { CodeSystem, EditionFacts, LifecycleFact, MembershipBasis, ResolutionScope, RightsStatus } from './coding-release.types.ts'
 
 // CRG-01 FINAL Checkpoint A — the resolver, exhaustively, on synthetic editions A (2021) and B (2024). Synthetic
@@ -18,7 +20,8 @@ const retired: LifecycleFact[] = [...superseded, { action: 'RETIRE', previousAct
 const edition = (n: number, o: Partial<EditionFacts> = {}): EditionFacts => ({
   datasetVersionId: id(n), datasetId: id(100), datasetJurisdictionCode: 'AE-DU', datasetAuthorityCode: 'SYN', mappingCodeSystem: 'ICD-10-CM', mappingPurpose: 'CLAIM_CODING',
   mappingJurisdictionCode: 'AE-DU', mappingAuthorityCode: 'SYN', version: `v${n}`, effectiveFrom: '2021-01-01', effectiveTo: null, validationStatus: 'VALIDATED', activationStatus: 'ACTIVE',
-  contentHash: String(n % 10).repeat(64), sourceVersionId: null, lifecycle: activated, importId: id(300 + n), importSourceFileSha256: String(n % 10).repeat(64), importExpectedRowCount: 2, importRowCount: 2,
+  contentHash: String(n % 10).repeat(64), sourceVersionId: null, lifecycle: activated, importId: id(300 + n), importSourceFileSha256: String(n % 10).repeat(64), importMembershipFingerprint: 'c'.repeat(64),
+  importExpectedRowCount: 2, importRowCount: 2,
   retirementClassification: null, ...o,
 })
 // Synthetic A governs to 2026-12-31 and was superseded when B (from 2027-01-01) was activated.
@@ -54,7 +57,7 @@ test('unvalidated, never-activated, rejected, unimported and rights-blocked edit
   const draft = edition(4, { validationStatus: 'UNVALIDATED', activationStatus: 'INACTIVE', lifecycle: [] })
   const validatedOnly = edition(5, { activationStatus: 'INACTIVE', lifecycle: [activated[0]] })
   const rejected = edition(6, { validationStatus: 'REJECTED', activationStatus: 'INACTIVE', lifecycle: [{ ...activated[0], nextValidationStatus: 'REJECTED' }] })
-  const unimported = edition(7, { importId: null, importSourceFileSha256: null, importExpectedRowCount: null, importRowCount: 0 })
+  const unimported = edition(7, { importId: null, importSourceFileSha256: null, importMembershipFingerprint: null, importExpectedRowCount: null, importRowCount: 0 })
   for (const blocked of [draft, validatedOnly, rejected, unimported]) assert.equal(chosen(resolveEdition(scope('2026-06-15'), 'ICD-10-CM', [blocked])), 'RELEASE_NOT_AUTHORIZED')
   for (const rights of [{}, { 'ICD-10-CM': 'BLOCKED' as const }]) assert.equal(chosen(resolveEdition(scope('2026-06-15', 'AE-DU', 'SYN', rights), 'ICD-10-CM', [A])), 'RELEASE_NOT_AUTHORIZED')
   // Rights of another system never authorise this one.
@@ -76,7 +79,7 @@ test('a stored history that contradicts itself is refused, never guessed (CRG-03
   for (const broken of [
     { ...B, lifecycle: [] }, { ...A, lifecycle: activated }, { ...B, validationStatus: 'UNVALIDATED' }, { ...B, mappingCodeSystem: 'ICD-9' }, { ...B, mappingPurpose: 'BILLING' },
     { ...B, mappingAuthorityCode: 'OTHER' }, { ...B, effectiveTo: '2026-01-01' }, { ...B, effectiveFrom: '2027/01/01' }, { ...B, retirementClassification: 'PROSPECTIVE' },
-    { ...B, importSourceFileSha256: 'f'.repeat(64) }, { ...B, importRowCount: 1 },
+    { ...B, importSourceFileSha256: 'f'.repeat(64) }, { ...B, importRowCount: 1 }, { ...B, importMembershipFingerprint: null }, { ...B, importMembershipFingerprint: 'C'.repeat(64) },
   ]) {
     assert.equal(resolveEdition(scope('2027-01-01'), 'ICD-10-CM', [broken]).ok, false, JSON.stringify(broken).slice(0, 120))
   }
@@ -119,12 +122,29 @@ test('membership is judged in exactly the governing edition, against its release
   assert.equal(decideCode(scope('2026-12-31'), diagnosisIdentity('E11.9', ['ICD-10-CM']), [A, B], () => m(9, 'e'.repeat(64))).ok, false)
 })
 
-test('the release fingerprint is order-independent and content-bound; the resolver is deterministic (CRG-022, 050)', () => {
-  const rows = [{ sourceRowId: 'r2', code: 'B1', sourceRowSha256: '2'.repeat(64) }, { sourceRowId: 'r1', code: 'A1', sourceRowSha256: '1'.repeat(64) }]
-  assert.equal(releaseContentFingerprint(rows), releaseContentFingerprint([...rows].reverse()))
-  assert.notEqual(releaseContentFingerprint(rows), releaseContentFingerprint([rows[0]]))
-  assert.notEqual(releaseContentFingerprint(rows), releaseContentFingerprint([{ ...rows[0], code: 'B2' }, rows[1]]))
-  assert.match(releaseContentFingerprint(rows), /^[0-9a-f]{64}$/)
+test('source artifact and membership fingerprints are separate and each reproducible; the resolver is deterministic (CRG-022, 050, F02)', () => {
+  const sha = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
+  const text = 'r2\tb1\nr1\tA1\n'
+  const bytes = Buffer.from(text, 'utf8')
+  const parsed = parseReleaseArtifact('CRG-SYNTHETIC-TSV-1', bytes)
+  assert.ok(parsed.ok)
+  // The artifact's own SHA-256 over its exact bytes; each record's over its own line; codes normalized.
+  assert.equal(parsed.value.sourceFileSha256, sha(bytes))
+  assert.equal(parsed.value.byteLength, bytes.length)
+  assert.deepEqual(parsed.value.rows, [{ sourceRowId: 'r2', code: 'B1', sourceRowSha256: sha('r2\tb1') }, { sourceRowId: 'r1', code: 'A1', sourceRowSha256: sha('r1\tA1') }])
+  const rows = parsed.value.rows
+  // The membership fingerprint is a different value, order-independent and bound to every row.
+  assert.notEqual(membershipFingerprint(rows), parsed.value.sourceFileSha256)
+  assert.equal(membershipFingerprint(rows), membershipFingerprint([...rows].reverse()))
+  assert.equal(membershipFingerprint(rows), sha(`r1\tA1\t${sha('r1\tA1')}\nr2\tB1\t${sha('r2\tb1')}\n`))
+  assert.notEqual(membershipFingerprint(rows), membershipFingerprint([rows[0]]))
+  assert.notEqual(membershipFingerprint(rows), membershipFingerprint([{ ...rows[0], code: 'B2' }, rows[1]]))
+  // One changed byte changes the artifact's hash; the reader refuses anything it cannot read exactly.
+  assert.notEqual((parseReleaseArtifact('CRG-SYNTHETIC-TSV-1', Buffer.from('r2\tB1\nr1\tA1\n')) as { value: { sourceFileSha256: string } }).value.sourceFileSha256, parsed.value.sourceFileSha256)
+  for (const bad of ['', 'r1\tA1', 'r1\tA1\r\n', 'r1\tA1\tlicensed descriptor\n', 'r1\tA1\nr1\tB1\n', 'r1\tA1\nr2\tA1\n', 'r1\tA 1\n', ' r1\tA1\n', 'r1\tA1\n\n'])
+    assert.equal(parseReleaseArtifact('CRG-SYNTHETIC-TSV-1', Buffer.from(bad, 'utf8')).ok, false, JSON.stringify(bad))
+  assert.equal(parseReleaseArtifact('CRG-SYNTHETIC-TSV-1', Buffer.from([0x72, 0x31, 0x09, 0xff, 0x0a])).ok, false)
+  assert.equal(parseReleaseArtifact('ICD10CM-ORDER-2024' as 'CRG-SYNTHETIC-TSV-1', bytes).ok, false)
   const first = JSON.stringify([resolveEdition(scope('2026-12-31'), 'ICD-10-CM', [A, B]), resolveEdition(scope('2027-01-01'), 'ICD-10-CM', [B, A])])
   for (let i = 0; i < 100; i += 1) assert.equal(JSON.stringify([resolveEdition(scope('2026-12-31'), 'ICD-10-CM', [A, B]), resolveEdition(scope('2027-01-01'), 'ICD-10-CM', [B, A])]), first)
 })

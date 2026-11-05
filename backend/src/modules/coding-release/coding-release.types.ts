@@ -1,7 +1,7 @@
 // CRG-01 FINAL, Checkpoint A — coding-release governance chooses, for one encounter code, the approved coding
 // catalogue edition that governs it on the encounter's own service date and jurisdiction, checks the code against
-// exactly that edition, and answers the decision with its full basis (edition, dataset, import, content hash, source
-// row). It reuses the A3 ReferenceDatasetVersion lifecycle as the edition authority; it never blocks a claim, changes
+// exactly that edition, and answers the decision with its full basis (edition, dataset, import, source artifact and
+// membership fingerprints, source row). It reuses the A3 ReferenceDatasetVersion lifecycle as the edition authority; it never blocks a claim, changes
 // an encounter, a finding or a freeze, imports a licensed catalogue, or treats the 2027 transition as verified law
 // (Checkpoints B and C, and activation, are separately approved).
 
@@ -65,6 +65,7 @@ export type EditionFacts = {
   lifecycle: LifecycleFact[]
   importId: string | null
   importSourceFileSha256: string | null
+  importMembershipFingerprint: string | null
   importExpectedRowCount: number | null
   importRowCount: number
   retirementClassification: string | null
@@ -84,7 +85,10 @@ export type EditionBasis = {
   effectiveFrom: string
   effectiveTo: string | null
   sourceVersionId: string | null
+  // The source artifact's SHA-256 (the A3 content hash) and the normalized membership's own fingerprint: different
+  // content, each verifiable on its own (audit CRG-F02).
   contentHash: string
+  membershipFingerprintSha256: string
   importId: string
   activationStatus: string
   retirementClassification: RetirementClassification | null
@@ -127,7 +131,8 @@ export type CodingReleaseCheckDto = {
   evaluatedAt: string
 }
 
-// One import row as the writer receives it: the source row's identifier, its canonical code and its SHA-256.
+// One membership row as the importer reads it from the source artifact: the record's source row identifier, its
+// normalized code and the SHA-256 of the record's own bytes.
 export type ImportRow = { sourceRowId: string; code: string; sourceRowSha256: string }
 
 export type CodingReleaseErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND' | 'SOURCE_INTEGRITY_CONFLICT' | 'CODING_RELEASE_CONFLICT'

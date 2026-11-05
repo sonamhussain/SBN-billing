@@ -51,6 +51,14 @@ rights are BLOCKED, and Checkpoints B and C, A9 and A10 are still pending.
   5. The CRG IDs Checkpoint A can prove are executed. Checkpoint B and C IDs are reported DEFERRED, and pre-production
      obligations are reported BLOCKED. Neither is ever counted as PASS.
   6. The decision codes `AMBIGUOUS_CODE_SYSTEM` and `SOURCE_INTEGRITY_CONFLICT` are added.
+- Audit corrections to PR #103 (2026-11-05), decided by the head developer:
+  - **CRG-F01:** the 5,000-row release limit is removed. Rows are written in fixed-size batches inside one
+    transaction, and the membership guard became set-based, so a large release does not cost one check per row.
+  - **CRG-F02:** the source artifact SHA-256 (the A3 content hash, A3's meaning kept) and the membership fingerprint
+    are now separate values. The importer reads the original artifact itself and records its format and byte
+    length.
+  - New gates **CRG-G07** (scale), **CRG-G08** (review of the bundled A7 corrections) and **CRG-G09** (independent
+    fingerprint verification).
 - The source is `docs/CRG-01-CODING-SOURCE-REGISTER.md`, entry SRC-01 (DHA GC 06-2026), with status **DRAFT**.
 
 ## Route and permission
@@ -133,7 +141,10 @@ The check returns `contractVersion`, `encounterId`, `serviceDate`, `jurisdiction
 Each item has `subjectKind`, `subjectId`, `masterCodeId`, `decisionCode`, `codeSystem`, `edition` and `membership`:
 
 - `edition` carries `referenceDatasetVersionId`, `datasetId`, `codeSystem`, `purpose`, `edition`, `effectiveFrom`,
-  `effectiveTo`, `sourceVersionId`, `contentHash`, `importId`, `activationStatus` and `retirementClassification`.
+  `effectiveTo`, `sourceVersionId`, `contentHash`, `membershipFingerprintSha256`, `importId`, `activationStatus` and
+  `retirementClassification`. `contentHash` is the source artifact's SHA-256 (the A3 content hash), and
+  `membershipFingerprintSha256` is the normalized membership's own fingerprint. They are different values, and each
+  can be checked on its own.
 - `membership` carries `membershipId`, `sourceRowId`, `sourceRowSha256` and `releaseContentHash`.
 
 The code value itself is clinical and stays in its A2 owner. No patient, descriptor, amount or payer value is returned.
@@ -143,7 +154,7 @@ The code value itself is clinical and stays in its A2 owner. No patient, descrip
 ```text
 reference_datasets (A3) ──1:1── crg_code_system_datasets      (code system + CLAIM_CODING, scope copied from A3)
         │
-reference_dataset_versions (A3) ──1:1── crg_release_imports    (source SHA-256 = A3 contentHash, expected rows)
+reference_dataset_versions (A3) ──1:1── crg_release_imports    (artifact SHA-256 = A3 contentHash; membership fingerprint)
         │                                     │
         │                                     └──1:n── crg_release_code_memberships (code, source row, row SHA-256)
         └──1:1── crg_retirement_classifications (RETIRED editions only)
@@ -164,26 +175,43 @@ crg_code_system_rights   (jurisdiction, authority, code system, sequence) → AP
 
 **`crg_release_imports`**
 
-- One import per edition (`dataset_version_id` unique, RESTRICT), with the source file SHA-256, source URI, publisher
-  and expected row count (1..5000).
-- The insert guard checks three things: the edition's mapped system, a source SHA-256 equal to the A3 content hash,
-  and that the edition is not yet validated or activated (sealed).
+- One import per edition (`dataset_version_id` unique, RESTRICT). Each import records:
+  - the **source artifact** SHA-256 (`source_file_sha256`), its format (`artifact_format`, only
+    `CRG-SYNTHETIC-TSV-1`) and its byte length;
+  - the **membership fingerprint** (`membership_fingerprint_sha256`);
+  - the source URI, the publisher and the expected row count. Any positive count is allowed; there is no release-size
+    ceiling.
+- The insert guard checks three things: the edition's mapped system, a source artifact SHA-256 equal to the A3
+  content hash, and that the edition is not yet validated or activated (sealed).
 - A DEFERRABLE INITIALLY DEFERRED constraint trigger runs at commit. It refuses the commit unless the rows reach exactly
-  the declared count and reproduce the SHA-256.
+  the declared count and, recomputed by the database, reproduce the membership fingerprint.
 
 **`crg_release_code_memberships`**
 
 - Each row holds a code, a source row id, a source row SHA-256 and the release checksum.
 - Unique per (edition, system, code) and per (import, source row).
-- The guard checks three things: rows are written only in their import's own transaction; the rows carry exactly the
-  import's edition and system; and the import does not go past its declared count.
+- The guard runs once per INSERT statement over all its rows, so its cost does not grow with every row of a large
+  release. It checks four things:
+  - database time;
+  - rows are written only in their import's own transaction;
+  - rows carry exactly the import's edition, system and release checksum;
+  - the import does not go past its declared count.
 
 **`crg_retirement_classifications`**
 
 - One classification per edition. Only a `RETIRED` edition can be classified.
 
-The release fingerprint is the SHA-256 over the rows ordered by `sourceRowId`. Each row is one line:
-`sourceRowId<TAB>code<TAB>sourceRowSha256<LF>`. The database recomputes it at commit.
+### Two fingerprints (audit CRG-F02)
+
+| Fingerprint | Over | Stored in | Verified by |
+|---|---|---|---|
+| Source artifact | the original artifact bytes exactly as retrieved | A3 `contentHash` (A3's own meaning, unchanged) and `crg_release_imports.source_file_sha256` | the importer (it hashes the bytes itself) and the insert guard (equal to the A3 content hash) |
+| Row | one artifact record's own bytes (its line without LF) | `crg_release_code_memberships.source_row_sha256` | the importer (it reads every record from the artifact) |
+| Membership | the normalized rows ordered by `sourceRowId` (byte order), one line each: `sourceRowId<TAB>code<TAB>sourceRowSha256<LF>` | `crg_release_imports.membership_fingerprint_sha256` | the importer, and the database, which recomputes it at commit |
+
+The importer trusts no declared value. Anyone holding the archived artifact can reproduce three links: artifact →
+content hash, artifact → every row hash, and rows → membership fingerprint. The artifact bytes are never stored, so no
+licensed content is kept. CRG-G09 performs this verification independently in every run.
 
 All five tables refuse every UPDATE, DELETE and TRUNCATE. No A1–A8 table is altered. A3's activation lifecycle (one
 `ACTIVE` per dataset, `ACTIVE` implies `VALIDATED`, immutable lifecycle events) is read and never redefined.
@@ -193,11 +221,18 @@ All five tables refuse every UPDATE, DELETE and TRUNCATE. No A1–A8 table is al
 - The writers are:
   - `registerDatasetCodeSystem({ datasetId, codeSystem, purpose })`;
   - `recordRightsDecision({ jurisdictionCode, authorityCode, codeSystem, rightsStatus, decisionReference })`;
-  - `importRelease({ datasetVersionId, sourceFileSha256, sourceUri, publisher, expectedRowCount, rows })`;
+  - `importRelease({ datasetVersionId, artifactFormat, artifactBase64, sourceFileSha256, membershipFingerprintSha256,
+    sourceUri, publisher, expectedRowCount })`;
   - `classifyRetirement({ datasetVersionId, classification })`.
 - Each takes strict inputs, never accepts descriptor text, and runs in one SERIALIZABLE transaction with no retry.
-- An import checks the row count and fingerprint before any write. It then locks the A3 dataset row first, as every A3
+- An import checks everything before any write: it reads the artifact, then compares its SHA-256, its record count
+  and its membership fingerprint with the declared values. It then locks the A3 dataset row first, as every A3
   lifecycle write does.
+- **Scalable and atomic (audit CRG-F01).** The rows are written in batches of `IMPORT_BATCH_ROWS` (5,000) inside ONE
+  transaction. That transaction's time budget grows with the release. The batch size is a statement size, not a
+  release-size limit. A failure at any batch leaves nothing, so a partial release can never be selected.
+  - CRG-G07 imports a 100,000-record synthetic edition, larger than the largest real catalogue, and reads it.
+  - It also injects a failure after the last batch and shows that nothing remains.
 - A hash or count conflict is `SOURCE_INTEGRITY_CONFLICT`. A duplicate or sealed record is `CODING_RELEASE_CONFLICT`.
 - In Checkpoint A they prepare synthetic editions only.
 
@@ -214,4 +249,8 @@ validator (A5-VAL-2) will consult. Old `A5-VAL-1` runs and findings are never to
 - **DEFERRED (56):** Checkpoint B (40) and Checkpoint C (16).
 - **BLOCKED (5):** CRG-114, 116, 118, 128 and 129.
 
-It also reports the build gates CRG-G01…G06. It nests the full A8.3 → A1 regression chain.
+It also reports the build gates CRG-G01…G09. It nests the full A8.3 → A1 regression chain.
+
+- **G07:** full-size synthetic catalogue, atomic, measured (audit CRG-F01).
+- **G08:** review of the four bundled A7 harness corrections. It shows that no protection was weakened.
+- **G09:** independent verification of the source and membership fingerprints (audit CRG-F02).

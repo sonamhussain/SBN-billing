@@ -353,4 +353,10 @@ There is no separate suite. The CRG-01 harness is the gate:
   query with `.filter((t) => !laterPhaseTables.has(t))` appended. Every other changed line is a comment.
 - **CRG-123 and CRG-124** run the full A8.3 → A1 chain. A7.2 T026, A7.3 T105, A7.4 T107 and A7.5 T108 PASS inside
   it. Every documented branch-only item is proved for its cause, all the way down.
+- **CRG-G08** reviews the correction in every run. For each of the four suites it shows:
+  - the pattern is byte-identical to its accepted one;
+  - on the suite's own branch nothing is excluded;
+  - at the tested HEAD the only live table excluded is `crg_release_imports`, created by CRG-01's own migration, and
+    no other matching table goes unjudged;
+  - a hand-made `remittance_import_probe_*` table with no migration (rolled back) is still refused by all four.
 - Two official CRG-01 runs at one HEAD are the evidence.
