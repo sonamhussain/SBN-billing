@@ -176,6 +176,18 @@ export const apiErrorCodes = [
   // refusal, an unknown commit outcome, a record under another contract) or a stored history is inconsistent; nothing
   // was recorded or derived.
   'EXCEPTION_INVESTIGATION_CONFLICT',
+  // A8.5: the proposer is not the current, eligible A8.2 assignee holding the proposal permission; nothing was recorded.
+  'EXCEPTION_REMEDIATION_NOT_ASSIGNEE',
+  // A8.5: the reviewer does not hold the review permission now or is the proposal's own author (membership or user);
+  // nothing was recorded.
+  'EXCEPTION_REMEDIATION_REVIEWER_NOT_INDEPENDENT',
+  // A8.5: the requested remediation event is not a legal next step (a second outstanding proposal, a review with nothing
+  // outstanding or of another proposal, an unchanged repeat of a returned proposal, any event after an approval, a
+  // finding that is not an A8.3 recorded finding, or an exception that is not assigned); nothing was recorded.
+  'EXCEPTION_REMEDIATION_TRANSITION_REFUSED',
+  // A8.5: the event could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
+  // refusal, an unknown commit outcome) or a stored history is inconsistent; nothing was recorded or derived.
+  'EXCEPTION_REMEDIATION_CONFLICT',
   // CRG-01 Checkpoint A: the stored coding-release history or an import contradicts itself (a mapping that no longer
   // matches its dataset, a lifecycle that does not explain a version's state, an import whose rows do not reproduce
   // its SHA-256, a code of another organization); nothing was decided or written.

@@ -100,6 +100,7 @@ import { exceptionIntakeRouter } from './modules/exception-intake/exception-inta
 import { exceptionTriageRouter } from './modules/exception-triage/exception-triage.route.ts'
 import { exceptionInvestigationRouter } from './modules/exception-investigation/exception-investigation.route.ts'
 import { codingReleaseRouter } from './modules/coding-release/coding-release.route.ts'
+import { exceptionRemediationRouter } from './modules/exception-remediation/exception-remediation.route.ts'
 
 export const app = express()
 
@@ -418,6 +419,12 @@ app.use('/api/claims', exceptionInvestigationRouter)
 // CRG-01 Checkpoint A - the read-only coding-release check of one encounter (the governing coding edition by service date and
 // jurisdiction, and each code's membership in it). No write, search, catalogue or activation route.
 app.use('/api/encounters', codingReleaseRouter)
+
+// A8.5 - the append-only remediation proposal and independent review history of one exception (propose one controlled
+// action as the current A8.2 assignee, review it as another authorized member, read the history and the derived
+// disposition). An approval is planning authorization only. No PUT, PATCH or DELETE, and no execution, correction,
+// resolution, closure, escalation or export route.
+app.use('/api/claims', exceptionRemediationRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)
