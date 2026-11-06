@@ -40,6 +40,7 @@ model Organization {
   exceptionIntakeRecords ExceptionIntakeRecord[]
   exceptionTriageEvents  ExceptionTriageEvent[]
   exceptionInvestigationEvents ExceptionInvestigationEvent[]
+  exceptionRemediationEvents   ExceptionRemediationEvent[]
 
   @@map("organizations")
 }
@@ -1094,6 +1095,7 @@ model User {
   exceptionIntakeRecordsRecorded ExceptionIntakeRecord[] @relation("ExceptionIntakeRecordRecordedBy")
   exceptionTriageEventsRecorded  ExceptionTriageEvent[]  @relation("ExceptionTriageEventRecordedBy")
   exceptionInvestigationEventsRecorded ExceptionInvestigationEvent[] @relation("ExceptionInvestigationEventRecordedBy")
+  exceptionRemediationEventsRecorded ExceptionRemediationEvent[] @relation("ExceptionRemediationEventRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1160,6 +1162,7 @@ model OrganizationMembership {
   roles        MembershipRole[]
   assignedTriageEvents ExceptionTriageEvent[] @relation("ExceptionTriageEventAssignedMember")
   recordedInvestigationEvents ExceptionInvestigationEvent[] @relation("ExceptionInvestigationEventRecordedByMembership")
+  recordedRemediationEvents ExceptionRemediationEvent[] @relation("ExceptionRemediationEventRecordedByMembership")
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -1875,6 +1878,7 @@ model Claim {
   exceptionIntakeRecords      ExceptionIntakeRecord[]
   exceptionTriageEvents       ExceptionTriageEvent[]
   exceptionInvestigationEvents ExceptionInvestigationEvent[]
+  exceptionRemediationEvents   ExceptionRemediationEvent[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -2479,6 +2483,7 @@ model ExceptionIntakeRecord {
   recordedBy   User         @relation("ExceptionIntakeRecordRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   triageEvents ExceptionTriageEvent[]
   investigationEvents ExceptionInvestigationEvent[]
+  remediationEvents   ExceptionRemediationEvent[]
 
   @@unique([identityKey], map: "exception_intake_records_identity_key")
   @@index([claimId, recordedAt, id])
@@ -2549,6 +2554,7 @@ model ExceptionInvestigationEvent {
   claim                Claim                         @relation(fields: [claimId], references: [id], onDelete: Restrict)
   linkedEvidenceEvent  ExceptionInvestigationEvent?  @relation("ExceptionInvestigationEventLinkedEvidence", fields: [linkedEvidenceEventId], references: [id], onDelete: Restrict)
   findings             ExceptionInvestigationEvent[] @relation("ExceptionInvestigationEventLinkedEvidence")
+  remediationProposals ExceptionRemediationEvent[]  @relation("ExceptionRemediationEventFinding")
   recordedByMembership OrganizationMembership        @relation("ExceptionInvestigationEventRecordedByMembership", fields: [recordedByMembershipId], references: [id], onDelete: Restrict)
   recordedBy           User                          @relation("ExceptionInvestigationEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
 
@@ -2665,4 +2671,46 @@ model CrgRetirementClassification {
 
   @@unique([datasetVersionId], map: "crg_retirement_classifications_version_key")
   @@map("crg_retirement_classifications")
+}
+
+// A8.5 — the append-only proposal-and-review history of one A8.1 exception intake (A8-REMEDIATION-PLAN-1), numbered
+// 1..N by the server. A proposal is written only by the current, eligible A8.2 assignee and names one A8.3 finding; a
+// review is written only by an independent member holding the review permission and names the outstanding proposal.
+// The disposition is derived on every read and never stored; an approval is planning authorization only. There is no
+// status, current/latest pointer, execution, resolution, amount, narrative, attachment or payload column.
+model ExceptionRemediationEvent {
+  id                     String   @id @default(uuid()) @db.Uuid
+  exceptionIntakeId      String   @map("exception_intake_id") @db.Uuid
+  organizationId         String   @map("organization_id") @db.Uuid
+  claimId                String   @map("claim_id") @db.Uuid
+  contractVersion        String   @map("contract_version") @db.Text
+  sequence               Int
+  eventCode              String   @map("event_code") @db.Text
+  actionCode             String?  @map("action_code") @db.Text
+  findingEventId         String?  @map("a8_3_finding_event_id") @db.Uuid
+  rationaleCode          String?  @map("rationale_code") @db.Text
+  proposalEventId        String?  @unique(map: "exception_remediation_events_proposal_event_id_key") @map("proposal_event_id") @db.Uuid
+  decisionCode           String?  @map("decision_code") @db.Text
+  reviewReasonCode       String?  @map("review_reason_code") @db.Text
+  recordedByMembershipId String   @map("recorded_by_membership_id") @db.Uuid
+  recordedByUserId       String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt             DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  exceptionIntake      ExceptionIntakeRecord        @relation(fields: [exceptionIntakeId], references: [id], onDelete: Restrict)
+  organization         Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claim                Claim                        @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  findingEvent         ExceptionInvestigationEvent? @relation("ExceptionRemediationEventFinding", fields: [findingEventId], references: [id], onDelete: Restrict)
+  proposalEvent        ExceptionRemediationEvent?   @relation("ExceptionRemediationEventProposal", fields: [proposalEventId], references: [id], onDelete: Restrict)
+  review               ExceptionRemediationEvent?   @relation("ExceptionRemediationEventProposal")
+  recordedByMembership OrganizationMembership       @relation("ExceptionRemediationEventRecordedByMembership", fields: [recordedByMembershipId], references: [id], onDelete: Restrict)
+  recordedBy           User                         @relation("ExceptionRemediationEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([exceptionIntakeId, sequence], map: "exception_remediation_events_sequence_key")
+  @@index([organizationId])
+  @@index([claimId])
+  @@index([findingEventId])
+  @@index([recordedByMembershipId])
+  @@index([recordedByUserId])
+  @@map("exception_remediation_events")
 }

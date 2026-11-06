@@ -1492,6 +1492,67 @@ async function main() {
     const investigationTables = a83Created.filter((table) => replayedTables.has(table))
     check('the A8.3 tables are exactly exception_investigation_events after a clean replay', JSON.stringify(a83Created) === JSON.stringify(['exception_investigation_events']) && JSON.stringify(investigationTables) === JSON.stringify(a83Created), investigationTables.join(', '))
 
+    // A8.5 — the append-only, numbered proposal-and-review history of one A8.1 intake. The contract, a positive sequence,
+    // the two controlled events and each event's exact shape are held by CHECKs, one number per intake and one review per
+    // proposal by UNIQUE indexes; an insert guard holds database time, the parent's organization and Claim, the acting
+    // membership, the current A8.2 assignment, the proposer's and reviewer's permissions, the A8.3 finding, the
+    // outstanding proposal, the reviewer's independence and the contiguous sequence; the table is append-only and cannot
+    // be truncated; every key is ON DELETE RESTRICT.
+    for (const trigger of ['exception_remediation_events_insert_guard_trg', 'exception_remediation_events_append_only_trg', 'exception_remediation_events_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'exception_remediation_events_pkey',
+      'exception_remediation_events_contract_chk',
+      'exception_remediation_events_sequence_chk',
+      'exception_remediation_events_event_code_chk',
+      'exception_remediation_events_shape_chk',
+      'exception_remediation_events_exception_intake_id_fkey',
+      'exception_remediation_events_organization_id_fkey',
+      'exception_remediation_events_claim_id_fkey',
+      'exception_remediation_events_a8_3_finding_event_id_fkey',
+      'exception_remediation_events_proposal_event_id_fkey',
+      'exception_remediation_events_recorded_by_membership_id_fkey',
+      'exception_remediation_events_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const remediationContract = replay.constraints.find((line) => line.includes('exception_remediation_events_contract_chk')) ?? ''
+    const remediationCodes = replay.constraints.find((line) => line.includes('exception_remediation_events_event_code_chk')) ?? ''
+    const remediationShape = replay.constraints.find((line) => line.includes('exception_remediation_events_shape_chk')) ?? ''
+    check(
+      'the A8.5 CHECKs pin A8-REMEDIATION-PLAN-1, exactly the two remediation events and the controlled action, rationale, decision and reason codes, with no execution, resolution or payment code, after a clean replay',
+      remediationContract.includes("'A8-REMEDIATION-PLAN-1'") &&
+        ['PROPOSE_ACTION', 'REVIEW_ACTION'].every((code) => remediationCodes.includes(`'${code}'`)) &&
+        [
+          'REVIEW_SOURCE_PROVENANCE', 'REQUEST_INTERNAL_DOCUMENTATION_CHECK', 'RECHECK_CODING_REFERENCE', 'REFER_FOR_POLICY_REVIEW', 'RECORDED_CONFLICT', 'INSUFFICIENT_EVIDENCE', 'POLICY_CLARIFICATION_NEEDED',
+          'APPROVE_PROPOSAL', 'RETURN_PROPOSAL', 'INSUFFICIENT_SUPPORT', 'WRONG_SCOPE', 'NEEDS_MORE_INVESTIGATION',
+        ].every((code) => remediationShape.includes(`'${code}'`)) &&
+        /IS NOT NULL/i.test(remediationCodes) &&
+        !/'(EXECUTE\w*|RESOLVE\w*|CLOSE\w*|ESCALATE\w*|PAID|DENIED|SETTLED|AUTO_APPROVE\w*)'/.test(`${remediationCodes} ${remediationShape}`),
+      `${remediationContract.slice(0, 100)} | ${remediationCodes.slice(0, 160)}`,
+    )
+    check(
+      'one remediation event per (intake, sequence) and one review per proposal are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('exception_remediation_events_sequence_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id, sequence\)/.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('exception_remediation_events_proposal_event_id_key:') && /UNIQUE/i.test(line) && /\(proposal_event_id\)/.test(line)),
+    )
+    const remediationExpected = [
+      'id', 'exception_intake_id', 'organization_id', 'claim_id', 'contract_version', 'sequence', 'event_code', 'action_code', 'a8_3_finding_event_id', 'rationale_code', 'proposal_event_id',
+      'decision_code', 'review_reason_code', 'recorded_by_membership_id', 'recorded_by_user_id', 'recorded_at', 'created_at',
+    ]
+    const remediationActual = replay.columns.filter((line) => line.startsWith('exception_remediation_events.')).map((line) => line.slice('exception_remediation_events.'.length).split(':')[0])
+    check(
+      `exception_remediation_events carries exactly its ${remediationExpected.length} A8.5 columns, with no status, execution, resolution, digest or narrative column, after a clean replay`,
+      remediationActual.length === remediationExpected.length && remediationActual.every((column) => remediationExpected.includes(column)),
+      remediationActual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : remediationActual.filter((column) => !remediationExpected.includes(column)).join(', '),
+    )
+    // The tables the A8.5 migration itself creates, read from its committed file, and each must exist after the replay.
+    const a85Created = [...readFileSync(new URL('../../prisma/migrations/20261105090000_a8_5_exception_remediation/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    const remediationTables = a85Created.filter((table) => replayedTables.has(table))
+    check('the A8.5 tables are exactly exception_remediation_events after a clean replay', JSON.stringify(a85Created) === JSON.stringify(['exception_remediation_events']) && JSON.stringify(remediationTables) === JSON.stringify(a85Created), remediationTables.join(', '))
+
     // CRG-01 FINAL Checkpoint A — five append-only CRG-owned tables beside the reused A3 reference-dataset model:
     // the code-system identity of a dataset, numbered rights decisions, one complete import per edition, its immutable
     // membership and retirement classifications. CHECKs hold the contract and every controlled value; insert guards

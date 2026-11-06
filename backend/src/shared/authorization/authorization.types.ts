@@ -267,6 +267,13 @@ export const permissionCodes = [
   // CRG-01 Checkpoint A - reading the coding-release decision of one encounter's codes (Admin, Viewer). It never blocks a claim,
   // writes a finding or activates a release (Checkpoint B).
   'codingRelease.read',
+  // A8.5 - proposing one controlled remediation action for an exception (Admin; the service further requires the current,
+  // eligible A8.2 assignee), reviewing an outstanding proposal independently (Admin; never its own author), and reading
+  // the remediation history and derived disposition (Admin, Viewer). None executes, corrects, resolves, closes,
+  // escalates or pays anything.
+  'exceptionRemediation.propose',
+  'exceptionRemediation.review',
+  'exceptionRemediation.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
