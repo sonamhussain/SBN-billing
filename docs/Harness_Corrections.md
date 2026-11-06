@@ -298,3 +298,65 @@ These checks are unchanged. They are documented as branch-only N/A in a later pa
   `npm run test:harness-corrections:a5-a7`.
 - Two official `npm run test:harness-corrections:a5-a7` runs at one HEAD, each a complete PASS, with their full
   nested outputs.
+
+---
+
+# A7.2–A7.5 later-phase table recognition (bundled in CRG-01)
+
+This correction ships inside the CRG-01 FINAL (Checkpoint A) PR on branch `fix/crg-01-final-coding-release`, by the
+head developer's decision. It is not a separate PR, which saves one review cycle. It is disclosed here and in the PR
+description. It changes only four A7 suites, two code lines each. No product module, migration, schema, permission,
+route or accepted contract of A7 changes.
+
+## Why
+
+CRG-01 adds the table `crg_release_imports`. It holds the import record of a coding catalogue edition: source file
+SHA-256 and row count. Four accepted A7 suites refuse any live table whose name matches a later-domain pattern
+containing `import`. That word was meant for an A9 payer or remittance import. On the CRG-01 branch these suites judge
+CRG-01's table by its name:
+
+| Suite | Check | Pattern |
+|---|---|---|
+| A7.2 `a7-evidence-classification` | T026 no imported payer source fabricated | `payer_response\|remittance\|import\|inbound\|adjudicat` |
+| A7.3 `a7-evidence-gate` | T105 no A7.4+ or A9 domain | `adjudicat\|denial\|allowed\|remittance\|settle\|import\|inbound\|outbox\|queue\|transmission\|acknowledg` |
+| A7.4 `a7-evidence-case` | T107 no A7.5 or A9 work | the A7.3 pattern plus `closure` |
+| A7.5 `a7-case-prerequisite` | T108 no A7.6–A9 or payer integration | the A7.4 pattern plus `reconcil\|payer_response` |
+
+The same wrong fixes stay rejected:
+
+- renaming `crg_release_imports` to dodge the pattern;
+- marking the checks N/A.
+
+Neither is done.
+
+## Changed predicates
+
+In each suite the pattern and the rest of the check are unchanged. The live tables matching the pattern are reduced
+by the tables created by migrations committed after that suite's own merge. The set comes from git: the migration
+directories at `HEAD` that are absent at the suite's own merge, and the `CREATE TABLE` statements in their committed
+files. It is never read from the database or from a name. This is exactly the accepted A6.10 T110 rule (first
+correction) and the A8.1 T100/T119 rule.
+
+On the suite's own branch `ownMerge = ''`, so the set is empty and the predicate is literally the original. Every table
+that existed when the suite merged is still judged by the original name boundary. A table that no committed
+migration creates, for example one created by hand, is never excluded.
+
+A later package proves its own domain. CRG-01 has no payer, remittance, adjudication or import-of-payer-data route or
+table. Its own harness proves this in CRG-003 and CRG-009.
+
+## Acceptance
+
+There is no separate suite. The CRG-01 harness is the gate:
+
+- **CRG-003** proves the change is exactly bounded. In each of the four suites, over this package's own range, the
+  only changed code lines are the later-phase table set (byte-identical to the A8.1 definition) and the original
+  query with `.filter((t) => !laterPhaseTables.has(t))` appended. Every other changed line is a comment.
+- **CRG-123 and CRG-124** run the full A8.3 → A1 chain. A7.2 T026, A7.3 T105, A7.4 T107 and A7.5 T108 PASS inside
+  it. Every documented branch-only item is proved for its cause, all the way down.
+- **CRG-G08** reviews the correction in every run. For each of the four suites it shows:
+  - the pattern is byte-identical to its accepted one;
+  - on the suite's own branch nothing is excluded;
+  - at the tested HEAD the only live table excluded is `crg_release_imports`, created by CRG-01's own migration, and
+    no other matching table goes unjudged;
+  - a hand-made `remittance_import_probe_*` table with no migration (rolled back) is still refused by all four.
+- Two official CRG-01 runs at one HEAD are the evidence.

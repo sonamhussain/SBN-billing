@@ -176,6 +176,13 @@ export const apiErrorCodes = [
   // refusal, an unknown commit outcome, a record under another contract) or a stored history is inconsistent; nothing
   // was recorded or derived.
   'EXCEPTION_INVESTIGATION_CONFLICT',
+  // CRG-01 Checkpoint A: the stored coding-release history or an import contradicts itself (a mapping that no longer
+  // matches its dataset, a lifecycle that does not explain a version's state, an import whose rows do not reproduce
+  // its SHA-256, a code of another organization); nothing was decided or written.
+  'SOURCE_INTEGRITY_CONFLICT',
+  // CRG-01 Checkpoint A: a maintenance entry is already registered, sealed or not applicable to its record; nothing
+  // was written.
+  'CODING_RELEASE_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

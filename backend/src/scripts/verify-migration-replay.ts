@@ -1492,6 +1492,73 @@ async function main() {
     const investigationTables = a83Created.filter((table) => replayedTables.has(table))
     check('the A8.3 tables are exactly exception_investigation_events after a clean replay', JSON.stringify(a83Created) === JSON.stringify(['exception_investigation_events']) && JSON.stringify(investigationTables) === JSON.stringify(a83Created), investigationTables.join(', '))
 
+    // CRG-01 FINAL Checkpoint A — five append-only CRG-owned tables beside the reused A3 reference-dataset model:
+    // the code-system identity of a dataset, numbered rights decisions, one complete import per edition, its immutable
+    // membership and retirement classifications. CHECKs hold the contract and every controlled value; insert guards
+    // hold database time and each record's coherence with its A3 parent; a deferred constraint trigger refuses an
+    // import whose rows do not reproduce its count and SHA-256 at commit; every key is ON DELETE RESTRICT.
+    const crgTablesExpected = ['crg_code_system_datasets', 'crg_code_system_rights', 'crg_release_code_memberships', 'crg_release_imports', 'crg_retirement_classifications']
+    for (const table of crgTablesExpected) {
+      for (const suffix of ['append_only_trg', 'no_truncate_trg', 'insert_guard_trg']) {
+        const trigger = `${table}_${suffix}`
+        check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+      }
+      const contract = replay.constraints.find((line) => line.includes(`:${table}_contract_chk:`)) ?? ''
+      check(`${table}_contract_chk pins CRG-CODESET-1 after a clean replay`, contract.includes("'CRG-CODESET-1'") && /IS NOT NULL/i.test(contract), contract.slice(0, 120))
+    }
+    check('crg_release_imports_complete_trg is present after a clean replay', replay.triggers.some((line) => line.endsWith(':crg_release_imports_complete_trg')))
+    for (const name of [
+      'crg_code_system_datasets_dataset_id_fkey', 'crg_release_imports_dataset_version_id_fkey', 'crg_release_code_memberships_import_id_fkey',
+      'crg_release_code_memberships_dataset_version_id_fkey', 'crg_retirement_classifications_dataset_version_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present and ON DELETE RESTRICT after a clean replay`, line.includes('ON DELETE RESTRICT'), line.slice(0, 160))
+    }
+    const crgSystems = replay.constraints.find((line) => line.includes('crg_release_code_memberships_code_system_chk')) ?? ''
+    check(
+      'the CRG CHECKs pin exactly ICD-10-CM, CPT and HCPCS-LEVEL-II, CLAIM_CODING, APPROVED/BLOCKED and PROSPECTIVE/HISTORICALLY_INVALIDATED after a clean replay',
+      ['ICD-10-CM', 'CPT', 'HCPCS-LEVEL-II'].every((code) => crgSystems.includes(`'${code}'`)) && (replay.constraints.find((line) => line.includes('crg_code_system_datasets_purpose_chk')) ?? '').includes("'CLAIM_CODING'") &&
+        ['APPROVED', 'BLOCKED'].every((code) => (replay.constraints.find((line) => line.includes('crg_code_system_rights_status_chk')) ?? '').includes(`'${code}'`)) &&
+        ['PROSPECTIVE', 'HISTORICALLY_INVALIDATED'].every((code) => (replay.constraints.find((line) => line.includes('crg_retirement_classifications_value_chk')) ?? '').includes(`'${code}'`)),
+      crgSystems.slice(0, 160),
+    )
+    // Audit CRG-F01/F02: two separate fingerprints on every import, only the synthetic artifact format, and no
+    // release-size ceiling (any positive count).
+    const crgImportFingerprint = replay.constraints.find((line) => line.includes('crg_release_imports_fingerprint_chk')) ?? ''
+    const crgImportArtifact = replay.constraints.find((line) => line.includes('crg_release_imports_artifact_chk')) ?? ''
+    const crgImportRows = replay.constraints.find((line) => line.includes('crg_release_imports_row_count_chk')) ?? ''
+    check(
+      'every CRG import carries a source artifact SHA-256 and a separate membership fingerprint, only the synthetic artifact format and no release-size ceiling after a clean replay',
+      /source_file_sha256/.test(crgImportFingerprint) && /membership_fingerprint_sha256/.test(crgImportFingerprint) && crgImportArtifact.includes("'CRG-SYNTHETIC-TSV-1'") && /expected_row_count >= 1/.test(crgImportRows) && !/5000|BETWEEN/i.test(crgImportRows),
+      `${crgImportArtifact.slice(0, 120)} | ${crgImportRows.slice(0, 120)}`,
+    )
+    check(
+      'one identity per dataset, one import per edition, one membership per (edition, system, code) and per (import, source row), one classification per edition and numbered rights are unique after a clean replay',
+      [
+        ['crg_code_system_datasets_dataset_key', /\(dataset_id\)/], ['crg_release_imports_version_key', /\(dataset_version_id\)/], ['crg_release_code_memberships_code_key', /\(dataset_version_id, code_system, code\)/],
+        ['crg_release_code_memberships_row_key', /\(import_id, source_row_id\)/], ['crg_retirement_classifications_version_key', /\(dataset_version_id\)/],
+        ['crg_code_system_rights_sequence_key', /\(jurisdiction_code, authority_code, code_system, sequence\)/],
+      ].every(([name, columns]) => replay.indexes.some((line) => line.startsWith(`${name}:`) && /UNIQUE/i.test(line) && (columns as RegExp).test(line))),
+    )
+    const crgColumns: Record<string, string[]> = {
+      crg_code_system_datasets: ['id', 'dataset_id', 'code_system', 'purpose', 'jurisdiction_code', 'authority_code', 'contract_version', 'recorded_at', 'created_at'],
+      crg_code_system_rights: ['id', 'jurisdiction_code', 'authority_code', 'code_system', 'sequence', 'rights_status', 'decision_reference', 'contract_version', 'recorded_at', 'created_at'],
+      crg_release_imports: ['id', 'dataset_version_id', 'code_system', 'source_file_sha256', 'artifact_format', 'artifact_byte_length', 'membership_fingerprint_sha256', 'source_uri', 'publisher', 'expected_row_count', 'contract_version', 'recorded_at', 'created_at'],
+      crg_release_code_memberships: ['id', 'import_id', 'dataset_version_id', 'code_system', 'code', 'source_row_id', 'source_row_sha256', 'release_content_hash', 'contract_version', 'recorded_at', 'created_at'],
+      crg_retirement_classifications: ['id', 'dataset_version_id', 'classification', 'contract_version', 'recorded_at', 'created_at'],
+    }
+    for (const [table, expected] of Object.entries(crgColumns)) {
+      const actual = replay.columns.filter((line) => line.startsWith(`${table}.`)).map((line) => line.slice(table.length + 1).split(':')[0])
+      check(
+        `${table} carries exactly its ${expected.length} CRG columns, with no descriptor, status or claim column, after a clean replay`,
+        actual.length === expected.length && actual.every((column) => expected.includes(column)),
+        actual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : actual.filter((column) => !expected.includes(column)).join(', '),
+      )
+    }
+    const crgCreated = [...readFileSync(new URL('../../prisma/migrations/20261104090000_crg_01_final_coding_release/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    const crgTables = crgCreated.filter((table) => replayedTables.has(table))
+    check('the CRG Checkpoint A tables are exactly its five crg_ tables after a clean replay', JSON.stringify(crgCreated) === JSON.stringify(crgTablesExpected) && JSON.stringify(crgTables) === JSON.stringify(crgCreated), crgTables.join(', '))
+
     // A5.2 — freshness is derived from valid_through at read time and must never become a column.
     // A stored flag would be wrong the moment the clock moved past it, and FRESH would start to be
     // read as ELIGIBLE, which it never means. This is asserted structurally so a future migration
