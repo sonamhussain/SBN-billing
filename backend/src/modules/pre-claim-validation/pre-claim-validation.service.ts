@@ -16,11 +16,16 @@ import { evaluateCoverage } from './pre-claim-validation.coverage.ts'
 import { evaluateContract } from './pre-claim-validation.contract.ts'
 import { evaluateEvidence } from './pre-claim-validation.evidence.ts'
 import { insertGovernedProvenance, type TargetCodes, verifyGovernedProvenance } from './pre-claim-validation.provenance.ts'
+import { evaluateCodingReleaseLayer } from './pre-claim-validation.coding-release.ts'
+// CRG-01 Checkpoint B — the server-owned validator selection and the receipts of an A5-VAL-2 run.
+import { CodingValidationIntegrityDefect, recordCodingReceipts, selectValidatorForProfile } from '../coding-validation/coding-validation.service.ts'
+import type { ReceiptPlan } from '../coding-validation/coding-validation.types.ts'
 import {
   type FindingDraft,
   type PreClaimValidationExecutionDto,
   type PreClaimValidationResult,
   VALIDATOR_VERSION,
+  VALIDATOR_VERSION_V2,
   ValidationIntegrityDefect,
 } from './pre-claim-validation.types.ts'
 
@@ -61,6 +66,13 @@ export async function executePreClaimValidation(encounterId: string, body: unkno
         const encounter = await findEncounterForBillingContext(encounterId, tx)
         if (!encounter) return { ok: false, code: 'NOT_FOUND', message: 'encounter not found' }
 
+        // CRG-01 Checkpoint B — the validator is the server's choice from the encounter's CRG validation scope: A5-VAL-2
+        // where it is ENABLED, A5-VAL-1 otherwise; a SUSPENDED regulatory scope records no run at all.
+        const selection = await selectValidatorForProfile(encounter.facilityRegulatoryProfileId, tx)
+        if ('suspended' in selection) return { ok: false, code: 'INTEGRITY_CONFLICT', message: 'the coding validation scope of this encounter is suspended; no validation run was recorded' }
+        const validatorVersion = selection.validatorVersion === VALIDATOR_VERSION_V2 ? VALIDATOR_VERSION_V2 : VALIDATOR_VERSION
+        let receiptPlans: ReceiptPlan[] = []
+
         const context: ValidationRunContextSnapshot = {
           serviceDate: formatDateOnly(encounter.serviceDate) as string,
           facilityId: encounter.facilityId,
@@ -81,6 +93,11 @@ export async function executePreClaimValidation(encounterId: string, body: unkno
         if (technical.passed) {
           if (technical.membership) Object.assign(context, technical.membership)
           drafts.push(...(await evaluateCoding(encounterId, tx)))
+          if (validatorVersion === VALIDATOR_VERSION_V2) {
+            const codingRelease = await evaluateCodingReleaseLayer(encounterId, tx)
+            drafts.push(...codingRelease.findings)
+            receiptPlans = codingRelease.plans
+          }
           drafts.push(...(await evaluateCoverage(encounterId, technical.membership, encounter.serviceDate, evaluatedAt, tx)))
           const contract = await evaluateContract(encounterId, tx)
           drafts.push(...contract.findings)
@@ -103,7 +120,7 @@ export async function executePreClaimValidation(encounterId: string, body: unkno
         }
 
         const recorded = await recordValidationRunInTransaction(
-          { encounterId, contextSnapshot: context, validatorVersion: VALIDATOR_VERSION, findings: findings.map(stripProvenance) },
+          { encounterId, contextSnapshot: context, validatorVersion, findings: findings.map(stripProvenance) },
           actorUserId,
           tx,
         )
@@ -118,15 +135,23 @@ export async function executePreClaimValidation(encounterId: string, body: unkno
         }
         await concurrencyProbe('pre_claim_validation.provenance_inserted')
 
+        // CRG-01 Checkpoint B — an A5-VAL-2 run's receipts and manifest, on this same transaction; the database proves
+        // their one-to-one integrity at commit.
+        if (validatorVersion === VALIDATOR_VERSION_V2) {
+          await recordCodingReceipts(recorded.value.id, encounterId, receiptPlans, tx)
+          await concurrencyProbe('pre_claim_validation.receipts_inserted')
+        }
+
         return {
           ok: true,
-          value: { validationRunId: recorded.value.id, evaluatedAt: recorded.value.evaluatedAt, validatorVersion: VALIDATOR_VERSION, findingCount: recorded.value.findingCount },
+          value: { validationRunId: recorded.value.id, evaluatedAt: recorded.value.evaluatedAt, validatorVersion, findingCount: recorded.value.findingCount },
         }
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 300_000 },
     )
   } catch (error) {
-    if (error instanceof ValidationIntegrityDefect) return { ok: false, code: 'INTEGRITY_CONFLICT', message: 'the validation could not be recorded because of an integrity defect' }
+    if (error instanceof ValidationIntegrityDefect || error instanceof CodingValidationIntegrityDefect)
+      return { ok: false, code: 'INTEGRITY_CONFLICT', message: 'the validation could not be recorded because of an integrity defect' }
     throw error
   }
 }

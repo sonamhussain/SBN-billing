@@ -11,6 +11,8 @@ import type { EvidenceManifestV1 } from '../claim-evidence/claim-evidence.types.
 // business name.
 
 export const SUBMISSION_CONTRACT_VERSION = 'A6-SUBMISSION-1'
+// CRG-01 Checkpoint B — the freeze of A6-PAYLOAD-2 (a PreClaimA6HandoffV2 claim). A6-SUBMISSION-1 is unchanged.
+export const SUBMISSION_CONTRACT_VERSION_V2 = 'A6-SUBMISSION-2'
 
 // §2 — the validated request. The Claim comes from the path; actor, payload, amounts, hashes, sequence,
 // state and every instant are the server's.

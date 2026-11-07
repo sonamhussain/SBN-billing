@@ -161,6 +161,8 @@ model Encounter {
   encounterEvidenceLinks EncounterEvidenceLink[]
   validationRuns ValidationRun[]
   claims Claim[]
+  crgCodingReceipts CrgValidationCodeReceipt[]
+
   @@index([patientId])
   @@index([facilityId])
   @@index([clinicianId])
@@ -190,6 +192,8 @@ model EncounterDiagnosis {
   diagnosisCode DiagnosisCode @relation(fields: [diagnosisCodeId], references: [id], onDelete: Restrict)
   validationFindings ValidationFinding[]
   claimDiagnoses     ClaimDiagnosis[]
+
+  crgCodingReceipts CrgValidationCodeReceipt[]
 
   @@index([encounterId])
   @@index([diagnosisCodeId])
@@ -225,6 +229,8 @@ model EncounterActivity {
   validationFindings ValidationFinding[]
   claimLineSources   ClaimLineSourceActivity[]
   pricingLineResults ClaimPricingLineResult[]
+
+  crgCodingReceipts CrgValidationCodeReceipt[]
 
   @@index([encounterId])
   @@index([serviceId])
@@ -982,6 +988,8 @@ model ReferenceDatasetVersion {
   validationFindings ValidationFinding[]
   validationFindingDatasets ValidationFindingReferenceDatasetVersion[]
 
+  crgCodingReceipts CrgValidationCodeReceipt[]
+
   @@unique([datasetId, version])
   @@index([datasetId])
   @@index([sourceVersionId])
@@ -1703,6 +1711,9 @@ model ValidationRun {
   findings                  ValidationFinding[]
   readinessAssessments PreClaimReadinessAssessment[]
 
+  crgCodingReceipts        CrgValidationCodeReceipt[]
+  crgReceiptManifest       CrgValidationReceiptManifest?
+
   @@index([encounterId, evaluatedAt])
   @@index([providerContractId])
   @@index([tariffScheduleVersionId])
@@ -1749,6 +1760,8 @@ model ValidationFinding {
   supportingBindings      ValidationFindingSupportingBinding[]
   matchedApplicabilities  ValidationFindingMatchedApplicability[]
   consumedDatasetVersions ValidationFindingReferenceDatasetVersion[]
+
+  crgCodingReceipt CrgValidationCodeReceipt?
 
   @@unique([validationRunId, sequence])
   @@index([validationRunId])
@@ -2584,6 +2597,8 @@ model CrgCodeSystemDataset {
 
   dataset ReferenceDataset @relation(fields: [datasetId], references: [id], onDelete: Restrict)
 
+  codingReceipts CrgValidationCodeReceipt[]
+
   @@unique([datasetId], map: "crg_code_system_datasets_dataset_key")
   @@map("crg_code_system_datasets")
 }
@@ -2628,6 +2643,8 @@ model CrgReleaseImport {
   datasetVersion ReferenceDatasetVersion    @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
   memberships    CrgReleaseCodeMembership[]
 
+  codingReceipts CrgValidationCodeReceipt[]
+
   @@unique([datasetVersionId], map: "crg_release_imports_version_key")
   @@map("crg_release_imports")
 }
@@ -2650,6 +2667,8 @@ model CrgReleaseCodeMembership {
 
   import         CrgReleaseImport        @relation(fields: [importId], references: [id], onDelete: Restrict)
   datasetVersion ReferenceDatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
+
+  codingReceipts CrgValidationCodeReceipt[]
 
   @@unique([datasetVersionId, codeSystem, code], map: "crg_release_code_memberships_code_key")
   @@unique([importId, sourceRowId], map: "crg_release_code_memberships_row_key")
@@ -2713,4 +2732,84 @@ model ExceptionRemediationEvent {
   @@index([recordedByMembershipId])
   @@index([recordedByUserId])
   @@map("exception_remediation_events")
+}
+
+// CRG-01 FINAL Checkpoint B — the append-only, numbered validator selection per (jurisdiction, authority)
+// (CRG-VALSCOPE-1). The server selects A5-VAL-2 only where the latest decision is ENABLED. Checkpoint B admits SYNTHETIC
+// scopes only; a REGULATORY scope is one-way (ENABLED/SUSPENDED, never DISABLED) and its database guards refuse any V1
+// run or freeze.
+model CrgValidationScope {
+  id                String   @id @default(uuid()) @db.Uuid
+  jurisdictionCode  String   @map("jurisdiction_code") @db.Text
+  authorityCode     String   @map("authority_code") @db.Text
+  scopeClass        String   @map("scope_class") @db.Text
+  sequence          Int
+  validatorVersion  String   @map("validator_version") @db.Text
+  scopeStatus       String   @map("scope_status") @db.Text
+  decisionReference String   @map("decision_reference") @db.Text
+  contractVersion   String   @map("contract_version") @db.Text
+  recordedAt        DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([jurisdictionCode, authorityCode, sequence], map: "crg_validation_scopes_sequence_key")
+  @@map("crg_validation_scopes")
+}
+
+// CRG-01 FINAL Checkpoint B — one immutable receipt per required coding target of an A5-VAL-2 run (CRG-RECEIPT-1): the
+// run, encounter, finding, target, the A2 master and code copied at run time, the decision and its exact release
+// identity. Integrity I1–I6 is proven at commit by a deferred guard on the run's manifest.
+model CrgValidationCodeReceipt {
+  id                          String    @id @default(uuid()) @db.Uuid
+  validationRunId             String    @map("validation_run_id") @db.Uuid
+  encounterId                 String    @map("encounter_id") @db.Uuid
+  validationFindingId         String    @unique(map: "crg_validation_code_receipts_finding_key") @map("validation_finding_id") @db.Uuid
+  subjectKind                 String    @map("subject_kind") @db.Text
+  encounterDiagnosisId        String?   @map("encounter_diagnosis_id") @db.Uuid
+  encounterActivityId         String?   @map("encounter_activity_id") @db.Uuid
+  masterCodeId                String    @map("master_code_id") @db.Uuid
+  codeSystem                  String?   @map("code_system") @db.Text
+  canonicalCode               String?   @map("canonical_code") @db.Text
+  decisionCode                String    @map("decision_code") @db.Text
+  codeSystemDatasetId         String?   @map("code_system_dataset_id") @db.Uuid
+  releaseImportId             String?   @map("release_import_id") @db.Uuid
+  referenceDatasetVersionId   String?   @map("reference_dataset_version_id") @db.Uuid
+  membershipId                String?   @map("membership_id") @db.Uuid
+  sourceRowSha256             String?   @map("source_row_sha256") @db.Text
+  releaseContentHash          String?   @map("release_content_hash") @db.Text
+  membershipFingerprintSha256 String?   @map("membership_fingerprint_sha256") @db.Text
+  serviceDate                 DateTime  @map("service_date") @db.Date
+  jurisdictionCode            String    @map("jurisdiction_code") @db.Text
+  authorityCode               String    @map("authority_code") @db.Text
+  algorithmVersion            String    @map("algorithm_version") @db.Text
+  contractVersion             String    @map("contract_version") @db.Text
+  recordedAt                  DateTime  @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  validationRun           ValidationRun            @relation(fields: [validationRunId], references: [id], onDelete: Restrict)
+  encounter               Encounter                @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  validationFinding       ValidationFinding        @relation(fields: [validationFindingId], references: [id], onDelete: Restrict)
+  encounterDiagnosis      EncounterDiagnosis?      @relation(fields: [encounterDiagnosisId], references: [id], onDelete: Restrict)
+  encounterActivity       EncounterActivity?       @relation(fields: [encounterActivityId], references: [id], onDelete: Restrict)
+  codeSystemDataset       CrgCodeSystemDataset?    @relation(fields: [codeSystemDatasetId], references: [id], onDelete: Restrict)
+  releaseImport           CrgReleaseImport?        @relation(fields: [releaseImportId], references: [id], onDelete: Restrict)
+  referenceDatasetVersion ReferenceDatasetVersion? @relation(fields: [referenceDatasetVersionId], references: [id], onDelete: Restrict)
+  membership              CrgReleaseCodeMembership? @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+
+  @@index([validationRunId], map: "crg_validation_code_receipts_run_idx")
+  @@index([encounterId], map: "crg_validation_code_receipts_encounter_idx")
+  @@map("crg_validation_code_receipts")
+}
+
+// CRG-01 FINAL Checkpoint B — one manifest per A5-VAL-2 run (CRG-RECEIPT-1): the receipt count and the SHA-256 of the
+// canonical receipt lines. An A5-VAL-2 run never commits without it.
+model CrgValidationReceiptManifest {
+  id              String   @id @default(uuid()) @db.Uuid
+  validationRunId String   @unique(map: "crg_validation_receipt_manifests_run_key") @map("validation_run_id") @db.Uuid
+  receiptCount    Int      @map("receipt_count")
+  manifestSha256  String   @map("manifest_sha256") @db.Text
+  contractVersion String   @map("contract_version") @db.Text
+  recordedAt      DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  validationRun ValidationRun @relation(fields: [validationRunId], references: [id], onDelete: Restrict)
+
+  @@map("crg_validation_receipt_manifests")
 }

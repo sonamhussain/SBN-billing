@@ -195,6 +195,9 @@ export const apiErrorCodes = [
   // CRG-01 Checkpoint A: a maintenance entry is already registered, sealed or not applicable to its record; nothing
   // was written.
   'CODING_RELEASE_CONFLICT',
+  // CRG-01 Checkpoint B: an A5-VAL-2 run's or frozen submission's coding receipts do not verify as recorded against
+  // their immutable records; nothing was answered as verified.
+  'CODING_RECEIPT_INTEGRITY_CONFLICT',
 ] as const
 
 export type ApiErrorCode = (typeof apiErrorCodes)[number]

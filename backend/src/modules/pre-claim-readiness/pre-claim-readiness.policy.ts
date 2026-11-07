@@ -7,10 +7,20 @@ import type { ReadinessState } from './pre-claim-readiness.types.ts'
 // accepted until a policy lists it explicitly.
 const compatibleValidatorVersions: Readonly<Record<string, readonly string[]>> = {
   'A5-READY-1': ['A5-VAL-1'],
+  // CRG-01 Checkpoint B — A5-READY-2 accepts only A5-VAL-2 (and additionally requires its coding receipts verified as
+  // recorded); A5-READY-1 keeps only A5-VAL-1.
+  'A5-READY-2': ['A5-VAL-2'],
 }
 
 export function isValidatorCompatible(readinessPolicyVersion: string, validatorVersion: string): boolean {
   return Object.hasOwn(compatibleValidatorVersions, readinessPolicyVersion) && compatibleValidatorVersions[readinessPolicyVersion].includes(validatorVersion)
+}
+
+// The explicit dispatcher: the one readiness policy that names a run's validator version, or null (refused, never
+// assumed). Reads no outcome, no finding code and no request field.
+export function readinessPolicyFor(validatorVersion: string): string | null {
+  const policies = Object.keys(compatibleValidatorVersions).filter((policy) => compatibleValidatorVersions[policy].includes(validatorVersion))
+  return policies.length === 1 ? policies[0] : null
 }
 
 const knownOutcomes: ReadonlySet<string> = new Set(['PASS', 'WARNING', 'RESTRICT', 'FAIL'])

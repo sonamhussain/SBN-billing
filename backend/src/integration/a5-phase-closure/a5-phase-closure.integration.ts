@@ -676,7 +676,7 @@ async function main() {
   const warningRun = await recorded((await basic.encounter()).id, ['PASS', 'WARNING', 'WARNING'])
   const warningAssessed = await assessHttp(warningRun, {})
   if (warningAssessed.status === 201) createdAssessmentIds.push(warningAssessed.body.id)
-  const incompatibleRun = await recorded((await basic.encounter()).id, ['PASS'], 'A5-VAL-2')
+  const incompatibleRun = await recorded((await basic.encounter()).id, ['PASS'], 'A5-VAL-9')
   const incompatibleAssessed = await assessHttp(incompatibleRun, {})
 
   // ---- T074/T077: a READY Encounter is validated again and the newer run is assessed READY too; the

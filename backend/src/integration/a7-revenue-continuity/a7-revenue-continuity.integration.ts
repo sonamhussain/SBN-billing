@@ -873,7 +873,8 @@ async function main() {
   // Every controlled value a result carries (continuity, gap and basis codes).
   const resultCodes = allResults.flatMap((r: any) => (r ? [r.continuityCode, ...r.gaps.flatMap((g: any) => [g.gapCode, g.basisCode])] : [])).filter((v): v is string => typeof v === 'string')
   check('T049', 'No closure-ready outcome', resultCodes.length > 20 && !resultCodes.some((c) => /READY|CLOS|SETTLE|RESOLVED|(^|_)COMPLETE$/.test(c)) && !CONTINUITY_CODES.some((c) => /READY|CLOS|COMPLETE/.test(c)) && !/READY|CLOS/.test(committedText(`${MODULE_DIR}/revenue-continuity.types.ts`).replace(/\/\/.*$/gm, '')), 'no continuity or gap code says ready, closed, complete or settled — even when every freeze is recorded')
-  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t)
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   check('T050', 'No implicit payer verdict', !/"(PAID|DENIED|APPROVED|ADJUDICATED|REJECTED|REMITTED|PARTIALLY_PAID)"/.test(allText) && ![...deepKeys(allResults)].some((k) => /payer|verdict|adjudicat|denial|remittance|status/i.test(k)) && ledgerTables.length === 0, 'no paid, denied, approved, adjudicated or remitted value and no payer or verdict field (the A7.5 basis EXTERNAL_REMITTANCE_NOT_ESTABLISHED names only an absence); no ledger table')
 
   // ---------------------------------------------------------------- owner reconciliation (T051–T060)
@@ -1148,7 +1149,6 @@ async function main() {
   const laterRoutes = [await post(`/api/claims/${C.claimId}/closures`, {}), await post(`/api/claims/${C.claimId}/payments`, {}), await post(`/api/claims/${C.claimId}/remittances`, {}), await post(`/api/claims/${C.claimId}/exceptions`, {}), await post(continuityPath(C.claimId), {})]
   // Later phases' tables: those created by migrations committed after this package's own merge (none on its own
   // branch, so this boundary is unchanged there). Every table that existed when the package merged is judged as before.
-  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
   const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|continuit|delta|receivable|ledger|balance|payment)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const moneyIdentifier = /\bDecimal\b|[Aa]mount|\b[Cc]urrency|[a-z]Currency|toFixed\(|[Ss]ettle|[Aa]llocat|[Aa]djust|[Rr]eceivable|[Bb]alance|[Ll]edger|[Pp]ayment|[Rr]emittance/
   check(

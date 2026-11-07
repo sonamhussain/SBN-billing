@@ -360,3 +360,154 @@ There is no separate suite. The CRG-01 harness is the gate:
     no other matching table goes unjudged;
   - a hand-made `remittance_import_probe_*` table with no migration (rolled back) is still refused by all four.
 - Two official CRG-01 runs at one HEAD are the evidence.
+
+# CRG-01 Checkpoint B — unknown-validator stand-ins (design freeze 1.2 §12, B-F06)
+
+## Why
+
+Three accepted suites used `A5-VAL-2` as an example of a validator version that no readiness policy accepts. They
+record a run under it, then prove the run is refused. Checkpoint B makes `A5-VAL-2` a real, governed version. It now
+exists only inside an ENABLED synthetic CRG validation scope, and only with its receipts. So the database guard
+(`crg_validation_scopes`, `crg_validation_runs_receipts_complete_trg`) refuses the fixture run itself, before the
+assertion is reached.
+
+## Changed predicates
+
+The only change in each suite is the stand-in literal `A5-VAL-2` → `A5-VAL-9` (a version no policy names), plus the
+same word in its detail text. The assertion, the refusal code, the counts and the audits checked are unchanged.
+
+| Suite | Check | Original assertion, kept verbatim |
+|---|---|---|
+| `backend/src/integration/a5-phase-closure/a5-phase-closure.integration.ts` | A5.10 T072 | an unknown validator's run is refused by the readiness policy (409 READINESS_POLICY_INCOMPATIBLE) |
+| `backend/src/integration/a5-readiness/a5-readiness.integration.ts` | A5.9 T14 | runs of validator versions A5-READY-1 does not list are refused (409 READINESS_POLICY_INCOMPATIBLE), with no assessment and no audit |
+| `backend/src/integration/a6-claim-foundation/a6-claim-foundation.integration.ts` | A6.1 T017 | a Claim is refused (409 CLAIM_HANDOFF_INCOMPATIBLE) for an incompatible policy and for an incompatible validator |
+
+Every other use of a V2 literal in an earlier suite is left as it is and still holds. These include `A5-READY-2`
+assessments planted over A5-VAL-1 runs (A6.1, A6.2, A6.3, A6.4), client fields named `handoffSchemaVersion`, and
+UPDATE attacks refused by the identity guard.
+
+## Negative tests (Checkpoint B harness, B-G06)
+
+For each corrected suite, B-G06 proves two things:
+- **Bounded diff.** Over this package's own range, the file's only changed lines are the `A5-VAL-2` → `A5-VAL-9` lines.
+- **The original assertion still detects the prohibited behaviour.** A run of an unknown validator (`A5-VAL-9`) is
+  still refused by A5.9 with 409 READINESS_POLICY_INCOMPATIBLE. An A5-READY-1 assessment over such a run still has no
+  handoff (READINESS_POLICY_INCOMPATIBLE, which A6.1 answers as CLAIM_HANDOFF_INCOMPATIBLE).
+
+# CRG-01 Checkpoint B — corrections found by the full clone proof (design freeze 1.2 §12)
+
+The full clone proof (both nested chains, A8.3 → A1) listed every non-cascade nested failure. None was a behaviour
+change. Each is corrected under the four-condition rule of §12, using a rule already accepted for an earlier package.
+None was renamed around or marked N/A.
+
+## 1. A7 cash-receipt boundaries — the accepted later-phase table rule
+
+### Why
+
+Seven accepted A7 suites refuse any live table whose name matches a cash-ledger pattern that contains `receipt`. That
+word was meant for a cash or payment receipt. Checkpoint B adds `crg_validation_code_receipts` and
+`crg_validation_receipt_manifests`. These are coding-validation evidence, and neither has a balance, amount, currency
+or payment column. On the Checkpoint B branch these suites judged CRG's tables by their name.
+
+The same wrong fixes stay rejected:
+- renaming the CRG tables to dodge the pattern;
+- marking the checks N/A.
+
+### Changed predicates
+
+In each suite, the pattern and the rest of the check are unchanged. The suite's existing `laterPhaseTables` line, byte-identical, is moved above
+its first use. The query gets `.filter((t) => !laterPhaseTables.has(t))` appended.
+
+This is exactly the accepted A6.10 T110, A8.1 T100/T119 and Checkpoint A A7.2–A7.5 rule:
+- the excluded set comes from git (the `CREATE TABLE` statements of migrations committed after the suite's own merge),
+  never from a name;
+- on the suite's own branch the set is empty, so the predicate is the original.
+
+| Suite | Checks | Pattern |
+|---|---|---|
+| `backend/src/integration/a7-evidence-classification/a7-evidence-classification.integration.ts` | A7.2 T106 | `settle\|payment\|cash\|receipt` |
+| `backend/src/integration/a7-evidence-gate/a7-evidence-gate.integration.ts` | A7.3 T096, T109 | `receivable\|ledger\|balance\|posting\|journal\|allocation\|settle\|payment\|cash\|receipt\|copay\|patient_share` |
+| `backend/src/integration/a7-evidence-case/a7-evidence-case.integration.ts` | A7.4 T095, T109 | the A7.3 pattern |
+| `backend/src/integration/a7-case-prerequisite/a7-case-prerequisite.integration.ts` | A7.5 T094, T109 | the A7.3 pattern |
+| `backend/src/integration/a7-closure-basis-trace/a7-closure-basis-trace.integration.ts` | A7.6 T095, T109 | the A7.3 pattern |
+| `backend/src/integration/a7-revenue-delta/a7-revenue-delta.integration.ts` | A7.8 T050 | the A7.3 pattern |
+| `backend/src/integration/a7-revenue-continuity/a7-revenue-continuity.integration.ts` | A7.9 T050 | the A7.3 pattern |
+
+### Negative test (B-G06)
+
+For each suite:
+- **Bounded diff.** Over this package's own range, the only changed code lines are the moved definition and the query
+  with the filter appended.
+- **Pattern and own-branch form.** The pattern still contains `receipt`, and the own-branch form `ownMerge = ''` is
+  present.
+- **What is excluded at HEAD.** The excluded tables are exactly the two CRG receipt tables, both created by Checkpoint
+  B's migration. No other matching table goes unjudged.
+- **No money column.** Neither CRG receipt table has a balance, amount, currency, payment, price, fee, cash, settle,
+  ledger or posting column.
+- **Probe.** A hand-made `cash_receipt_probe_<run>` table, created with no migration and rolled back, is still refused
+  by every corrected query.
+
+## 2. A6.7, A6.8 and A6.9 T009 — the owner term over the package's own range
+
+### Why
+
+T009 asks two things: the earlier contracts are unchanged, and *this package changed no earlier owner module*. It
+judged the second over `origin/main...HEAD`. Checkpoint B legitimately changes the A5.8, A5.9 and A6.1–A6.7 owners
+(design freeze §8). On its branch, T009 therefore judged Checkpoint B instead of A6.7, A6.8 or A6.9.
+
+### Changed predicates
+
+The fix is the accepted A7.1–A7.9 T009 form, unchanged:
+- `ownMerge`, `ownRange`, `ownChangedPaths` and `ownOwnerChanged` are added after `ownerChanged`;
+- T009's predicate and detail read `ownOwnerChanged` in place of `ownerChanged`.
+
+The contract term, `ownerChanged` itself and every other use of it are unchanged. On the package's own branch,
+`ownRange` is `origin/main...HEAD`, so the predicate is the original.
+
+| Suite | Check |
+|---|---|
+| `backend/src/integration/a6-claim-submission/a6-claim-submission.integration.ts` | A6.7 T009 |
+| `backend/src/integration/a6-claim-lifecycle/a6-claim-lifecycle.integration.ts` | A6.8 T009 |
+| `backend/src/integration/a6-claim-correction/a6-claim-correction.integration.ts` | A6.9 T009 |
+
+### Negative test (B-G06)
+
+- **Bounded diff.** The only changed code lines are the four own-range lines and the two T009 lines, with
+  `ownerChanged` → `ownOwnerChanged`.
+- **The corrected predicate itself.** The committed `ownOwnerChanged` expression is evaluated against the suite's
+  `OWNER_DIRS`, in two ranges:
+  - over the suite's own merge it is empty, its accepted state;
+  - over a range that changes owner modules (Checkpoint B's own diff) it still flags them, for example
+    `claim-line.service.ts`.
+
+## 3. A5.8 and A6.6 scan-reach guards — the one named Checkpoint B file
+
+### Why
+
+Before its absence scans run, each suite proves that the scan reached every committed production file of the module:
+- A5.8 requires exactly 10 files;
+- A6.6 requires exactly 5.
+
+Checkpoint B adds one file to each directory: `pre-claim-validation.coding-release.ts` and `claim-payload.v2.ts`
+(design freeze §5, §9). The count failed, so every scan behind it failed: A5.8 T16, T68, T88, T107–T109 and T120–T122,
+and A6.6 T048. Run directly over the new code, each scan pattern matches nothing.
+
+### Changed predicates
+
+`files.length === N` becomes `(files.length === N || (files.length === N + 1 && files.includes(<the one named file>)))`.
+Every scan still reads every file, including the new one. A different extra file, or a second extra file, still fails
+the guard.
+
+| Suite | Guard |
+|---|---|
+| `backend/src/integration/a5-pre-claim-validation/a5-pre-claim-validation.integration.ts` | A5.8 `reached` (10, or 11 with `pre-claim-validation.coding-release.ts`) |
+| `backend/src/integration/a6-canonical-payload/a6-canonical-payload.integration.ts` | A6.6 `reached` in T048 (5, or 6 with `claim-payload.v2.ts`) |
+
+### Negative test (B-G06)
+
+- **Bounded diff.** The only changed code line is the guard.
+- **The committed guard itself.** It is evaluated on the committed file lists:
+  - it is true for the original files alone and for the original files plus the named file;
+  - it is false with an unreviewed extra file, and false when the extra file has another name.
+- **The scan still detects.** The scan pattern (A5.8 T16, A6.6 T048) matches nothing in the committed code, including
+  the new file. It still matches a broken copy with a row lock or a money multiplication injected.

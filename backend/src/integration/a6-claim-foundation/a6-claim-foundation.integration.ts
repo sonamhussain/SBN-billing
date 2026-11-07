@@ -467,14 +467,14 @@ async function main() {
   const otherPolicyEncounter = await plainEncounter('other policy')
   const otherPolicyAssessment = await insertAssessmentDirectly(await recordRun(otherPolicyEncounter.id, [finding('PASS')]), 'A5-READY-2')
   const otherValidatorEncounter = await plainEncounter('other validator')
-  const otherValidatorAssessment = await insertAssessmentDirectly(await recordRun(otherValidatorEncounter.id, [finding('PASS')], 'A5-VAL-2'), 'A5-READY-1')
+  const otherValidatorAssessment = await insertAssessmentDirectly(await recordRun(otherValidatorEncounter.id, [finding('PASS')], 'A5-VAL-9'), 'A5-READY-1')
   const otherPolicyRes = await claimHttp(otherPolicyAssessment, {})
   const otherValidatorRes = await claimHttp(otherValidatorAssessment, {})
   check(
     'T017',
     'Incompatible policy/validator',
     [otherPolicyRes, otherValidatorRes].every((res) => res.status === 409 && errorCode(res.body) === 'CLAIM_HANDOFF_INCOMPATIBLE') && (await claimsFor(otherPolicyAssessment)) === 0 && (await claimsFor(otherValidatorAssessment)) === 0,
-    'an A5-READY-2 assessment and an A5-VAL-2 run are each refused with 409 CLAIM_HANDOFF_INCOMPATIBLE; no Claim',
+    'an A5-READY-2 assessment and an A5-VAL-9 run are each refused with 409 CLAIM_HANDOFF_INCOMPATIBLE; no Claim',
   )
   const storedMain = mainClaim.id ? await prisma.claim.findUniqueOrThrow({ where: { id: mainClaim.id } }) : null
   check('T018', 'Handoff schema', storedMain?.handoffSchemaVersion === 'PreClaimA6HandoffV1' && mainClaim.handoffSchemaVersion === 'PreClaimA6HandoffV1' && mainHandoff.body?.schemaVersion === 'PreClaimA6HandoffV1', 'PreClaimA6HandoffV1 consumed and stored as the version label')

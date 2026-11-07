@@ -799,7 +799,8 @@ async function main() {
     (await get(`/api/claim-submissions/${G.freezes[1]}/lifecycle`)).body?.state === 'RELEASE_ELIGIBLE' && same(stable(dgAfter.body), dgBefore) && ![...deepKeys(dgAfter.body)].some((k) => /disposition|lifecycle|release|state|status/i.test(k)) && !JSON.stringify(dgAfter.body).includes('RELEASE'),
     'after an internal AUTHORIZE_RELEASE on the corrected freeze, the delta is byte-identical and carries no disposition, release or status',
   )
-  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t)
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   check('T050', 'No zero balance inferred from absence', bPair.sourceCountBefore === null && !/":0[,}]/.test(JSON.stringify(DB2.body.comparisons)) && ledgerTables.length === 0 && ![...deepKeys(DB2.body)].some((k) => /balance|amount|due|paid/i.test(k)), 'absence is null, never 0; no balance, amount or payment field or table exists')
 
   // ---------------------------------------------------------------- corrupt chains (T051–T060)
@@ -1036,7 +1037,6 @@ async function main() {
   const laterRoutes = [await post(`/api/claims/${W.claimId}/closures`, {}), await post(`/api/claims/${W.claimId}/payments`, {}), await post(`/api/claims/${W.claimId}/remittances`, {}), await post(`/api/claims/${W.claimId}/exceptions`, {}), await post(deltaPath(W.claimId), {})]
   // Later phases' tables: those created by migrations committed after this package's own merge (none on its own
   // branch, so this boundary is unchanged there). Every table that existed when the package merged is judged as before.
-  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
   const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|delta|receivable|ledger|balance|payment)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const moneyIdentifier = /\bDecimal\b|[Aa]mount|\b[Cc]urrency|[a-z]Currency|toFixed\(|[Ss]ettle|[Aa]llocat|[Aa]djust|[Rr]eceivable|[Bb]alance|[Ll]edger|[Pp]ayment|[Rr]emittance/
   check(

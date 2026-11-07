@@ -9,6 +9,8 @@
 
 export const PAYLOAD_SCHEMA_VERSION = 'A6-PAYLOAD-1'
 
+import type { CanonicalClaimPayloadV2, PAYLOAD_SCHEMA_VERSION_V2 } from './claim-payload.v2.ts'
+
 // §3 — the A6-PAYLOAD-1 shape. Identifiers only for every master or clinical reference (code text can be
 // edited on its master and is never copied). Every decimal is an exact string: quantities and unit tariff
 // rates at the A6.3 storage scale of 4 decimals, money at the currency's minor units. Nullable fields are
@@ -118,7 +120,8 @@ export type PayloadFailureOutcome = (typeof payloadFailureOutcomes)[number]
 export type ComposedPayload = {
   outcome: 'COMPOSED'
   organizationId: string
-  payload: CanonicalClaimPayloadV1
+  // CRG-01 Checkpoint B — A6-PAYLOAD-2 for a PreClaimA6HandoffV2 claim.
+  payload: CanonicalClaimPayloadV1 | CanonicalClaimPayloadV2
   bytes: Buffer
   sha256: string
 }
@@ -131,10 +134,10 @@ export type ComposeResult =
 // canonical bytes that is explicitly a preview comparison aid, not a submission hash. The bytes themselves
 // are never returned.
 export type CanonicalPayloadPreviewDto = {
-  schemaVersion: typeof PAYLOAD_SCHEMA_VERSION
+  schemaVersion: typeof PAYLOAD_SCHEMA_VERSION | typeof PAYLOAD_SCHEMA_VERSION_V2
   previewDigestSha256: string
   byteLength: number
-  payload: CanonicalClaimPayloadV1
+  payload: CanonicalClaimPayloadV1 | CanonicalClaimPayloadV2
 }
 
 export type ClaimPayloadErrorCode =

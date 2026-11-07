@@ -741,7 +741,8 @@ async function main() {
   )
   check('T047', 'One currency and scale', [...payloadW.lines, ...payloadX.lines].every((l: any) => l.currencyCode === 'AED' && /^\d+\.\d{2}$/.test(l.extendedAmount)) && /^\d+\.\d{2}$/.test(payloadW.financial.totalExtendedAmount), 'every amount and the total in AED at 2 decimals')
   const payloadCode = committedProductionCodeOf([PAYLOAD_DIR])
-  const reached = payloadCode.files.length === 5 && payloadCode.code.includes('composeCurrentDraft') && payloadCode.code.includes('getCurrentReviewAuthority') && payloadCode.code.includes('composeA6Handoff')
+  // Checkpoint B (design freeze 1.2 §12) adds exactly claim-payload.v2.ts; the T048 scan reads it too.
+  const reached = (payloadCode.files.length === 5 || (payloadCode.files.length === 6 && payloadCode.files.includes(`${PAYLOAD_DIR}/claim-payload.v2.ts`))) && payloadCode.code.includes('composeCurrentDraft') && payloadCode.code.includes('getCurrentReviewAuthority') && payloadCode.code.includes('composeA6Handoff')
   const runsBefore48 = await prisma.claimPricingRun.count()
   await preview(W.claimId, W.body)
   await preview(X.claimId, X.body)

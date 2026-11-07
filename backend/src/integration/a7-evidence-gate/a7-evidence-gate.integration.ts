@@ -1265,7 +1265,8 @@ async function main() {
   const moneyCode = production.code.replace(/refusedByName = \[[\s\S]*?\] as const/, '')
   const pricingOfW = await prisma.claimPricingRun.findMany({ where: { claimId: W.claimId }, orderBy: { evaluatedAt: 'asc' } })
   check('T095', 'No money arithmetic', !moneyIdentifier.test(moneyCode) && pricingOfW.length === 1 && pricingOfW[0].totalExtendedAmount?.toFixed(2) === '200.01', 'A7.3 code computes no money (refused field names aside), and the Claim keeps its one pricing run and its AED 200.01 total')
-  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t)
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   check('T096', 'No balances or ledger', ledgerTables.length === 0 && !resultColumns.some((c) => /balance|amount|currency|status|state/.test(c)), 'no receivable, ledger, balance, posting, settlement, payment or patient-share table, and no balance, amount or status column')
   const K97 = await classified(S2, 'NO-BALANCE')
   const before97 = await counts()
@@ -1298,7 +1299,6 @@ async function main() {
   // Tables a later phase adds are recognized from git, never by name: those created by migrations committed after
   // A7.3's own merge (harness correction before CRG-01). On A7.3's own branch the set is empty, so this boundary is
   // unchanged there; every table that existed when A7.3 merged is judged as before.
-  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
   const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   // Judged on behaviour: no such route answers and no such table exists. A later A7 suite's own files are not a
   // later domain (the start gate, T001, still reads them as later code).

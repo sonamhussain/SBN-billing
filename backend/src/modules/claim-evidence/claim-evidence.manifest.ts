@@ -58,7 +58,8 @@ function versioned(referenceKind: EvidenceReferenceKind, versionId: string, pare
 }
 
 // The references of one approved payload, with the owners' parent ids and hashes for the versioned kinds.
-export function evidenceReferencesFromPayload(payload: CanonicalClaimPayloadV1, owners: OwnerVersionFacts): EvidenceReference[] {
+// CRG-01 Checkpoint B — the same references from an A6-PAYLOAD-1 or A6-PAYLOAD-2 payload (identical fields).
+export function evidenceReferencesFromPayload(payload: Omit<CanonicalClaimPayloadV1, 'schemaVersion'>, owners: OwnerVersionFacts): EvidenceReference[] {
   const { header, evidence } = payload
   return [
     plain('VALIDATION_RUN', header.assessedValidationRunId),

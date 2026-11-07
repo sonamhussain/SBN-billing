@@ -9,7 +9,7 @@ import { CLAIM_CONTRACT_VERSION } from '../claim/claim.types.ts'
 // A5.9 owns the readiness, policy and recency decision. Every A6.2 write calls its transaction-aware
 // composer — the same one A6.1 Claim creation uses — and never re-implements any part of it.
 import { composeA6Handoff } from '../pre-claim-readiness/pre-claim-readiness.service.ts'
-import { HANDOFF_SCHEMA_VERSION, type PreClaimReadinessErrorCode } from '../pre-claim-readiness/pre-claim-readiness.types.ts'
+import { isAcceptedHandoffSchema, type PreClaimReadinessErrorCode } from '../pre-claim-readiness/pre-claim-readiness.types.ts'
 import {
   createClaimLineRecord,
   createClaimLineSource,
@@ -102,7 +102,7 @@ export async function openClaimStructureGate(claimId: string, probe: string, tx:
   await concurrencyProbe(probe)
   const claim = await findClaimForStructure(claimId, tx)
   if (!claim) return refuse('NOT_FOUND', 'claim not found')
-  if (claim.claimContractVersion !== CLAIM_CONTRACT_VERSION || claim.handoffSchemaVersion !== HANDOFF_SCHEMA_VERSION) refuse('CLAIM_HANDOFF_INCOMPATIBLE', incompatibleMessage)
+  if (claim.claimContractVersion !== CLAIM_CONTRACT_VERSION || !isAcceptedHandoffSchema(claim.handoffSchemaVersion)) refuse('CLAIM_HANDOFF_INCOMPATIBLE', incompatibleMessage)
 
   const handoff = await composeA6Handoff(claim.preClaimReadinessAssessmentId, tx)
   if (!handoff.ok) {

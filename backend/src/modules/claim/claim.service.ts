@@ -6,7 +6,7 @@ import { recordAuditEvent } from '../audit/audit.service.ts'
 // A5.9 owns the readiness, policy and recency decision. A6.1 calls its transaction-aware composer and
 // never re-implements any part of it.
 import { composeA6Handoff } from '../pre-claim-readiness/pre-claim-readiness.service.ts'
-import { HANDOFF_SCHEMA_VERSION, type PreClaimReadinessErrorCode } from '../pre-claim-readiness/pre-claim-readiness.types.ts'
+import { isAcceptedHandoffSchema, type PreClaimReadinessErrorCode } from '../pre-claim-readiness/pre-claim-readiness.types.ts'
 import { createClaimRecord, findAssessmentBinding, findClaimById, findClaimForAssessment, findClaimsForEncounter } from './claim.repository.ts'
 import { CLAIM_CONTRACT_VERSION, type ClaimDto, type ClaimErrorCode, type ClaimListDto, type ClaimReadDto, type ClaimResult } from './claim.types.ts'
 import { isClaimUuid, validateCreateClaimBody } from './claim.validation.ts'
@@ -105,7 +105,8 @@ export async function createClaim(assessmentId: string, body: unknown, actorUser
           const code = handoffRefusal[handoff.code]
           return { ok: false, code, message: handoffRefusalMessage[code] ?? handoff.message }
         }
-        if (handoff.value.schemaVersion !== HANDOFF_SCHEMA_VERSION) {
+        // CRG-01 Checkpoint B — PreClaimA6HandoffV1 or PreClaimA6HandoffV2, each through its own branch; any other refused.
+        if (!isAcceptedHandoffSchema(handoff.value.schemaVersion)) {
           return { ok: false, code: 'CLAIM_HANDOFF_INCOMPATIBLE', message: handoffRefusalMessage.CLAIM_HANDOFF_INCOMPATIBLE as string }
         }
 

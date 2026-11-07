@@ -11,6 +11,8 @@ import { recordAuditEvent } from '../audit/audit.service.ts'
 import { getCurrentReviewAuthority } from '../claim-review/claim-review.service.ts'
 import { composeCanonicalClaimPayload } from '../claim-payload/claim-payload.composer.ts'
 import { PAYLOAD_SCHEMA_VERSION } from '../claim-payload/claim-payload.types.ts'
+// CRG-01 Checkpoint B — A6-SUBMISSION-2 freezes A6-PAYLOAD-2 for a PreClaimA6HandoffV2 claim; a V1 claim is unchanged.
+import { PAYLOAD_SCHEMA_VERSION_V2 } from '../claim-payload/claim-payload.v2.ts'
 import { packageSealSha256, sha256Hex } from '../claim-evidence/claim-evidence.hash.ts'
 import { buildEvidenceManifest, encodeEvidenceManifest, evidenceReferencesFromPayload, EvidenceIncompleteError, ManifestEncodingError } from '../claim-evidence/claim-evidence.manifest.ts'
 import { EVIDENCE_MANIFEST_VERSION, type EvidenceManifestV1 } from '../claim-evidence/claim-evidence.types.ts'
@@ -29,6 +31,7 @@ import {
 } from './claim-submission.repository.ts'
 import {
   SUBMISSION_CONTRACT_VERSION,
+  SUBMISSION_CONTRACT_VERSION_V2,
   type ClaimSubmissionDto,
   type ClaimSubmissionErrorCode,
   type ClaimSubmissionListDto,
@@ -189,6 +192,11 @@ async function freezeOnTransaction(claimId: string, draftAssessmentId: string, a
   const composed = await composeCanonicalClaimPayload(claimId, assessment.id, decision.id, tx)
   if (!composed.ok) return refuse(composeRefusal[composed.outcome], `the canonical payload could not be composed (${composed.message})`)
   const header = composed.payload.header
+  // The version pair of this freeze, decided by the Claim's own stored handoff (the composer re-verified a V2 claim's
+  // receipts as recorded on this locked transaction before encoding A6-PAYLOAD-2).
+  const v2 = header.handoffSchemaVersion === 'PreClaimA6HandoffV2'
+  const payloadSchemaVersion = v2 ? PAYLOAD_SCHEMA_VERSION_V2 : PAYLOAD_SCHEMA_VERSION
+  const submissionContractVersion = v2 ? SUBMISSION_CONTRACT_VERSION_V2 : SUBMISSION_CONTRACT_VERSION
   if (
     composed.organizationId !== claim.organizationId ||
     header.claimId !== claimId ||
@@ -196,7 +204,7 @@ async function freezeOnTransaction(claimId: string, draftAssessmentId: string, a
     header.approvalDecisionId !== decision.id ||
     header.pricingRunId !== assessment.pricingRunId ||
     header.draftFingerprint !== assessment.assemblyFingerprint ||
-    composed.payload.schemaVersion !== PAYLOAD_SCHEMA_VERSION ||
+    composed.payload.schemaVersion !== payloadSchemaVersion ||
     sha256Hex(composed.bytes) !== composed.sha256
   )
     return refuse('CLAIM_SUBMISSION_CONFLICT', 'the composed payload does not carry the requested lineage')
@@ -217,8 +225,8 @@ async function freezeOnTransaction(claimId: string, draftAssessmentId: string, a
   const freezeId = await insertFreeze(
     {
       ...identity,
-      submissionContractVersion: SUBMISSION_CONTRACT_VERSION,
-      payloadSchemaVersion: PAYLOAD_SCHEMA_VERSION,
+      submissionContractVersion,
+      payloadSchemaVersion,
       approvedAssemblyFingerprint: assessment.assemblyFingerprint,
       canonicalPayloadBytes: composed.bytes,
       payloadSha256: composed.sha256,
@@ -251,8 +259,8 @@ async function freezeOnTransaction(claimId: string, draftAssessmentId: string, a
         draftAssessmentId: assessment.id,
         approvalDecisionId: decision.id,
         pricingRunId: assessment.pricingRunId,
-        submissionContractVersion: SUBMISSION_CONTRACT_VERSION,
-        payloadSchemaVersion: PAYLOAD_SCHEMA_VERSION,
+        submissionContractVersion,
+        payloadSchemaVersion,
         manifestContractVersion: EVIDENCE_MANIFEST_VERSION,
         entryCount: manifest.entries.length,
         payloadByteLength: composed.bytes.length,
