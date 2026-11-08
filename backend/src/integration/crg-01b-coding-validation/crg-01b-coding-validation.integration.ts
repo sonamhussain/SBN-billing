@@ -117,7 +117,7 @@ const MODULE_DIR = 'backend/src/modules/coding-validation'
 const HARNESS_DIR = 'backend/src/integration/crg-01b-coding-validation'
 const REGISTER_DOC = 'docs/CRG-01_Checkpoint_B_Register.md'
 const CORRECTIONS_DOC = 'docs/Harness_Corrections.md'
-const UNIT_TESTS = [`${MODULE_DIR}/coding-validation.manifest.test.ts`, 'backend/src/modules/pre-claim-readiness/pre-claim-readiness.policy-v2.test.ts', 'backend/src/modules/claim-payload/claim-payload.v2.test.ts']
+const UNIT_TESTS = [`${MODULE_DIR}/coding-validation.manifest.test.ts`, 'backend/src/modules/pre-claim-readiness/pre-claim-readiness.policy-v2.test.ts', 'backend/src/modules/claim-payload/claim-payload.v2.test.ts', `${MODULE_DIR}/coding-validation.frozen.test.ts`, 'backend/src/shared/database/serialized-transactions.test.ts']
 const NEW_TABLES = ['crg_validation_code_receipts', 'crg_validation_receipt_manifests', 'crg_validation_scopes']
 const NEW_CONTRACTS = ['A5-VAL-2', 'A5-READY-2', 'PreClaimA6HandoffV2', 'A6-PAYLOAD-2', 'A6-SUBMISSION-2', 'CRG-RECEIPT-1', 'CRG-VALSCOPE-1']
 const MISSING = '11111111-1111-4111-8111-111111111111'
@@ -129,6 +129,8 @@ const ALLOWED = [
   'backend/src/modules/pre-claim-readiness/pre-claim-readiness.policy-v2.test.ts', 'backend/src/modules/claim/claim.service.ts', 'backend/src/modules/claim-line/claim-line.service.ts', 'backend/src/modules/claim-draft/claim-draft.assembly.ts',
   'backend/src/modules/claim-payload/claim-payload.composer.ts', 'backend/src/modules/claim-payload/claim-payload.types.ts', 'backend/src/modules/claim-payload/claim-payload.v2.ts', 'backend/src/modules/claim-payload/claim-payload.v2.test.ts',
   'backend/src/modules/claim-submission/claim-submission.service.ts', 'backend/src/modules/claim-submission/claim-submission.types.ts', 'backend/src/modules/claim-evidence/claim-evidence.manifest.ts',
+  // Review point 2: each interactive transaction's statements reach pg one after another (one shared driver wrapper).
+  'backend/src/shared/database/prisma.ts', 'backend/src/shared/database/serialized-transactions.ts', 'backend/src/shared/database/serialized-transactions.test.ts',
 ]
 // Earlier harnesses corrected under design freeze §12 (each with its negative test, B-G06). Filled from the clone proof.
 const CORRECTED_HARNESSES: string[] = [
@@ -224,6 +226,11 @@ const independentManifest = (rows: ReceiptRow[]) => {
 
 async function main() {
   for (const [k, value] of Object.entries({ baseUrl, adminEmail, adminPassword, viewerEmail, viewerPassword, org, otherOrg })) if (!value) throw new Error(`missing integration env for ${k}`)
+  // Review point 2 — pg's concurrent-query deprecation, if it ever fires in this process (it is still printed).
+  const driverWarnings: string[] = []
+  process.on('warning', (warning) => {
+    if (/Calling client\.query\(\) when the client is already executing a query/.test(warning.message)) driverWarnings.push(warning.message)
+  })
   const headAtStart = git('rev-parse HEAD')
   say(`[${TAG}] CRG-01 FINAL Checkpoint B, versioned coding validation and freeze (${RECEIPT_CONTRACT_VERSION}, ${VALSCOPE_CONTRACT_VERSION}) — run ${runId}`)
   say(`[${TAG}] HEAD ${headAtStart} on branch ${git('rev-parse --abbrev-ref HEAD')} against ${baseUrl}`)
@@ -1155,13 +1162,39 @@ async function main() {
     H4: await tamper(`UPDATE crg_validation_code_receipts SET service_date = DATE '2026-01-01' WHERE validation_run_id = $1::uuid`, [W.runId], 'run'),
     H5: await tamper(`UPDATE claim_freezes SET canonical_payload_bytes = canonical_payload_bytes || '\\x20'::bytea WHERE id = $1::uuid`, [wFreezeId], 'freeze'),
   }
+  // F05 (review) — the frozen coding entries themselves. Each tamper rewrites W's frozen A6-PAYLOAD-2 with ONE swapped or
+  // altered binding and stores it WITH ITS OWN SHA-256 (rolled back), so the bytes still match their digest and only the
+  // entry-by-entry H5 check can refuse it. The untouched rewrite is the control: it must still verify.
+  const frozenW = wFreeze ? (JSON.parse(Buffer.from(wFreeze.canonicalPayloadBytes).toString('utf8')) as { coding: { diagnoses: Record<string, string>[]; lines: Record<string, string>[] } }) : null
+  const BINDING = ['receiptId', 'codeSystem', 'referenceDatasetVersionId', 'membershipId', 'sourceRowSha256'] as const
+  const entryTamper = (mutate: (coding: { diagnoses: Record<string, string>[]; lines: Record<string, string>[] }) => void) => {
+    const copy = JSON.parse(JSON.stringify(frozenW)) as NonNullable<typeof frozenW>
+    mutate(copy.coding)
+    const bytes = Buffer.from(JSON.stringify(copy), 'utf8')
+    return tamper(`UPDATE claim_freezes SET canonical_payload_bytes = $2, payload_sha256 = $3 WHERE id = $1::uuid`, [wFreezeId, bytes, createHash('sha256').update(bytes).digest('hex')], 'freeze')
+  }
+  const entryControl = await entryTamper(() => {})
+  const entryTampers = {
+    swappedReceipts: await entryTamper((c) => {
+      const [d, l] = [c.diagnoses[0], c.lines[0]]
+      for (const field of BINDING) [d[field], l[field]] = [l[field], d[field]]
+    }),
+    codeSystem: await entryTamper((c) => (c.diagnoses[0].codeSystem = 'ICD-9-CM')),
+    edition: await entryTamper((c) => (c.diagnoses[0].referenceDatasetVersionId = MISSING)),
+    membership: await entryTamper((c) => (c.lines[0].membershipId = MISSING)),
+    sourceRowHash: await entryTamper((c) => (c.lines[0].sourceRowSha256 = 'f'.repeat(64))),
+    target: await entryTamper((c) => (c.diagnoses[0].encounterDiagnosisId = MISSING)),
+    claimBinding: await entryTamper((c) => (c.lines[0].claimLineId = MISSING)),
+  }
   check(
     'B-G03',
     'Historical evidence verified as recorded only',
     removedTarget.status === 200 && renamed.status === 200 && historicalAfter.receipts === historicalBefore.receipts && historicalAfter.provenance === historicalBefore.provenance &&
       JSON.parse(historicalBefore.provenance).verificationStatus === 'VERIFIED_AS_RECORDED' &&
-      Object.entries(historicalTamper).every(([h, r]) => (r.value as any)?.ok === false && (r.value as any)?.code === 'CODING_RECEIPT_INTEGRITY_CONFLICT' && new RegExp(`^${h}:`).test((r.value as any)?.message ?? '') && r.clean),
-    'after the rights were BLOCKED, the 2027 edition activated, a coded target removed and the A2 master renamed, both historical reads are byte-identical (VERIFIED_AS_RECORDED); one planted tamper per H1–H5 (rolled back) answers CODING_RECEIPT_INTEGRITY_CONFLICT',
+      Object.entries(historicalTamper).every(([h, r]) => (r.value as any)?.ok === false && (r.value as any)?.code === 'CODING_RECEIPT_INTEGRITY_CONFLICT' && new RegExp(`^${h}:`).test((r.value as any)?.message ?? '') && r.clean) &&
+      !!frozenW && frozenW.coding.diagnoses.length >= 1 && frozenW.coding.lines.length >= 1 && (entryControl.value as any)?.ok === true && (entryControl.value as any)?.value?.verificationStatus === 'VERIFIED_AS_RECORDED' && entryControl.clean &&
+      Object.values(entryTampers).every((r) => (r.value as any)?.ok === false && (r.value as any)?.code === 'CODING_RECEIPT_INTEGRITY_CONFLICT' && /^H5: the frozen payload's coding section differs/.test((r.value as any)?.message ?? '') && r.clean),
+    `after the rights were BLOCKED, the 2027 edition activated, a coded target removed and the A2 master renamed, both historical reads are byte-identical (VERIFIED_AS_RECORDED); one planted tamper per H1–H5 (rolled back) answers CODING_RECEIPT_INTEGRITY_CONFLICT; and with the frozen bytes re-digested so only the entry check can see it, swapped diagnosis/line receipts and an altered code system, edition, membership, source-row hash, target or claim binding are each refused by H5 (F05) while the unaltered rewrite still verifies`,
   )
   const pricingOf = async (pricingRunId: string) => {
     const total = await dbRow(`SELECT total_extended_amount::text AS t, overall_result AS r FROM claim_pricing_runs WHERE id = $1::uuid`, pricingRunId)
@@ -1436,6 +1469,46 @@ async function main() {
   const crgAUndocumented = crgAFailing.filter((id) => !(id in crgANonApplicable) || !crgACause[id]())
   const a85Undocumented = a85Failing.filter((id) => !(id in a85NonApplicable) || !a85Cause[id]())
   const verdictIn = (rows: SuiteLine[], id: string) => rows.find((r) => r.id === id)?.verdict ?? 'missing'
+  // Review point 3 — every original nested FAIL result is kept verbatim with its N/A category. An N/A may only be a
+  // BRANCH item (branch name or base ancestry), a HEAD item (clean tree, origin parity, or a run's own identity at its
+  // exact HEAD), a SCOPE item (the paths that package was allowed to change) or an AGGREGATE item (a suite's own "every
+  // branch-only N/A justified" check, whose items are each BRANCH, HEAD or SCOPE and re-proved above). A line of any
+  // other kind is substantive and fails CRG-124.
+  type Category = 'BRANCH' | 'HEAD' | 'SCOPE' | 'AGGREGATE'
+  const crgACategory: Record<string, Category> = { 'CRG-001': 'BRANCH', 'CRG-002': 'BRANCH', 'CRG-003': 'SCOPE', 'CRG-121': 'HEAD', 'CRG-124': 'AGGREGATE', 'CRG-127': 'HEAD' }
+  const a85Category: Record<string, Category> = { T001: 'BRANCH', T003: 'BRANCH', T010: 'SCOPE', T110: 'AGGREGATE', T127: 'HEAD', T129: 'HEAD' }
+  const categoryOf = (outer: string, tags: string[], id: string): Category | null => {
+    if (tags.length === 0) return (outer === 'CRG-01' ? crgACategory : a85Category)[id] ?? null
+    if (tags.length > NESTED_BRANCH_ONLY.length || tags.some((tag, i) => tag !== NESTED_BRANCH_ONLY[i].tag)) return null
+    const level = NESTED_BRANCH_ONLY[tags.length - 1]
+    if (!level.ids.includes(id)) return null
+    return id === 'T001' ? 'BRANCH' : id === 'T010' ? 'SCOPE' : id === level.aggregator ? 'AGGREGATE' : ['T002', 'T122', 'T123', 'T130'].includes(id) ? 'HEAD' : null
+  }
+  const evidenceOf = (outer: string, output: string, reasons: Record<string, string>) =>
+    output
+      .split(/\r?\n/)
+      .map((line) => ({ line, m: line.match(/^\[([^\]]+)\]((?: +nested: \[[^\]]+\])*) +(\S+) .* \.{3,} FAIL - /) }))
+      .filter((x): x is { line: string; m: RegExpMatchArray } => x.m !== null && x.m[1] === outer)
+      .map(({ line, m }) => {
+        const tags = [...m[2].matchAll(/nested: \[([^\]]+)\]/g)].map((t) => t[1])
+        return { line, tags, id: m[3], category: categoryOf(outer, tags, m[3]), reason: tags.length === 0 ? (reasons[m[3]] ?? '') : '' }
+      })
+  const nestedEvidence = [...evidenceOf('CRG-01', crgAChain.output, crgANonApplicable), ...evidenceOf('A8.5', a85Chain.output, a85NonApplicable)]
+  const uncategorized = nestedEvidence.filter((e) => e.category === null)
+  const evidenceLog = `crgb-nested-evidence-${runId}.log`
+  const evidenceText = [
+    `CRG-01 Checkpoint B — nested regression evidence, run ${runId} at HEAD ${headSha}`,
+    'Every original nested FAIL result, verbatim, with its N/A category (BRANCH | HEAD | SCOPE | AGGREGATE); a top-level item also carries its reason.',
+    'The full nested outputs are kept in the two nested logs named in CRG-127.',
+    '',
+    ...['CRG-01', 'A8.5'].flatMap((outer) => [
+      `== ${outer === 'CRG-01' ? `Checkpoint A chain (crgb-nested-crga-${runId}.log)` : `A8.5 chain (crgb-nested-a85-${runId}.log)`}`,
+      ...nestedEvidence.filter((e) => e.line.startsWith(`[${outer}]`)).flatMap((e) => [`[${e.category ?? 'UNCATEGORIZED'}] ${e.line}`, ...(e.reason ? [`    reason: ${e.reason}`] : [])]),
+      '',
+    ]),
+  ].join('\n')
+  writeFileSync(evidenceLog, evidenceText)
+  const categoryCounts = (['BRANCH', 'HEAD', 'SCOPE', 'AGGREGATE'] as Category[]).map((c) => `${nestedEvidence.filter((e) => e.category === c).length} ${c}`).join(', ')
   check(
     'CRG-123',
     'Every applicable A2–A8 and CRG-A regression executes',
@@ -1447,10 +1520,14 @@ async function main() {
   check(
     'CRG-124',
     'No substantive failed nested test marked N/A',
-    crgARan && a85Ran && crgAUndocumented.length === 0 && a85Undocumented.length === 0,
-    crgAUndocumented.length + a85Undocumented.length === 0
-      ? `every nested failure is a documented branch-only item (Checkpoint A: ${crgAFailing.join(', ') || 'none'}; A8.5: ${a85Failing.join(', ') || 'none'})`
-      : `undocumented: Checkpoint A ${crgAUndocumented.join(', ') || 'none'}; A8.5 ${a85Undocumented.join(', ') || 'none'}`,
+    crgARan && a85Ran && crgAUndocumented.length === 0 && a85Undocumented.length === 0 && nestedEvidence.length > 0 && uncategorized.length === 0 &&
+      [...crgAFailing.map((id) => ['CRG-01', id]), ...a85Failing.map((id) => ['A8.5', id])].every(([outer, id]) => nestedEvidence.some((e) => e.tags.length === 0 && e.id === id && e.line.startsWith(`[${outer}]`))) &&
+      existsSync(evidenceLog),
+    crgAUndocumented.length + a85Undocumented.length > 0
+      ? `undocumented: Checkpoint A ${crgAUndocumented.join(', ') || 'none'}; A8.5 ${a85Undocumented.join(', ') || 'none'}`
+      : uncategorized.length > 0
+        ? `not a branch, HEAD or scope item: ${uncategorized.map((e) => `${[...e.tags, e.id].join('>')}`).join(', ').slice(0, 300)}`
+        : `every nested failure is a documented branch-only item (Checkpoint A: ${crgAFailing.join(', ') || 'none'}; A8.5: ${a85Failing.join(', ') || 'none'}); all ${nestedEvidence.length} original nested FAIL lines kept verbatim in backend/${evidenceLog} — ${categoryCounts}, no other kind`,
   )
   check('CRG-125', 'All v1 golden vectors remain stable', goldenUnit.ok && verdictIn(crgARows, 'CRG-125') === 'PASS' && same(await goldenNow(), goldenBefore), "the A6-PAYLOAD-1 golden vector, the Checkpoint A golden decisions and this run's receipts and V2 freeze read identically after both nested chains")
 
@@ -1458,7 +1535,7 @@ async function main() {
   section('Build gates and exact evidence: units, typecheck, frontend, outage and recovery, no 5xx, allowlist, parity and checksums, two runs')
   const ownUnit = run(`node --test ${UNIT_TESTS.map((file) => file.replace('backend/', '')).join(' ')}`)
   const allUnit = run('npm run test:unit')
-  check('CRGB-G08', 'Backend unit tests pass', allUnit.ok && /ℹ fail 0/.test(allUnit.output) && ownUnit.ok && /ℹ pass 10/.test(ownUnit.output), `${(allUnit.output.match(/ℹ pass \d+/) ?? ['unit output unavailable'])[0]}, including the 10 Checkpoint B tests`)
+  check('CRGB-G08', 'Backend unit tests pass', allUnit.ok && /ℹ fail 0/.test(allUnit.output) && ownUnit.ok && /ℹ pass 19/.test(ownUnit.output), `${(allUnit.output.match(/ℹ pass \d+/) ?? ['unit output unavailable'])[0]}, including the 19 Checkpoint B tests (the F05 frozen-coding and driver-serialization tests among them)`)
   check('CRGB-G09', 'Backend typecheck clean', run('npm run typecheck').ok, 'backend typecheck clean, including this harness')
   check('CRGB-G10', 'Frontend lint and build clean', run('npm run lint --prefix ../frontend').ok && run('npm run build --prefix ../frontend').ok, 'frontend unchanged; lint and production build clean')
   await apiReady('the DB outage check')
@@ -1471,7 +1548,15 @@ async function main() {
   const recovered = await waitFor(async () => (await ready()) === 200, 90_000)
   await waitFor(databaseUp, 60_000)
   check('CRGB-G11', 'Health/ready outage and recovery truthful', upHealth === 200 && upReady === 200 && stopped && downReady && downHealth === 200 && restarted && recovered, 'up 200/200; with the database stopped health stayed 200 and ready reported 503; recovery 200')
-  check('CRG-126', 'Zero unexpected 5xx', serverErrors === 0 && connectionResets === 0, `${serverErrors} HTTP 5xx answers and ${connectionResets} connection resets in this run`)
+  // Review point 2 — no pg "client.query() while already executing" deprecation in this process or in any process of
+  // either nested chain (their outputs carry each suite's stderr).
+  const nestedDriverWarnings = [crgAChain.output, a85Chain.output].reduce((n, out) => n + (out.match(/Calling client\.query\(\) when the client is already executing a query/g) ?? []).length, 0)
+  check(
+    'CRG-126',
+    'Zero unexpected 5xx',
+    serverErrors === 0 && connectionResets === 0 && driverWarnings.length === 0 && nestedDriverWarnings === 0,
+    `${serverErrors} HTTP 5xx answers and ${connectionResets} connection resets in this run; ${driverWarnings.length + nestedDriverWarnings} pg client.query() deprecation warnings in this process and both nested chains`,
+  )
   const applied = await prisma.$queryRaw<{ name: string; checksum: string }[]>`SELECT migration_name AS name, checksum FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name`
   const checksumMismatch = applied.filter((row) => {
     const blob = spawnSync('git', ['show', `HEAD:backend/prisma/migrations/${row.name}/migration.sql`], { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 }).stdout ?? Buffer.alloc(0)
@@ -1484,7 +1569,7 @@ async function main() {
     'CRG-127',
     'Allowlist, origin parity and SHA evidence',
     outOfScope.length === 0 && headNow === headAtStart && headNow === originCrgb && git('status --porcelain') === '' && applied.length === headMigrationDirs.length && checksumMismatch.length === 0,
-    `HEAD ${headNow} = origin/${crgbBranch}; tree clean; all ${applied.length} applied migrations carry their committed checksums; nested logs crgb-nested-crga-${runId}.log (SHA-256 ${sha256Of(Buffer.from(crgAChain.output)).slice(0, 16)}…) and crgb-nested-a85-${runId}.log (SHA-256 ${sha256Of(Buffer.from(a85Chain.output)).slice(0, 16)}…)`,
+    `HEAD ${headNow} = origin/${crgbBranch}; tree clean; all ${applied.length} applied migrations carry their committed checksums; nested logs crgb-nested-crga-${runId}.log (SHA-256 ${sha256Of(Buffer.from(crgAChain.output)).slice(0, 16)}…) and crgb-nested-a85-${runId}.log (SHA-256 ${sha256Of(Buffer.from(a85Chain.output)).slice(0, 16)}…); nested evidence ${evidenceLog} (SHA-256 ${sha256Of(Buffer.from(evidenceText)).slice(0, 16)}…)`,
   )
   const earlierRuns = readdirSync('.').filter((name) => /^crgb-nested-a85-CRGB-\d{13}\.log$/.test(name) && !name.includes(runId) && readFileSync(name, 'utf8').includes(`[A8.5] HEAD ${headNow}`)).map((name) => name.replace(/^crgb-nested-a85-|\.log$/g, ''))
   check(

@@ -8,6 +8,7 @@ import { readTransactionTimestamp } from '../encounter-billing-context/encounter
 // Checkpoint A is the edition authority, consulted on the caller's transaction and never duplicated.
 import { getCodingReleaseCheckOf } from '../coding-release/coding-release.service.ts'
 import { codingReleasePlans, manifestOf, selectValidator, type TargetMaster } from './coding-validation.manifest.ts'
+import { type FrozenReceiptFacts, verifyFrozenCoding } from './coding-validation.frozen.ts'
 import {
   findCodingFindingsOfRun,
   findLatestScopeDecision,
@@ -95,7 +96,8 @@ export async function recordCodingReceipts(runId: string, encounterId: string, p
 const findingCodeOf: Record<string, string> = Object.fromEntries(Object.entries(codingReleaseFindings).map(([decision, entry]) => [decision, entry.findingCode]))
 const norm = (value: string) => value.trim().toUpperCase()
 
-export type VerifiedReceipts = { validationRunId: string; encounterId: string; organizationId: string; manifest: CodingReceiptManifestDto }
+// `facts` are the verified receipts' full recorded binding facts, for H5's entry-by-entry check (not part of any DTO).
+export type VerifiedReceipts = { validationRunId: string; encounterId: string; organizationId: string; manifest: CodingReceiptManifestDto; facts: FrozenReceiptFacts[] }
 
 // The receipts of an A5-VAL-2 run, verified against immutable records only. Answers the receipts or the first broken
 // condition; never repairs, never re-resolves.
@@ -188,6 +190,17 @@ export async function verifyReceiptsAsRecorded(runId: string, tx: DbClient): Pro
       encounterId: run.encounterId,
       organizationId: run.encounter.patient.organizationId,
       manifest: { manifestId: manifest.id, manifestSha256: manifest.manifestSha256, receiptCount: manifest.receiptCount, receipts: dtos },
+      facts: receipts.map((r) => ({
+        receiptId: r.id,
+        subjectKind: r.subjectKind,
+        targetId: (r.encounterDiagnosisId ?? r.encounterActivityId) as string,
+        masterCodeId: r.masterCodeId,
+        decisionCode: r.decisionCode,
+        codeSystem: r.codeSystem,
+        referenceDatasetVersionId: r.referenceDatasetVersionId,
+        membershipId: r.membershipId,
+        sourceRowSha256: r.sourceRowSha256,
+      })),
     },
   }
 }
@@ -208,20 +221,9 @@ export async function getRunCodingReceipts(runId: string) {
   return withReadSnapshot(undefined, (tx) => getRunCodingReceiptsOf(runId, tx))
 }
 
-// H5 — a V2 freeze's frozen bytes, their SHA-256 and the payload's coding section equal the recorded receipts.
-export type FrozenCodingSection = { manifestSha256: string; receiptIds: string[] }
-export const readFrozenCodingSection = (bytes: Uint8Array): FrozenCodingSection | null => {
-  try {
-    const payload = JSON.parse(Buffer.from(bytes).toString('utf8')) as { coding?: { manifestSha256?: unknown; diagnoses?: { receiptId?: unknown }[]; lines?: { receiptId?: unknown }[] } }
-    const coding = payload.coding
-    if (!coding || typeof coding.manifestSha256 !== 'string' || !Array.isArray(coding.diagnoses) || !Array.isArray(coding.lines)) return null
-    const receiptIds = [...coding.diagnoses, ...coding.lines].map((entry) => entry.receiptId)
-    if (!receiptIds.every((id): id is string => typeof id === 'string')) return null
-    return { manifestSha256: coding.manifestSha256, receiptIds }
-  } catch {
-    return null
-  }
-}
+// H5 — a V2 freeze's frozen bytes match their SHA-256, and every frozen coding entry equals its recorded receipt
+// (verifyFrozenCoding: target, code system, edition, membership, source-row hash, master, kind, order, each receipt
+// bound once) — never the receipt identifiers alone (review F05).
 
 export async function getSubmissionCodingProvenanceOf(submissionId: string, tx: DbClient): Promise<CodingValidationResult<SubmissionCodingProvenanceDto>> {
   const freeze = await findSubmissionForProvenance(submissionId, tx)
@@ -234,10 +236,9 @@ export async function getSubmissionCodingProvenanceOf(submissionId: string, tx: 
   const runId = freeze.claim.preClaimReadinessAssessment.validationRunId
   const verified = await verifyReceiptsAsRecorded(runId, tx)
   if (!verified.ok) return verified
-  const section = readFrozenCodingSection(bytes)
   const recorded = verified.value.manifest
-  if (!section || section.manifestSha256 !== recorded.manifestSha256 || JSON.stringify([...section.receiptIds].sort()) !== JSON.stringify(recorded.receipts.map((r) => r.receiptId).sort()))
-    return conflict("H5: the frozen payload's coding section differs from the recorded receipts")
+  const frozen = verifyFrozenCoding(bytes, recorded.manifestSha256, verified.value.facts)
+  if (!frozen.ok) return conflict(`H5: the frozen payload's coding section differs from the recorded receipts: ${frozen.detail}`)
   return { ok: true, value: { ...base, verificationStatus: 'VERIFIED_AS_RECORDED', validationRunId: runId, manifest: recorded } }
 }
 

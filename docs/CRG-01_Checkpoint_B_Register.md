@@ -96,6 +96,44 @@ permission or audit action is added; the only new error code is `CODING_RECEIPT_
 The resolver is never re-run for history. Current rights, activation, retirement, later editions, current target
 activity and the current A2 masters are never read for history.
 
+## Review corrections (PR #105, 2026-11-07)
+
+**F05 — H5 compares complete frozen coding entries.** H5 no longer compares receipt identifiers alone. The pure
+`verifyFrozenCoding` (`coding-validation.frozen.ts`):
+- rebuilds the coding section from the frozen diagnoses and lines and the run's verified receipts, with the composer's
+  own `codingSectionOf`, and requires it to equal the frozen section exactly. This covers each entry's claim diagnosis
+  or line, encounter target, receipt, code system, edition, membership, source-row hash and order;
+- requires each receipt to be of the entry's subject kind and to name the frozen diagnosis or procedure master;
+- requires every recorded receipt to be bound exactly once.
+
+Negative tests:
+- the unit tests: swapped receipts, every altered entry field, every altered binding fact, coverage, order,
+  uniqueness, manifest and shape;
+- B-G03: the frozen bytes are rewritten with one swapped or altered binding and re-digested, so only the entry check
+  can see the change; the unaltered rewrite is the control.
+
+The frozen bytes, the composer, V1 and every migration are unchanged.
+
+**pg driver warning.** Traced with `--trace-deprecation` and a preload probe. pg's "client.query() when the client is
+already executing a query" deprecation came from concurrent statements on one interactive-transaction client. There
+were two sources:
+- explicit `Promise.all` reads on `tx`;
+- Prisma's own parallel relation loading inside a transaction.
+
+`shared/database/prisma.ts` now wraps the driver adapter (`serialized-transactions.ts`), so each transaction's
+statements reach pg strictly one after another, in issue order. pg already queued them in that order; the statements,
+isolation level, snapshot, results and errors are unchanged, and no module code changed. CRG-126 also requires that no
+such warning appears in this process or in any process of either nested chain.
+
+**Nested regression evidence.** CRG-124 writes every original nested FAIL line, verbatim, to
+`crgb-nested-evidence-<runId>.log`, whose SHA-256 is in CRG-127. Each line carries its category:
+- BRANCH: branch name or base ancestry;
+- HEAD: clean tree, origin parity or a run's own identity;
+- SCOPE: the paths that package was allowed to change;
+- AGGREGATE: a suite's own branch-only justification, whose items are each re-proved here.
+
+A line of any other kind fails CRG-124.
+
 ## Acceptance
 
 The harness `test:crg-01b:coding-validation` (TAG `CRG-01B`) covers:
