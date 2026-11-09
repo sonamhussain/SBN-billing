@@ -274,6 +274,13 @@ export const permissionCodes = [
   'exceptionRemediation.propose',
   'exceptionRemediation.review',
   'exceptionRemediation.read',
+  // A8.6 - reporting the internal work done against an exception's approved remediation proposal (Admin; the service
+  // further requires the current, eligible A8.2 assignee), verifying an outstanding report independently (Admin; never
+  // its own reporter), and reading the work history and derived disposition (Admin, Viewer). None executes, corrects,
+  // resolves, closes, escalates or pays anything.
+  'exceptionRemediationWork.record',
+  'exceptionRemediationWork.verify',
+  'exceptionRemediationWork.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

@@ -188,6 +188,21 @@ export const apiErrorCodes = [
   // A8.5: the event could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
   // refusal, an unknown commit outcome) or a stored history is inconsistent; nothing was recorded or derived.
   'EXCEPTION_REMEDIATION_CONFLICT',
+  // A8.6: the reporter is not the current, eligible A8.2 assignee holding the work report permission; nothing was recorded.
+  'EXCEPTION_REMEDIATION_WORK_NOT_ASSIGNEE',
+  // A8.6: the verifier does not hold the verification permission now or is the report's own reporter (membership or
+  // user); nothing was recorded.
+  'EXCEPTION_REMEDIATION_WORK_REVIEWER_NOT_INDEPENDENT',
+  // A8.6: the requested work event is not a legal next step (no approved proposal or another one, a work code that is not
+  // the approved action's, evidence of the wrong kind, a second report, a verification with nothing outstanding or of
+  // another report, any event after a verification, or an exception that is not assigned); nothing was recorded.
+  'EXCEPTION_REMEDIATION_WORK_TRANSITION_REFUSED',
+  // A8.6: the event could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
+  // refusal, an unknown commit outcome) or a stored history is inconsistent; nothing was recorded or derived.
+  'EXCEPTION_REMEDIATION_WORK_CONFLICT',
+  // A8.6: a work report cites an evidence kind that v1 does not support (only an A8.3 evidence link or finding of the
+  // same exception); nothing was recorded.
+  'UNSUPPORTED_EVIDENCE_KIND',
   // CRG-01 Checkpoint A: the stored coding-release history or an import contradicts itself (a mapping that no longer
   // matches its dataset, a lifecycle that does not explain a version's state, an import whose rows do not reproduce
   // its SHA-256, a code of another organization); nothing was decided or written.

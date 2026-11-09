@@ -41,6 +41,7 @@ model Organization {
   exceptionTriageEvents  ExceptionTriageEvent[]
   exceptionInvestigationEvents ExceptionInvestigationEvent[]
   exceptionRemediationEvents   ExceptionRemediationEvent[]
+  exceptionRemediationWorkEvents ExceptionRemediationWorkEvent[]
 
   @@map("organizations")
 }
@@ -1104,6 +1105,7 @@ model User {
   exceptionTriageEventsRecorded  ExceptionTriageEvent[]  @relation("ExceptionTriageEventRecordedBy")
   exceptionInvestigationEventsRecorded ExceptionInvestigationEvent[] @relation("ExceptionInvestigationEventRecordedBy")
   exceptionRemediationEventsRecorded ExceptionRemediationEvent[] @relation("ExceptionRemediationEventRecordedBy")
+  exceptionRemediationWorkEventsRecorded ExceptionRemediationWorkEvent[] @relation("ExceptionRemediationWorkEventRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1171,6 +1173,7 @@ model OrganizationMembership {
   assignedTriageEvents ExceptionTriageEvent[] @relation("ExceptionTriageEventAssignedMember")
   recordedInvestigationEvents ExceptionInvestigationEvent[] @relation("ExceptionInvestigationEventRecordedByMembership")
   recordedRemediationEvents ExceptionRemediationEvent[] @relation("ExceptionRemediationEventRecordedByMembership")
+  recordedRemediationWorkEvents ExceptionRemediationWorkEvent[] @relation("ExceptionRemediationWorkEventRecordedByMembership")
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -1892,6 +1895,7 @@ model Claim {
   exceptionTriageEvents       ExceptionTriageEvent[]
   exceptionInvestigationEvents ExceptionInvestigationEvent[]
   exceptionRemediationEvents   ExceptionRemediationEvent[]
+  exceptionRemediationWorkEvents ExceptionRemediationWorkEvent[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -2497,6 +2501,7 @@ model ExceptionIntakeRecord {
   triageEvents ExceptionTriageEvent[]
   investigationEvents ExceptionInvestigationEvent[]
   remediationEvents   ExceptionRemediationEvent[]
+  remediationWorkEvents ExceptionRemediationWorkEvent[]
 
   @@unique([identityKey], map: "exception_intake_records_identity_key")
   @@index([claimId, recordedAt, id])
@@ -2568,6 +2573,7 @@ model ExceptionInvestigationEvent {
   linkedEvidenceEvent  ExceptionInvestigationEvent?  @relation("ExceptionInvestigationEventLinkedEvidence", fields: [linkedEvidenceEventId], references: [id], onDelete: Restrict)
   findings             ExceptionInvestigationEvent[] @relation("ExceptionInvestigationEventLinkedEvidence")
   remediationProposals ExceptionRemediationEvent[]  @relation("ExceptionRemediationEventFinding")
+  remediationWorkReports ExceptionRemediationWorkEvent[] @relation("ExceptionRemediationWorkEventBasis")
   recordedByMembership OrganizationMembership        @relation("ExceptionInvestigationEventRecordedByMembership", fields: [recordedByMembershipId], references: [id], onDelete: Restrict)
   recordedBy           User                          @relation("ExceptionInvestigationEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
 
@@ -2722,6 +2728,7 @@ model ExceptionRemediationEvent {
   findingEvent         ExceptionInvestigationEvent? @relation("ExceptionRemediationEventFinding", fields: [findingEventId], references: [id], onDelete: Restrict)
   proposalEvent        ExceptionRemediationEvent?   @relation("ExceptionRemediationEventProposal", fields: [proposalEventId], references: [id], onDelete: Restrict)
   review               ExceptionRemediationEvent?   @relation("ExceptionRemediationEventProposal")
+  workEvents           ExceptionRemediationWorkEvent[] @relation("ExceptionRemediationWorkEventPlan")
   recordedByMembership OrganizationMembership       @relation("ExceptionRemediationEventRecordedByMembership", fields: [recordedByMembershipId], references: [id], onDelete: Restrict)
   recordedBy           User                         @relation("ExceptionRemediationEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
 
@@ -2732,6 +2739,54 @@ model ExceptionRemediationEvent {
   @@index([recordedByMembershipId])
   @@index([recordedByUserId])
   @@map("exception_remediation_events")
+}
+
+// A8.6 — the append-only report-and-verification history of one A8.1 exception intake against its one A8.5 approved
+// proposal (A8-REMEDIATION-WORK-1), numbered 1..N by the server. A report is written only by the current, eligible
+// A8.2 assignee, names the approved proposal with its 1:1 work code and cites one A8.3 event of the intake; a
+// verification is written only by a member independent of the reporter holding the verify permission and names the
+// outstanding report. The disposition is derived on every read and never stored; a verification confirms only that
+// the cited record and the report agree. There is no status, current/latest pointer, execution, resolution, amount,
+// narrative, attachment or payload column.
+model ExceptionRemediationWorkEvent {
+  id                            String   @id @default(uuid()) @db.Uuid
+  exceptionIntakeId             String   @map("exception_intake_id") @db.Uuid
+  organizationId                String   @map("organization_id") @db.Uuid
+  claimId                       String   @map("claim_id") @db.Uuid
+  contractVersion               String   @map("contract_version") @db.Text
+  sequence                      Int
+  eventCode                     String   @map("event_code") @db.Text
+  approvedProposalEventId       String   @map("approved_proposal_event_id") @db.Uuid
+  workCode                      String?  @map("work_code") @db.Text
+  basisReferenceKind            String?  @map("basis_reference_kind") @db.Text
+  basisReferenceId              String?  @map("basis_reference_id") @db.Uuid
+  basisReferenceContractVersion String?  @map("basis_reference_contract_version") @db.Text
+  workReportEventId             String?  @unique(map: "exception_remediation_work_events_work_report_event_id_key") @map("work_report_event_id") @db.Uuid
+  verificationCode              String?  @map("verification_code") @db.Text
+  reasonCode                    String?  @map("reason_code") @db.Text
+  recordedByMembershipId        String   @map("recorded_by_membership_id") @db.Uuid
+  recordedByUserId              String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt                    DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt                     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  exceptionIntake      ExceptionIntakeRecord          @relation(fields: [exceptionIntakeId], references: [id], onDelete: Restrict)
+  organization         Organization                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claim                Claim                          @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  approvedProposal     ExceptionRemediationEvent      @relation("ExceptionRemediationWorkEventPlan", fields: [approvedProposalEventId], references: [id], onDelete: Restrict)
+  basisReference       ExceptionInvestigationEvent?   @relation("ExceptionRemediationWorkEventBasis", fields: [basisReferenceId], references: [id], onDelete: Restrict)
+  workReport           ExceptionRemediationWorkEvent? @relation("ExceptionRemediationWorkEventReport", fields: [workReportEventId], references: [id], onDelete: Restrict)
+  verification         ExceptionRemediationWorkEvent? @relation("ExceptionRemediationWorkEventReport")
+  recordedByMembership OrganizationMembership         @relation("ExceptionRemediationWorkEventRecordedByMembership", fields: [recordedByMembershipId], references: [id], onDelete: Restrict)
+  recordedBy           User                           @relation("ExceptionRemediationWorkEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([exceptionIntakeId, sequence], map: "exception_remediation_work_events_sequence_key")
+  @@index([organizationId])
+  @@index([claimId])
+  @@index([approvedProposalEventId])
+  @@index([basisReferenceId])
+  @@index([recordedByMembershipId])
+  @@index([recordedByUserId])
+  @@map("exception_remediation_work_events")
 }
 
 // CRG-01 FINAL Checkpoint B — the append-only, numbered validator selection per (jurisdiction, authority)

@@ -101,6 +101,7 @@ import { exceptionTriageRouter } from './modules/exception-triage/exception-tria
 import { exceptionInvestigationRouter } from './modules/exception-investigation/exception-investigation.route.ts'
 import { codingReleaseRouter } from './modules/coding-release/coding-release.route.ts'
 import { exceptionRemediationRouter } from './modules/exception-remediation/exception-remediation.route.ts'
+import { exceptionRemediationWorkRouter } from './modules/exception-remediation-work/exception-remediation-work.route.ts'
 import { codingValidationRouter } from './modules/coding-validation/coding-validation.route.ts'
 
 export const app = express()
@@ -426,6 +427,13 @@ app.use('/api/encounters', codingReleaseRouter)
 // disposition). An approval is planning authorization only. No PUT, PATCH or DELETE, and no execution, correction,
 // resolution, closure, escalation or export route.
 app.use('/api/claims', exceptionRemediationRouter)
+
+// A8.6 - the append-only remediation work report and independent verification history of one exception (report the
+// internal work done against its approved A8.5 proposal as the current A8.2 assignee, verify it as a member independent
+// of the reporter, read the history and the derived disposition). A verification confirms only that the cited record
+// and the report agree. No PUT, PATCH or DELETE, and no execution, correction, resolution, closure, escalation or export
+// route.
+app.use('/api/claims', exceptionRemediationWorkRouter)
 
 // CRG-01 Checkpoint B - two read-only checks of coding receipts as recorded: one validation run's receipts and one
 // frozen submission's coding binding, each verified as recorded. No write route.
