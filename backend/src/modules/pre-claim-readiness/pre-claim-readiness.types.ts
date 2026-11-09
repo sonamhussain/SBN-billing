@@ -81,6 +81,30 @@ export type PreClaimA6HandoffV1 = {
   }
 }
 
+// CRG-01 Checkpoint B — PreClaimA6HandoffV2: every PreClaimA6HandoffV1 field under A5-READY-2 over A5-VAL-2, plus the
+// run's coding receipts verified as recorded. PreClaimA6HandoffV1 is unchanged and still the answer for a V1 assessment.
+export const READINESS_POLICY_VERSION_V2 = 'A5-READY-2'
+export const HANDOFF_SCHEMA_VERSION_V2 = 'PreClaimA6HandoffV2'
+// The handoff contracts A6 accepts, each through its own version-specific branch.
+export const ACCEPTED_HANDOFF_SCHEMA_VERSIONS: readonly string[] = [HANDOFF_SCHEMA_VERSION, HANDOFF_SCHEMA_VERSION_V2]
+export const isAcceptedHandoffSchema = (version: string) => ACCEPTED_HANDOFF_SCHEMA_VERSIONS.includes(version)
+
+export type HandoffCodingReceiptsV2 = {
+  manifestId: string
+  manifestSha256: string
+  receiptCount: number
+  receipts: { receiptId: string; subjectKind: string; targetId: string; findingId: string; decisionCode: string; codeSystemDatasetId: string | null; referenceDatasetVersionId: string | null; membershipId: string | null }[]
+}
+
+export type PreClaimA6HandoffV2 = Omit<PreClaimA6HandoffV1, 'schemaVersion' | 'readinessPolicyVersion' | 'validationRun'> & {
+  schemaVersion: 'PreClaimA6HandoffV2'
+  readinessPolicyVersion: 'A5-READY-2'
+  validationRun: Omit<PreClaimA6HandoffV1['validationRun'], 'validatorVersion'> & { validatorVersion: 'A5-VAL-2' }
+  codingReceipts: HandoffCodingReceiptsV2
+}
+
+export type PreClaimA6Handoff = PreClaimA6HandoffV1 | PreClaimA6HandoffV2
+
 export type PreClaimReadinessErrorCode =
   | 'VALIDATION_ERROR'
   | 'NOT_FOUND'

@@ -8,6 +8,10 @@ import { composeCurrentDraft } from '../claim-draft/claim-draft.service.ts'
 import { getCurrentReviewAuthority } from '../claim-review/claim-review.service.ts'
 import { supportedCurrencyMinorUnits } from '../tariff-rate/tariff-rate.types.ts'
 import { encodeCanonicalPayload, exactDecimalText, PayloadEncodingError } from './claim-payload.serializer.ts'
+// CRG-01 Checkpoint B — A6-PAYLOAD-2 for a PreClaimA6HandoffV2 claim only (a separate encoder), bound to the run's
+// receipts as recorded. A V1 claim always gets A6-PAYLOAD-1 below, unchanged.
+import { codingSectionOf, encodeCanonicalPayloadV2, PAYLOAD_SCHEMA_VERSION_V2, type CanonicalClaimPayloadV2 } from './claim-payload.v2.ts'
+import { findRecordedReceiptsByTarget } from '../coding-validation/coding-validation.service.ts'
 import {
   PAYLOAD_SCHEMA_VERSION,
   type CanonicalClaimPayloadV1,
@@ -270,6 +274,16 @@ async function compose(claimId: string, draftAssessmentId: string, approvalDecis
   const total = canonicalLines.reduce((sum, line) => sum + BigInt(line.extendedAmount.replace('.', '')), 0n)
   if (total !== BigInt(payload.financial.totalExtendedAmount.replace('.', ''))) return refuse('INTEGRITY_CONFLICT', 'the stored total is not the sum of the stored line amounts')
 
+  if (handoff.value.schemaVersion === 'PreClaimA6HandoffV2') {
+    const receipts = await findRecordedReceiptsByTarget(run.id, tx)
+    const handedOff = new Set(handoff.value.codingReceipts.receipts.map((receipt) => receipt.receiptId))
+    if (receipts.size !== handedOff.size || [...receipts.values()].some((receipt) => !handedOff.has(receipt.receiptId))) return refuse('INTEGRITY_CONFLICT', 'the recorded receipts are not the handoff receipts')
+    const coding = codingSectionOf(payload, handoff.value.codingReceipts.manifestSha256, receipts)
+    if (!coding.ok) return refuse('INTEGRITY_CONFLICT', coding.detail)
+    const payloadV2: CanonicalClaimPayloadV2 = { ...payload, schemaVersion: PAYLOAD_SCHEMA_VERSION_V2, coding: coding.value }
+    const encodedV2 = encodeCanonicalPayloadV2(payloadV2, moneyScale)
+    return { outcome: 'COMPOSED' as const, organizationId: claim.encounter.patient.organizationId, payload: payloadV2, bytes: encodedV2.bytes, sha256: encodedV2.sha256 }
+  }
   const encoded = encodeCanonicalPayload(payload, moneyScale)
   return { outcome: 'COMPOSED' as const, organizationId: claim.encounter.patient.organizationId, payload, bytes: encoded.bytes, sha256: encoded.sha256 }
 }
@@ -285,5 +299,5 @@ export async function previewCanonicalClaimPayload(claimId: string, body: unknow
   // One READ ONLY REPEATABLE READ snapshot: Postgres itself refuses any write, so a preview persists nothing.
   const result = await withReadSnapshot(undefined, (tx) => composeCanonicalClaimPayload(claimId, validated.value.draftAssessmentId, validated.value.approvalDecisionId, tx))
   if (!result.ok) return { ok: false, code: errorCodeOf[result.outcome], message: result.message }
-  return { ok: true, value: { schemaVersion: PAYLOAD_SCHEMA_VERSION, previewDigestSha256: result.sha256, byteLength: result.bytes.length, payload: result.payload } }
+  return { ok: true, value: { schemaVersion: result.payload.schemaVersion, previewDigestSha256: result.sha256, byteLength: result.bytes.length, payload: result.payload } }
 }

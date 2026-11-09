@@ -531,7 +531,8 @@ async function main() {
   )
   const moduleCode = committedProductionCodeOf([MODULE_DIR])
   // Every absence check below first proves the scan reached all ten committed production files.
-  const reached = moduleCode.files.length === 10 && moduleCode.code.includes('recordValidationRunInTransaction')
+  // Checkpoint B (design freeze 1.2 §12) adds exactly pre-claim-validation.coding-release.ts; every scan below reads it too.
+  const reached = (moduleCode.files.length === 10 || (moduleCode.files.length === 11 && moduleCode.files.includes(`${MODULE_DIR}/pre-claim-validation.coding-release.ts`))) && moduleCode.code.includes('recordValidationRunInTransaction')
   check('T16', 'No upstream locks', reached && correctionMs < 5000 && !/FOR UPDATE|lockRowForUpdate|SELECT .* FOR /i.test(moduleCode.code), `the mid-execution correction committed in ${correctionMs} ms without waiting; no row lock exists on the read path`)
   const snapRun = snapResult.ok ? await prisma.validationRun.findUniqueOrThrow({ where: { id: snapResult.value.validationRunId } }) : null
   check(

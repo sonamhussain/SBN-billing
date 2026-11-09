@@ -482,13 +482,13 @@ async function main() {
   check('T13', 'Compatible validator', realAssessment.readinessPolicyVersion === 'A5-READY-1' && absentBody.body?.readinessPolicyVersion === 'A5-READY-1', 'A5-VAL-1 runs are accepted by A5-READY-1')
   const incompatibleEncounter = await plainEncounter('incompatible encounter')
   const incompatible = []
-  for (const version of ['A5-VAL-2', `${runId}-VAL`]) {
+  for (const version of ['A5-VAL-9', `${runId}-VAL`]) {
     const id = await recordRun(incompatibleEncounter.id, [finding('PASS')], version)
     const audits = await readinessAudits()
     const res = await assessHttp(id, {})
     incompatible.push(res.status === 409 && errorCode(res.body) === 'READINESS_POLICY_INCOMPATIBLE' && (await assessmentsFor(id)) === 0 && (await readinessAudits()) === audits)
   }
-  check('T14', 'Incompatible validator', incompatible.length === 2 && incompatible.every(Boolean), 'A5-VAL-2 and an unknown validator are refused with 409 READINESS_POLICY_INCOMPATIBLE; no assessment, no audit')
+  check('T14', 'Incompatible validator', incompatible.length === 2 && incompatible.every(Boolean), 'A5-VAL-9 and an unknown validator are refused with 409 READINESS_POLICY_INCOMPATIBLE; no assessment, no audit')
 
   // ---------------------------------------------------------------- composition (T15–T27)
   section('A5-READY-1 composition')

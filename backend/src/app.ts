@@ -101,6 +101,7 @@ import { exceptionTriageRouter } from './modules/exception-triage/exception-tria
 import { exceptionInvestigationRouter } from './modules/exception-investigation/exception-investigation.route.ts'
 import { codingReleaseRouter } from './modules/coding-release/coding-release.route.ts'
 import { exceptionRemediationRouter } from './modules/exception-remediation/exception-remediation.route.ts'
+import { codingValidationRouter } from './modules/coding-validation/coding-validation.route.ts'
 
 export const app = express()
 
@@ -425,6 +426,10 @@ app.use('/api/encounters', codingReleaseRouter)
 // disposition). An approval is planning authorization only. No PUT, PATCH or DELETE, and no execution, correction,
 // resolution, closure, escalation or export route.
 app.use('/api/claims', exceptionRemediationRouter)
+
+// CRG-01 Checkpoint B - two read-only checks of coding receipts as recorded: one validation run's receipts and one
+// frozen submission's coding binding, each verified as recorded. No write route.
+app.use('/api', codingValidationRouter)
 
 // A1.8 — LAST
 app.use('/api', apiNotFoundHandler)

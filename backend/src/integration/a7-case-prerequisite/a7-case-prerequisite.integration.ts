@@ -1358,7 +1358,8 @@ async function main() {
     probed !== null && outcomeOf(probed[0]) === outcomeOf(JSON.parse(repeated[0])) && accepted(zoned) && !/toLocale|Intl\.|localeCompare|toUpperCase/.test(production.code) && lowerings === idLowerings,
     `with a ${probed?.[2] ?? '?'} process locale and C database messages the outcome is the same; the A7.5 code compares controlled tokens exactly and only lower-cases path ids (${idLowerings})`,
   )
-  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t)
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   check('T094', 'No source is not zero balance', emptyAssessment.body.assessmentCode === 'NO_SOURCE_BASIS' && ledgerTables.length === 0 && !columns.some((c) => /balance|amount|currency/.test(c)), 'NO_SOURCE_BASIS states only that no source inventory exists: no balance, amount or currency exists anywhere to be zero')
   const closureTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(closure|closed|reconcil|write_off|writeoff)'`).map((row) => row.t)
   check('T095', 'Incomplete case is not closure', incAssessment.body.assessmentCode === 'INCOMPLETE_SOURCE_CHAIN' && closureTables.length === 0 && !/'(CLOSED|READY_FOR_CLOSURE|RECONCILED)'/.test(readFileSync(`../${MIGRATION}`, 'utf8')), 'INCOMPLETE_SOURCE_CHAIN is a missing prerequisite: no closure, closed or reconciliation table or code exists')
@@ -1431,7 +1432,6 @@ async function main() {
   // Tables a later phase adds are recognized from git, never by name: those created by migrations committed after
   // A7.5's own merge (harness correction before CRG-01). On A7.5's own branch the set is empty, so this boundary is
   // unchanged there; every table that existed when A7.5 merged is judged as before.
-  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
   const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|payer_response)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const jobsChanged = changedPaths.filter((file) => /^backend\/src\/jobs\//.test(file))
   // Judged on behaviour, not vocabulary: an awaited in-request pause (the lock-wait jitter) is not background work.

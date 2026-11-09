@@ -6,7 +6,7 @@ import { lineFingerprint, runFingerprint, type LineEvaluation, type SourceFacts 
 import { PRICING_CONTRACT_VERSION, type LineOutcome } from '../claim-pricing/claim-pricing.types.ts'
 import { CLAIM_CONTRACT_VERSION } from '../claim/claim.types.ts'
 import { claimDiagnosisRoles } from '../claim-diagnosis/claim-diagnosis.types.ts'
-import { HANDOFF_SCHEMA_VERSION } from '../pre-claim-readiness/pre-claim-readiness.types.ts'
+import { isAcceptedHandoffSchema } from '../pre-claim-readiness/pre-claim-readiness.types.ts'
 import { supportedCurrencyMinorUnits } from '../tariff-rate/tariff-rate.types.ts'
 import {
   DRAFT_CONTRACT_VERSION,
@@ -281,7 +281,7 @@ function handoffFindings(snapshot: DraftSnapshot): RawFinding[] {
   const coherent =
     handoff.ok &&
     lineage.claimContractVersion === CLAIM_CONTRACT_VERSION &&
-    lineage.handoffSchemaVersion === HANDOFF_SCHEMA_VERSION &&
+    isAcceptedHandoffSchema(lineage.handoffSchemaVersion) &&
     handoff.schemaVersion === lineage.handoffSchemaVersion &&
     handoff.readinessAssessmentId === lineage.readinessAssessmentId &&
     handoff.encounterId === snapshot.claimEncounterId

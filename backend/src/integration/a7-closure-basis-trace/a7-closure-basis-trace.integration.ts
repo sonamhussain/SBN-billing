@@ -1150,7 +1150,8 @@ async function main() {
   const countsBefore94 = await counts()
   for (const id of [ASSESS1.assessmentId, emptyAssessment.assessmentId, incAssessment.assessmentId, ASSESS_S2.assessmentId]) await traceOf(id)
   check('T094', 'Read-only execution: zero writes', (await unchanged(countsBefore94)) && noXid === null, 'traces of four assessments changed no row in any of the 14 tables, and a trace never assigns a transaction id')
-  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t)
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   check('T095', 'No-source is not a zero balance', emptyTrace.body.traceCode === 'NO_SOURCE_BASIS' && emptyTrace.body.traceItems.length === 0 && ledgerTables.length === 0 && !deepKeys(emptyTrace.body).has('balance'), 'NO_SOURCE_BASIS explains only that no source exists: no balance, ledger or payment exists to be zero')
   check('T096', 'Incomplete is not closure ready', incTrace.body.traceCode === 'INCOMPLETE_SOURCE_CHAIN' && !/READY_FOR_CLOSURE|CLOSURE_READY|CLOSED/.test(JSON.stringify(incTrace.body)) && !/READY_FOR_CLOSURE|CLOSURE_READY/.test(production.code), 'an incomplete chain is explained as missing links; no closure-ready or closed code exists in A7.6')
   const adjudicationTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|remittance|denial|allowed)'`).map((row) => row.t)
@@ -1195,7 +1196,6 @@ async function main() {
   ]
   // Later phases' tables: those created by migrations committed after this package's own merge (none on its own
   // branch, so this boundary is unchanged there). Every table that existed when the package merged is judged as before.
-  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
   const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure|reconcil|exception|trace)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const moneyIdentifier = /\bDecimal\b|[Aa]mount|\b[Cc]urrency|[a-z]Currency|toFixed\(|[Ss]ettle|[Aa]llocat|[Aa]djust|[Rr]eceivable|[Bb]alance|[Ll]edger|[Pp]ayment|[Rr]emittance/
   const moneyCode = production.code.replace(/EXTERNAL_REMITTANCE_NOT_ESTABLISHED/g, '')

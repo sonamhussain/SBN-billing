@@ -415,6 +415,11 @@ async function main() {
     constantOf('backend/src/modules/claim-evidence/claim-evidence.types.ts', 'EVIDENCE_MANIFEST_VERSION'),
   ]
   const ownerChanged = changedPaths.filter((file) => OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)))
+  // T009's owner term judges this package's own range (the accepted A7.1–A7.9 T009 rule): on its own branch exactly as before.
+  const ownMerge = branch === a68Branch ? '' : mergeOf(a68Branch)
+  const ownRange = ownMerge ? `${ownMerge}^1..${ownMerge}` : 'origin/main...HEAD'
+  const ownChangedPaths = gitArgs(['diff', '--name-only', ownRange]).split(/\r?\n/).filter(Boolean)
+  const ownOwnerChanged = ownChangedPaths.filter((file) => OWNER_DIRS.some((dir) => file.startsWith(`${dir}/`)))
   // The paths A6.8 may change (judged in T010 at the end, and used to prove the nested N/A causes).
   const allowed = [
     'backend/package.json',
@@ -434,8 +439,8 @@ async function main() {
   check(
     'T009',
     'Old contracts preserved',
-    same(contracts, ['A6-CLAIM-1', 'A6-PRICE-1', 'A6-DRAFT-1', 'A6-REVIEW-1', 'A6-PAYLOAD-1', 'A6-SUBMISSION-1', 'A6-EVIDENCE-1']) && ownerChanged.length === 0,
-    ownerChanged.length === 0 ? 'A6-CLAIM-1, A6-PRICE-1, A6-DRAFT-1, A6-REVIEW-1, A6-PAYLOAD-1, A6-SUBMISSION-1 and A6-EVIDENCE-1 unchanged; no A5/A6.1–A6.7 owner module changed' : `changed: ${ownerChanged.join(', ').slice(0, 200)}`,
+    same(contracts, ['A6-CLAIM-1', 'A6-PRICE-1', 'A6-DRAFT-1', 'A6-REVIEW-1', 'A6-PAYLOAD-1', 'A6-SUBMISSION-1', 'A6-EVIDENCE-1']) && ownOwnerChanged.length === 0,
+    ownOwnerChanged.length === 0 ? 'A6-CLAIM-1, A6-PRICE-1, A6-DRAFT-1, A6-REVIEW-1, A6-PAYLOAD-1, A6-SUBMISSION-1 and A6-EVIDENCE-1 unchanged; no A5/A6.1–A6.7 owner module changed' : `changed: ${ownOwnerChanged.join(', ').slice(0, 200)}`,
   )
 
   // ---------------------------------------------------------------- fixtures

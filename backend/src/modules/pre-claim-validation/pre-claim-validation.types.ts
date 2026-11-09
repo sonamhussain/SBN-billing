@@ -12,6 +12,10 @@ import type { ValidationFindingDraft, ValidationLayer, ValidationOutcome, Valida
 // new version; historical runs are never reinterpreted.
 export const VALIDATOR_VERSION = 'A5-VAL-1'
 
+// CRG-01 Checkpoint B — A5-VAL-1 plus the CRG coding-release check and its receipts. A5-VAL-1 is never mutated; the
+// server selects A5-VAL-2 only where the encounter's CRG validation scope is ENABLED (never a request).
+export const VALIDATOR_VERSION_V2 = 'A5-VAL-2'
+
 // One finding the validator produced, before A5.7 records it. A governed finding carries the exact
 // A3-PROV-1 decision basis it was produced under; a system-invariant finding carries none.
 export type FindingDraft = ValidationFindingDraft & { provenance: RuleDecisionProvenanceRefV1 | null }
@@ -23,7 +27,7 @@ export type ExecutionContext = ValidationRunContextSnapshot
 export type PreClaimValidationExecutionDto = {
   validationRunId: string
   evaluatedAt: string
-  validatorVersion: typeof VALIDATOR_VERSION
+  validatorVersion: typeof VALIDATOR_VERSION | typeof VALIDATOR_VERSION_V2
   findingCount: number
 }
 

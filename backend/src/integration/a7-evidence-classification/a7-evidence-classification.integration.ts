@@ -1297,7 +1297,7 @@ async function main() {
   // Judged on behaviour: no adjudication or denial route answers and no such table exists. A later A7 suite's own
   // files are not an adjudication domain (the start gate, T001, still reads them as later code).
   check('T105', 'No A7.3 adjudication domain', later.every((res) => res.status === 404) && adjudicationTables.length === 0, 'no adjudication or denial route or table exists')
-  const settleTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(settle|payment|cash|receipt)'`).map((row) => row.t)
+  const settleTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(settle|payment|cash|receipt)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   check('T106', 'No A7 settlement allocation', settleTables.length === 0 && !/settle|allocat/i.test(moneyCode) && (await post(`/api/claim-submissions/${S1}/payments`, {})).status === 404, 'no settlement, payment, cash or receipt table, route or logic')
   const jobsChanged = changedPaths.filter((file) => /^backend\/src\/jobs\//.test(file))
   // Judged on behaviour, not vocabulary: an awaited in-request pause (the lock-wait jitter) is not background

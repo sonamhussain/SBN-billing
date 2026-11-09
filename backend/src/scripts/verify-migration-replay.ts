@@ -1553,6 +1553,44 @@ async function main() {
     const remediationTables = a85Created.filter((table) => replayedTables.has(table))
     check('the A8.5 tables are exactly exception_remediation_events after a clean replay', JSON.stringify(a85Created) === JSON.stringify(['exception_remediation_events']) && JSON.stringify(remediationTables) === JSON.stringify(a85Created), remediationTables.join(', '))
 
+    // CRG-01 Checkpoint B — the validation scopes, the coding receipts and their manifests, the CRG guards on
+    // validation_runs and claim_freezes, and the three version CHECKs redefined under their exact names.
+    for (const trigger of [
+      'crg_validation_scopes_insert_guard_trg', 'crg_validation_code_receipts_insert_guard_trg', 'crg_validation_receipt_manifests_insert_guard_trg', 'crg_validation_receipt_manifests_verify_trg',
+      'crg_validation_runs_scope_guard_trg', 'crg_validation_runs_receipts_complete_trg', 'crg_claim_freezes_scope_guard_trg', 'crg_validation_scopes_append_only_trg', 'crg_validation_scopes_no_truncate_trg',
+      'crg_validation_code_receipts_append_only_trg', 'crg_validation_code_receipts_no_truncate_trg', 'crg_validation_receipt_manifests_append_only_trg', 'crg_validation_receipt_manifests_no_truncate_trg',
+    ]) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'crg_validation_scopes_class_chk', 'crg_validation_scopes_checkpoint_b_chk', 'crg_validation_scopes_status_chk', 'crg_validation_scopes_contract_chk', 'crg_validation_code_receipts_target_chk',
+      'crg_validation_code_receipts_decision_chk', 'crg_validation_code_receipts_contract_chk', 'crg_validation_receipt_manifests_shape_chk', 'claim_freezes_version_pair_chk',
+      'crg_validation_code_receipts_validation_run_id_fkey', 'crg_validation_code_receipts_validation_finding_id_fkey', 'crg_validation_code_receipts_reference_dataset_version_id_fkey',
+      'crg_validation_code_receipts_membership_id_fkey', 'crg_validation_receipt_manifests_validation_run_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const redefined = ['claims_handoff_schema_version_chk', 'claim_freezes_payload_schema_version_chk', 'claim_freezes_contract_version_chk'].map((name) => replay.constraints.find((line) => line.includes(name)) ?? '')
+    const literals = (line: string) => [...line.matchAll(/'([A-Za-z0-9-]+)'::text/g)].map((m) => m[1]).filter((v) => v !== '').sort()
+    check(
+      'each redefined version CHECK admits exactly its V1 and V2 values after a clean replay',
+      JSON.stringify(literals(redefined[0]).filter((v) => /^PreClaimA6Handoff/.test(v))) === JSON.stringify(['PreClaimA6HandoffV1', 'PreClaimA6HandoffV2']) &&
+        JSON.stringify(literals(redefined[1])) === JSON.stringify(['A6-PAYLOAD-1', 'A6-PAYLOAD-2']) && JSON.stringify(literals(redefined[2])) === JSON.stringify(['A6-SUBMISSION-1', 'A6-SUBMISSION-2']),
+      redefined.map((line) => line.slice(0, 120)).join(' | '),
+    )
+    check(
+      'one receipt per finding, one per run target and one manifest per run are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('crg_validation_code_receipts_finding_key:') && /UNIQUE/i.test(line)) && replay.indexes.some((line) => line.startsWith('crg_validation_code_receipts_target_key:') && /UNIQUE/i.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('crg_validation_receipt_manifests_run_key:') && /UNIQUE/i.test(line)) && replay.indexes.some((line) => line.startsWith('crg_validation_scopes_sequence_key:') && /UNIQUE/i.test(line)),
+    )
+    const crgbCreated = [...readFileSync(new URL('../../prisma/migrations/20261106090000_crg_01b_coding_validation_freeze/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    check(
+      'the Checkpoint B tables are exactly crg_validation_code_receipts, crg_validation_receipt_manifests, crg_validation_scopes after a clean replay',
+      JSON.stringify(crgbCreated) === JSON.stringify(['crg_validation_code_receipts', 'crg_validation_receipt_manifests', 'crg_validation_scopes']) && crgbCreated.every((table) => replayedTables.has(table)),
+      crgbCreated.join(', '),
+    )
+
     // CRG-01 FINAL Checkpoint A — five append-only CRG-owned tables beside the reused A3 reference-dataset model:
     // the code-system identity of a dataset, numbered rights decisions, one complete import per edition, its immutable
     // membership and retirement classifications. CHECKs hold the contract and every controlled value; insert guards

@@ -9,7 +9,9 @@ import { readTransactionTimestamp } from '../encounter-billing-context/encounter
 // A5.7 owns run and finding persistence; their full rows are read through its repository only.
 import { findFindingsForRun, findRunById } from '../validation-run/validation-run.repository.ts'
 import { toRunDto } from '../validation-run/validation-run.service.ts'
-import { decideRecency, isValidatorCompatible, reduceReadiness } from './pre-claim-readiness.policy.ts'
+import { decideRecency, isValidatorCompatible, readinessPolicyFor, reduceReadiness } from './pre-claim-readiness.policy.ts'
+// CRG-01 Checkpoint B — an A5-VAL-2 run's coding receipts, verified as recorded (immutable records only).
+import { verifyReceiptsAsRecorded } from '../coding-validation/coding-validation.service.ts'
 import {
   createAssessmentRecord,
   findAssessmentById,
@@ -21,9 +23,13 @@ import {
 } from './pre-claim-readiness.repository.ts'
 import {
   HANDOFF_SCHEMA_VERSION,
+  HANDOFF_SCHEMA_VERSION_V2,
+  type PreClaimA6Handoff,
   type PreClaimA6HandoffV1,
+  type PreClaimA6HandoffV2,
   type PreClaimReadinessResult,
   READINESS_POLICY_VERSION,
+  READINESS_POLICY_VERSION_V2,
   type ReadinessAssessmentDetailDto,
   type ReadinessAssessmentDto,
   type ReadinessAssessmentListDto,
@@ -88,15 +94,21 @@ export async function recordReadinessAssessment(runId: string, body: unknown, ac
       const findings = await findFindingOutcomes(runId, tx)
       const state = reduceReadiness(findings.map((finding) => finding.outcome))
       if (state === null) return { ok: false, code: 'INTEGRITY_CONFLICT', message: 'the validation run has no assessable finding set' }
-      // §4 — an unknown validator contract is refused, never assumed to mean what A5-VAL-1 means.
-      if (!isValidatorCompatible(READINESS_POLICY_VERSION, run.validatorVersion)) {
+      // §4 — an unknown validator contract is refused, never assumed to mean what A5-VAL-1 means. CRG-01 Checkpoint B:
+      // the policy is the one that explicitly names the run's validator (A5-READY-1 for A5-VAL-1, A5-READY-2 for A5-VAL-2).
+      const policy = readinessPolicyFor(run.validatorVersion) ?? READINESS_POLICY_VERSION
+      if (!isValidatorCompatible(policy, run.validatorVersion)) {
         return { ok: false, code: 'READINESS_POLICY_INCOMPATIBLE', message: 'the validation run was produced by a validator version this readiness policy does not accept' }
       }
-      if (await findAssessmentForRunAndPolicy(runId, READINESS_POLICY_VERSION, tx)) return duplicate()
+      // A5-READY-2 — the run's coding receipts must verify as recorded on this same snapshot; otherwise no state.
+      if (policy === READINESS_POLICY_VERSION_V2 && !(await verifyReceiptsAsRecorded(runId, tx)).ok) {
+        return { ok: false, code: 'INTEGRITY_CONFLICT', message: "the validation run's coding receipts do not verify; no readiness state was recorded" }
+      }
+      if (await findAssessmentForRunAndPolicy(runId, policy, tx)) return duplicate()
 
       const assessedAt = await readTransactionTimestamp(tx)
       const assessment = await createAssessmentRecord(
-        { validationRunId: runId, readinessPolicyVersion: READINESS_POLICY_VERSION, state, assessedAt, createdByUserId: actorUserId },
+        { validationRunId: runId, readinessPolicyVersion: policy, state, assessedAt, createdByUserId: actorUserId },
         tx,
       )
       await concurrencyProbe('pre_claim_readiness.assessment_inserted')
@@ -157,7 +169,7 @@ const exactSet = (ids: (string | null)[]) => [...new Set(ids.filter((id): id is 
 // §10/§11 — READY_FOR_REVIEW only, under A5-READY-1 over A5-VAL-1, and only while no later validation
 // of the same Encounter exists. Every read shares one snapshot, so a run committed mid-read cannot
 // produce a handoff that was never true. Nothing is written, and no pointer is stored.
-export async function getA6Handoff(assessmentId: string): Promise<PreClaimReadinessResult<PreClaimA6HandoffV1>> {
+export async function getA6Handoff(assessmentId: string): Promise<PreClaimReadinessResult<PreClaimA6Handoff>> {
   if (!isReadinessUuid(assessmentId)) return invalid('invalid readiness assessment id')
   return withReadSnapshot(undefined, (tx) => composeA6Handoff(assessmentId, tx))
 }
@@ -165,13 +177,16 @@ export async function getA6Handoff(assessmentId: string): Promise<PreClaimReadin
 // A6.1 §8 — the one transaction-aware handoff composer. The public GET runs it inside its own read
 // snapshot; A6.1 Claim creation runs it on its REPEATABLE READ write transaction, so the handoff
 // decision and the Claim insert see the same snapshot. Every read uses the caller's client.
-export async function composeA6Handoff(assessmentId: string, tx: DbClient): Promise<PreClaimReadinessResult<PreClaimA6HandoffV1>> {
+export async function composeA6Handoff(assessmentId: string, tx: DbClient): Promise<PreClaimReadinessResult<PreClaimA6Handoff>> {
   if (!isReadinessUuid(assessmentId)) return invalid('invalid readiness assessment id')
   const assessment = await findAssessmentById(assessmentId, tx)
   if (!assessment) return { ok: false, code: 'NOT_FOUND', message: 'readiness assessment not found' }
   if (assessment.state !== 'READY_FOR_REVIEW') {
     return { ok: false, code: 'PRECLAIM_NOT_READY_FOR_HANDOFF', message: 'only a READY_FOR_REVIEW assessment can be handed off' }
   }
+  // CRG-01 Checkpoint B — an A5-READY-2 assessment answers PreClaimA6HandoffV2; every other assessment takes the V1
+  // branch below, byte-identical to before.
+  if (assessment.readinessPolicyVersion === READINESS_POLICY_VERSION_V2) return composeA6HandoffV2(assessment, tx)
   if (assessment.readinessPolicyVersion !== READINESS_POLICY_VERSION || !isValidatorCompatible(assessment.readinessPolicyVersion, assessment.validationRun.validatorVersion)) {
     return { ok: false, code: 'READINESS_POLICY_INCOMPATIBLE', message: 'this handoff contract does not accept the assessment policy or validator version' }
   }
@@ -219,6 +234,83 @@ export async function composeA6Handoff(assessmentId: string, tx: DbClient): Prom
         referenceDatasetVersionIds: exactSet(
           findings.flatMap((finding) => [finding.referenceDatasetVersionId, ...finding.consumedDatasetVersions.map((row) => row.referenceDatasetVersionId)]),
         ),
+      },
+    },
+  }
+}
+
+// CRG-01 Checkpoint B — PreClaimA6HandoffV2: A5-READY-2 over A5-VAL-2 only, the same READY_FOR_REVIEW and recency
+// rules as V1 (a stale or tied run basis is refused), every V1 field, and the run's coding receipts verified as
+// recorded on this same snapshot (a receipt of another encounter or an unverifiable manifest is refused). Eligibility,
+// authorization and tariff ownership stay with their owners; nothing is written.
+type AssessmentForHandoff = NonNullable<Awaited<ReturnType<typeof findAssessmentById>>>
+
+async function composeA6HandoffV2(assessment: AssessmentForHandoff, tx: DbClient): Promise<PreClaimReadinessResult<PreClaimA6HandoffV2>> {
+  if (!isValidatorCompatible(READINESS_POLICY_VERSION_V2, assessment.validationRun.validatorVersion)) {
+    return { ok: false, code: 'READINESS_POLICY_INCOMPATIBLE', message: 'this handoff contract does not accept the assessment policy or validator version' }
+  }
+  const recency = decideRecency(await findRecencyRelations(assessment.validationRunId, tx))
+  if (recency === 'SUPERSEDED') {
+    return { ok: false, code: 'READINESS_SUPERSEDED_BY_NEWER_VALIDATION', message: 'a later validation run exists for this encounter' }
+  }
+  if (recency === 'AMBIGUOUS') {
+    return { ok: false, code: 'VALIDATION_RUN_RECENCY_AMBIGUOUS', message: 'another validation run of this encounter has the same evaluation and creation time' }
+  }
+  const run = await findRunById(assessment.validationRunId, tx)
+  if (!run) return { ok: false, code: 'NOT_FOUND', message: 'readiness assessment not found' }
+  const verified = await verifyReceiptsAsRecorded(run.id, tx)
+  if (!verified.ok || verified.value.encounterId !== run.encounterId) {
+    return { ok: false, code: 'INTEGRITY_CONFLICT', message: "the validation run's coding receipts do not verify as recorded" }
+  }
+  const findings = await findFindingsForRun(run.id, tx)
+  const count = (outcome: string) => findings.filter((finding) => finding.outcome === outcome).length
+  const manifest = verified.value.manifest
+
+  return {
+    ok: true,
+    value: {
+      schemaVersion: HANDOFF_SCHEMA_VERSION_V2,
+      readinessAssessmentId: assessment.id,
+      readinessPolicyVersion: 'A5-READY-2',
+      readinessState: 'READY_FOR_REVIEW',
+      assessedAt: assessment.assessedAt.toISOString(),
+      validationRun: {
+        id: run.id,
+        validatorVersion: 'A5-VAL-2',
+        evaluatedAt: run.evaluatedAt.toISOString(),
+        encounterId: run.encounterId,
+        context: toRunDto(run).context,
+      },
+      findingSummary: { total: findings.length, pass: count('PASS'), warning: count('WARNING'), restrict: count('RESTRICT'), fail: count('FAIL') },
+      findingRefs: findings.map((finding) => ({ id: finding.id, sequence: finding.sequence, layer: finding.layer, outcome: finding.outcome, findingCode: finding.findingCode })),
+      exactReferences: {
+        encounterActivityIds: exactSet(findings.map((finding) => finding.encounterActivityId)),
+        encounterDiagnosisIds: exactSet(findings.map((finding) => finding.encounterDiagnosisId)),
+        eligibilityVerificationIds: exactSet(findings.map((finding) => finding.eligibilityVerificationId)),
+        priorAuthorizationVersionIds: exactSet(findings.map((finding) => finding.priorAuthorizationVersionId)),
+        authorizationLineIds: exactSet(findings.map((finding) => finding.authorizationLineId)),
+        evidenceRequirementIds: exactSet(findings.map((finding) => finding.evidenceRequirementId)),
+        evidenceArtifactVersionIds: exactSet(findings.map((finding) => finding.evidenceArtifactVersionId)),
+        ruleVersionIds: exactSet(findings.map((finding) => finding.ruleVersionId)),
+        governingSourceVersionIds: exactSet(findings.map((finding) => finding.governingSourceVersionId)),
+        referenceDatasetVersionIds: exactSet(
+          findings.flatMap((finding) => [finding.referenceDatasetVersionId, ...finding.consumedDatasetVersions.map((row) => row.referenceDatasetVersionId)]),
+        ),
+      },
+      codingReceipts: {
+        manifestId: manifest.manifestId,
+        manifestSha256: manifest.manifestSha256,
+        receiptCount: manifest.receiptCount,
+        receipts: manifest.receipts.map((receipt) => ({
+          receiptId: receipt.receiptId,
+          subjectKind: receipt.subjectKind,
+          targetId: receipt.targetId,
+          findingId: receipt.findingId,
+          decisionCode: receipt.decisionCode,
+          codeSystemDatasetId: receipt.codeSystemDatasetId,
+          referenceDatasetVersionId: receipt.referenceDatasetVersionId,
+          membershipId: receipt.membershipId,
+        })),
       },
     },
   }

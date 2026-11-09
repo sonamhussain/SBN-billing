@@ -1253,7 +1253,8 @@ async function main() {
   const emptyAgain = assembleCase({ claimSubmissionId: SE, organizationId: org, sources: [] })
   const emptySql = (await prisma.$queryRawUnsafe<{ h: string }[]>(`SELECT ${MANIFEST_SQL} AS h FROM ${HEADER} h WHERE h.id = $1::uuid`, emptyCase.body.caseId))[0]?.h
   check('T094', 'Empty case digest stable', emptyAgain.ok && emptyAgain.value.manifestSha256 === emptyCase.body.manifestSha256 && emptySql === emptyCase.body.manifestSha256 && same((await assemble(SE)).body, emptyCase.body), 'the empty case digest is reproduced by the assembler and by SQL, and its replay is identical')
-  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t)
+  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
+  const ledgerTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(receivable|ledger|balance|posting|journal|allocation|settle|payment|cash|receipt|copay|patient_share)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   check('T095', 'No-source is not zero balance', emptyCase.body.assemblyCode === 'NO_REVENUE_SOURCES' && ledgerTables.length === 0 && ![...headerColumns, ...entryColumns].some((c) => /balance|amount|currency/.test(c)), 'an empty case is only an empty inventory: no balance, amount or currency exists anywhere to be zero')
   const readinessOfCases = await prisma.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM ${ENTRY} e JOIN evidence_gate_results g ON g.id = e.readiness_id WHERE g.readiness_code <> 'NOT_READY_FOR_ADJUDICATION'`)
   check('T096', 'Incomplete never adjudicated', Number(readinessOfCases[0].n) === 0 && incCase.body.assemblyCode === 'INVENTORY_INCOMPLETE' && !/ADJUDICATED|READY_FOR_ADJUDICATION'/.test(readFileSync(`../${MIGRATION}`, 'utf8').replace(/NOT_READY_FOR_ADJUDICATION/g, '')), 'every linked readiness in every case is NOT_READY_FOR_ADJUDICATION; no adjudicated or ready code exists in the A7.4 schema')
@@ -1289,7 +1290,6 @@ async function main() {
   // Tables a later phase adds are recognized from git, never by name: those created by migrations committed after
   // A7.4's own merge (harness correction before CRG-01). On A7.4's own branch the set is empty, so this boundary is
   // unchanged there; every table that existed when A7.4 merged is judged as before.
-  const laterPhaseTables = new Set(ownMerge ? migrationDirsAt('HEAD').filter((dir) => !migrationDirsAt(ownMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
   const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(adjudicat|denial|allowed|remittance|settle|import|inbound|outbox|queue|transmission|acknowledg|closure)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   // Judged on behaviour: no such route answers and no such table exists. A later A7 suite's own files are not later
   // work (the start gate, T001, still reads them as later code).
