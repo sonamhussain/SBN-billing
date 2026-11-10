@@ -281,6 +281,13 @@ export const permissionCodes = [
   'exceptionRemediationWork.record',
   'exceptionRemediationWork.verify',
   'exceptionRemediationWork.read',
+  // A8.7 - requesting an internal resolution of an exception against its independently verified remediation work
+  // (Admin; the service further requires the current, eligible A8.2 assignee), confirming or returning that request
+  // independently (Admin; never its own requester), and reading the resolution history and derived disposition (Admin,
+  // Viewer). None executes, corrects, closes, escalates, pays or sends anything.
+  'exceptionResolution.request',
+  'exceptionResolution.decide',
+  'exceptionResolution.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
