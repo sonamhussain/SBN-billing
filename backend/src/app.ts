@@ -102,6 +102,7 @@ import { exceptionInvestigationRouter } from './modules/exception-investigation/
 import { codingReleaseRouter } from './modules/coding-release/coding-release.route.ts'
 import { exceptionRemediationRouter } from './modules/exception-remediation/exception-remediation.route.ts'
 import { exceptionRemediationWorkRouter } from './modules/exception-remediation-work/exception-remediation-work.route.ts'
+import { exceptionResolutionRouter } from './modules/exception-resolution/exception-resolution.route.ts'
 import { codingValidationRouter } from './modules/coding-validation/coding-validation.route.ts'
 
 export const app = express()
@@ -434,6 +435,13 @@ app.use('/api/claims', exceptionRemediationRouter)
 // and the report agree. No PUT, PATCH or DELETE, and no execution, correction, resolution, closure, escalation or export
 // route.
 app.use('/api/claims', exceptionRemediationWorkRouter)
+
+// A8.7 - the append-only internal resolution request and independent decision history of one exception (request an
+// internal resolution against its independently verified A8.6 work as the current A8.2 assignee, confirm or return it
+// as a member independent of the requester, read the history and the derived disposition). RESOLVED_INTERNAL is an
+// internal decision only. No PUT, PATCH or DELETE, and no execution, correction, closure, escalation, SLA, export,
+// payer or transmission route.
+app.use('/api/claims', exceptionResolutionRouter)
 
 // CRG-01 Checkpoint B - two read-only checks of coding receipts as recorded: one validation run's receipts and one
 // frozen submission's coding binding, each verified as recorded. No write route.

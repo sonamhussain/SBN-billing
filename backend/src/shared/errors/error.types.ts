@@ -203,6 +203,22 @@ export const apiErrorCodes = [
   // A8.6: a work report cites an evidence kind that v1 does not support (only an A8.3 evidence link or finding of the
   // same exception); nothing was recorded.
   'UNSUPPORTED_EVIDENCE_KIND',
+  // A8.7: the requester is not the current, eligible A8.2 assignee holding the resolution request permission; nothing
+  // was recorded.
+  'EXCEPTION_RESOLUTION_NOT_ASSIGNEE',
+  // A8.7: the decider does not hold the resolution decision permission now or is the request's own requester
+  // (membership or user); nothing was recorded.
+  'EXCEPTION_RESOLUTION_REVIEWER_NOT_INDEPENDENT',
+  // A8.7: the request or decision lacks the exact verified basis: the exception's EVIDENCE_SUPPORTED A8.6 verification
+  // on its approved A8.5 plan (missing, not verified, another work event, or no longer the basis); nothing was recorded.
+  'EXCEPTION_RESOLUTION_BASIS_NOT_VERIFIED',
+  // A8.7: the requested resolution event is not a legal next step (a second request while one awaits a decision, a
+  // decision with nothing pending or of another request, any event after a decision — RESOLVED_INTERNAL and
+  // RETURNED_FOR_REWORK are terminal in v1 — or an exception that is not assigned); nothing was recorded.
+  'EXCEPTION_RESOLUTION_TRANSITION_REFUSED',
+  // A8.7: the event could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
+  // refusal, an unknown commit outcome) or a stored history is inconsistent; nothing was recorded or derived.
+  'EXCEPTION_RESOLUTION_CONFLICT',
   // CRG-01 Checkpoint A: the stored coding-release history or an import contradicts itself (a mapping that no longer
   // matches its dataset, a lifecycle that does not explain a version's state, an import whose rows do not reproduce
   // its SHA-256, a code of another organization); nothing was decided or written.

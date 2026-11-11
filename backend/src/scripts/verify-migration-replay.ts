@@ -1654,6 +1654,65 @@ async function main() {
     const workTables = a86Created.filter((table) => replayedTables.has(table))
     check('the A8.6 tables are exactly exception_remediation_work_events after a clean replay', JSON.stringify(a86Created) === JSON.stringify(['exception_remediation_work_events']) && JSON.stringify(workTables) === JSON.stringify(a86Created), workTables.join(', '))
 
+    // A8.7 — the append-only, numbered request-and-decision history of one A8.1 intake against its one independently
+    // verified A8.6 work record. The contract, a positive sequence, the two controlled events and each event's exact shape
+    // are held by CHECKs, one number per intake and one decision per request by UNIQUE indexes; an insert guard holds
+    // database time, the parent's organization and Claim, the acting membership, the current A8.2 assignment, the
+    // requester's and decider's permissions, the verified A8.6 basis on its approved A8.5 plan, the pending request, the
+    // decider's independence, the terminal states and the contiguous sequence; the table is append-only and cannot be
+    // truncated; every key is ON DELETE RESTRICT.
+    for (const trigger of ['exception_resolution_events_insert_guard_trg', 'exception_resolution_events_append_only_trg', 'exception_resolution_events_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'exception_resolution_events_pkey',
+      'exception_resolution_events_contract_chk',
+      'exception_resolution_events_sequence_chk',
+      'exception_resolution_events_event_code_chk',
+      'exception_resolution_events_shape_chk',
+      'exception_resolution_events_exception_intake_id_fkey',
+      'exception_resolution_events_organization_id_fkey',
+      'exception_resolution_events_claim_id_fkey',
+      'exception_resolution_events_verification_event_id_fkey',
+      'exception_resolution_events_request_event_id_fkey',
+      'exception_resolution_events_recorded_by_membership_id_fkey',
+      'exception_resolution_events_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const resolutionContract = replay.constraints.find((line) => line.includes('exception_resolution_events_contract_chk')) ?? ''
+    const resolutionCodes = replay.constraints.find((line) => line.includes('exception_resolution_events_event_code_chk')) ?? ''
+    const resolutionShape = replay.constraints.find((line) => line.includes('exception_resolution_events_shape_chk')) ?? ''
+    check(
+      'the A8.7 CHECKs pin A8-RESOLUTION-DECISION-1, exactly the two resolution events and the controlled reason, decision and return reason codes, with no execution, closure or payment code, after a clean replay',
+      resolutionContract.includes("'A8-RESOLUTION-DECISION-1'") &&
+        ['REQUEST_INTERNAL_RESOLUTION', 'DECIDE_INTERNAL_RESOLUTION'].every((code) => resolutionCodes.includes(`'${code}'`)) &&
+        ['VERIFIED_INTERNAL_WORK', 'CONFIRM_INTERNAL_RESOLUTION', 'RETURN_FOR_REWORK', 'INSUFFICIENT_SUPPORT', 'SOURCE_INTEGRITY_CONCERN', 'ADDITIONAL_WORK_REQUIRED'].every((code) => resolutionShape.includes(`'${code}'`)) &&
+        /IS NOT NULL/i.test(resolutionCodes) &&
+        !/'(EXECUTE\w*|CLOSE\w*|ESCALATE\w*|PAID|DENIED|SETTLED|AUTO_\w*)'/.test(`${resolutionCodes} ${resolutionShape}`),
+      `${resolutionContract.slice(0, 100)} | ${resolutionCodes.slice(0, 160)}`,
+    )
+    check(
+      'one resolution event per (intake, sequence) and one decision per request are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('exception_resolution_events_sequence_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id, sequence\)/.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('exception_resolution_events_request_event_id_key:') && /UNIQUE/i.test(line) && /\(request_event_id\)/.test(line)),
+    )
+    const resolutionExpected = [
+      'id', 'exception_intake_id', 'organization_id', 'claim_id', 'contract_version', 'sequence', 'event_code', 'verification_event_id', 'request_event_id', 'reason_code', 'decision_code',
+      'return_reason_code', 'recorded_by_membership_id', 'recorded_by_user_id', 'recorded_at', 'created_at',
+    ]
+    const resolutionActual = replay.columns.filter((line) => line.startsWith('exception_resolution_events.')).map((line) => line.slice('exception_resolution_events.'.length).split(':')[0])
+    check(
+      `exception_resolution_events carries exactly its ${resolutionExpected.length} A8.7 columns, with no status, execution, closure, digest or narrative column, after a clean replay`,
+      resolutionActual.length === resolutionExpected.length && resolutionActual.every((column) => resolutionExpected.includes(column)),
+      resolutionActual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : resolutionActual.filter((column) => !resolutionExpected.includes(column)).join(', '),
+    )
+    // The tables the A8.7 migration itself creates, read from its committed file, and each must exist after the replay.
+    const a87Created = [...readFileSync(new URL('../../prisma/migrations/20261110090000_a8_7_exception_resolution/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    const resolutionTables = a87Created.filter((table) => replayedTables.has(table))
+    check('the A8.7 tables are exactly exception_resolution_events after a clean replay', JSON.stringify(a87Created) === JSON.stringify(['exception_resolution_events']) && JSON.stringify(resolutionTables) === JSON.stringify(a87Created), resolutionTables.join(', '))
+
     // CRG-01 FINAL Checkpoint A — five append-only CRG-owned tables beside the reused A3 reference-dataset model:
     // the code-system identity of a dataset, numbered rights decisions, one complete import per edition, its immutable
     // membership and retirement classifications. CHECKs hold the contract and every controlled value; insert guards
