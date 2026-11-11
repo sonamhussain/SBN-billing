@@ -219,6 +219,27 @@ export const apiErrorCodes = [
   // A8.7: the event could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
   // refusal, an unknown commit outcome) or a stored history is inconsistent; nothing was recorded or derived.
   'EXCEPTION_RESOLUTION_CONFLICT',
+  // A8.8: the escalator is not the current, eligible A8.2 assignee holding the escalation raise permission; nothing was
+  // recorded.
+  'EXCEPTION_ESCALATION_NOT_ASSIGNEE',
+  // A8.8: the nominated member is not an eligible member of the organization now (handle permission and the six
+  // upstream reads), is the current assignee, or the acknowledger or follow-up author is not the nominated member;
+  // nothing was recorded.
+  'EXCEPTION_ESCALATION_TARGET_NOT_ELIGIBLE',
+  // A8.8: the actor is not independent where independence is required (an escalator nominating or acknowledging
+  // itself; a returning reviewer who is the escalator, the nominated member or the current assignee, or lacks the review
+  // permission); nothing was recorded.
+  'EXCEPTION_ESCALATION_NOT_INDEPENDENT',
+  // A8.8: the escalation event is not a legal next step now (a second escalation, a step out of order, a duplicate
+  // follow-up, any event after the return (terminal in v1), an exception that is not assigned, or an A8.7 resolution
+  // that is pending or RESOLVED_INTERNAL); nothing was recorded.
+  'EXCEPTION_ESCALATION_TRANSITION_REFUSED',
+  // A8.8: the event could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
+  // refusal, an unknown commit outcome) or a stored history is inconsistent; nothing was recorded or derived.
+  'EXCEPTION_ESCALATION_CONFLICT',
+  // A8.8: a follow-up cites a record of this exception that v1 does not accept as a source (only an A8.3 evidence link
+  // or finding, or an A8.6 work report or verification, of the same exception); nothing was recorded.
+  'UNSUPPORTED_REFERENCE',
   // CRG-01 Checkpoint A: the stored coding-release history or an import contradicts itself (a mapping that no longer
   // matches its dataset, a lifecycle that does not explain a version's state, an import whose rows do not reproduce
   // its SHA-256, a code of another organization); nothing was decided or written.

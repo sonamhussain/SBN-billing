@@ -103,6 +103,7 @@ import { codingReleaseRouter } from './modules/coding-release/coding-release.rou
 import { exceptionRemediationRouter } from './modules/exception-remediation/exception-remediation.route.ts'
 import { exceptionRemediationWorkRouter } from './modules/exception-remediation-work/exception-remediation-work.route.ts'
 import { exceptionResolutionRouter } from './modules/exception-resolution/exception-resolution.route.ts'
+import { exceptionEscalationRouter } from './modules/exception-escalation/exception-escalation.route.ts'
 import { codingValidationRouter } from './modules/coding-validation/coding-validation.route.ts'
 
 export const app = express()
@@ -442,6 +443,13 @@ app.use('/api/claims', exceptionRemediationWorkRouter)
 // internal decision only. No PUT, PATCH or DELETE, and no execution, correction, closure, escalation, SLA, export,
 // payer or transmission route.
 app.use('/api/claims', exceptionResolutionRouter)
+
+// A8.8 - the append-only internal escalation and follow-up history of one exception (escalate it as the current A8.2
+// assignee to one nominated member of the organization, acknowledge it and record typed follow-ups citing exact A8.3 or
+// A8.6 records as that member, return it to its owner as an independent reviewer, read the history and the derived
+// disposition). Escalation is an internal handoff only. No PUT, PATCH or DELETE, and no queue, SLA, timer, closure,
+// reopen, resolution, execution, correction, export, payer or transmission route.
+app.use('/api/claims', exceptionEscalationRouter)
 
 // CRG-01 Checkpoint B - two read-only checks of coding receipts as recorded: one validation run's receipts and one
 // frozen submission's coding binding, each verified as recorded. No write route.

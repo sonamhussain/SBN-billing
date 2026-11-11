@@ -1713,6 +1713,70 @@ async function main() {
     const resolutionTables = a87Created.filter((table) => replayedTables.has(table))
     check('the A8.7 tables are exactly exception_resolution_events after a clean replay', JSON.stringify(a87Created) === JSON.stringify(['exception_resolution_events']) && JSON.stringify(resolutionTables) === JSON.stringify(a87Created), resolutionTables.join(', '))
 
+    // A8.8 — the append-only, numbered escalation and follow-up history of one A8.1 intake. The contract, a positive
+    // sequence, the four controlled events and each event's exact shape are held by CHECKs; one number per intake, one
+    // escalation, acknowledgement and return per intake and one (code, source) per follow-up by UNIQUE indexes; an insert
+    // guard holds database time, the parent's organization and Claim, the acting membership, the current A8.2 assignment,
+    // the A8.7 resolution state, every actor's permission and role, the nominated member's eligibility, the exact cited
+    // A8.3/A8.6 source, independence, the terminal state and the contiguous sequence; the table is append-only and cannot
+    // be truncated; every key is ON DELETE RESTRICT.
+    for (const trigger of ['exception_escalation_events_insert_guard_trg', 'exception_escalation_events_append_only_trg', 'exception_escalation_events_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'exception_escalation_events_pkey',
+      'exception_escalation_events_contract_chk',
+      'exception_escalation_events_sequence_chk',
+      'exception_escalation_events_event_code_chk',
+      'exception_escalation_events_shape_chk',
+      'exception_escalation_events_exception_intake_id_fkey',
+      'exception_escalation_events_organization_id_fkey',
+      'exception_escalation_events_claim_id_fkey',
+      'exception_escalation_events_target_member_id_fkey',
+      'exception_escalation_events_escalation_event_id_fkey',
+      'exception_escalation_events_acknowledgement_event_id_fkey',
+      'exception_escalation_events_recorded_by_membership_id_fkey',
+      'exception_escalation_events_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const escalationContract = replay.constraints.find((line) => line.includes('exception_escalation_events_contract_chk')) ?? ''
+    const escalationCodes = replay.constraints.find((line) => line.includes('exception_escalation_events_event_code_chk')) ?? ''
+    const escalationShape = replay.constraints.find((line) => line.includes('exception_escalation_events_shape_chk')) ?? ''
+    check(
+      'the A8.8 CHECKs pin A8-ESCALATION-1, exactly the four escalation events and the controlled reason, follow-up, source-kind and return reason codes, with no resolution, closure, SLA or payment code, after a clean replay',
+      escalationContract.includes("'A8-ESCALATION-1'") &&
+        ['ESCALATE_FOR_REVIEW', 'ACKNOWLEDGE_ESCALATION', 'RECORD_FOLLOWUP', 'RETURN_TO_OWNER'].every((code) => escalationCodes.includes(`'${code}'`)) &&
+        [
+          'NEEDS_SUPERVISOR_REVIEW', 'EVIDENCE_INCOMPLETE', 'POLICY_GUIDANCE_REQUIRED', 'SOURCE_RECHECK_RECORDED', 'ADDITIONAL_INFORMATION_REQUESTED', 'INTERNAL_POLICY_REVIEWED',
+          'INVESTIGATION_EVIDENCE_LINK', 'INVESTIGATION_FINDING', 'WORK_REPORT', 'WORK_VERIFICATION', 'FOLLOWUP_RECORDED', 'FURTHER_WORK_REQUIRED',
+        ].every((code) => escalationShape.includes(`'${code}'`)) &&
+        /IS NOT NULL/i.test(escalationCodes) &&
+        !/'(EXECUTE\w*|CLOSE\w*|RESOLVE\w*|REOPEN\w*|SLA\w*|OVERDUE\w*|PAID|DENIED|SETTLED|AUTO_\w*)'/.test(`${escalationCodes} ${escalationShape}`),
+      `${escalationContract.slice(0, 100)} | ${escalationCodes.slice(0, 160)}`,
+    )
+    check(
+      'one escalation event per (intake, sequence), one escalation, acknowledgement and return per intake and one (code, source) per follow-up are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('exception_escalation_events_sequence_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id, sequence\)/.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('exception_escalation_events_one_cycle_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id, event_code\)/.test(line) && /WHERE/i.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('exception_escalation_events_followup_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id, followup_code, source_event_id\)/.test(line) && /WHERE/i.test(line)),
+    )
+    const escalationExpected = [
+      'id', 'exception_intake_id', 'organization_id', 'claim_id', 'contract_version', 'sequence', 'event_code', 'reason_code', 'target_member_id', 'escalation_event_id',
+      'acknowledgement_event_id', 'followup_code', 'source_event_id', 'source_event_kind', 'return_reason_code', 'recorded_by_membership_id', 'recorded_by_user_id', 'recorded_at', 'created_at',
+    ]
+    const escalationActual = replay.columns.filter((line) => line.startsWith('exception_escalation_events.')).map((line) => line.slice('exception_escalation_events.'.length).split(':')[0])
+    check(
+      `exception_escalation_events carries exactly its ${escalationExpected.length} A8.8 columns, with no status, timer, SLA, closure, digest or narrative column, after a clean replay`,
+      escalationActual.length === escalationExpected.length && escalationActual.every((column) => escalationExpected.includes(column)),
+      escalationActual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : escalationActual.filter((column) => !escalationExpected.includes(column)).join(', '),
+    )
+    // The tables the A8.8 migration itself creates, read from its committed file, and each must exist after the replay.
+    const a88Created = [...readFileSync(new URL('../../prisma/migrations/20261111090000_a8_8_exception_escalation/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    const escalationTables = a88Created.filter((table) => replayedTables.has(table))
+    check('the A8.8 tables are exactly exception_escalation_events after a clean replay', JSON.stringify(a88Created) === JSON.stringify(['exception_escalation_events']) && JSON.stringify(escalationTables) === JSON.stringify(a88Created), escalationTables.join(', '))
+
     // CRG-01 FINAL Checkpoint A — five append-only CRG-owned tables beside the reused A3 reference-dataset model:
     // the code-system identity of a dataset, numbered rights decisions, one complete import per edition, its immutable
     // membership and retirement classifications. CHECKs hold the contract and every controlled value; insert guards

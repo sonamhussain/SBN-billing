@@ -181,6 +181,10 @@ const permissionCatalogue: { code: (typeof permissionCodes)[number]; name: strin
   { code: 'exceptionResolution.request', name: 'Request Internal Exception Resolutions' },
   { code: 'exceptionResolution.decide', name: 'Decide Internal Exception Resolutions' },
   { code: 'exceptionResolution.read', name: 'Read Exception Resolutions' },
+  { code: 'exceptionEscalation.raise', name: 'Escalate Exceptions For Internal Review' },
+  { code: 'exceptionEscalation.handle', name: 'Handle Exception Escalations' },
+  { code: 'exceptionEscalation.review', name: 'Return Exception Escalations' },
+  { code: 'exceptionEscalation.read', name: 'Read Exception Escalations' },
   { code: 'codingRelease.read', name: 'Read Coding Release Checks' },
 ]
 
@@ -368,12 +372,16 @@ const roleCatalogue = [
       'exceptionResolution.request',
       'exceptionResolution.decide',
       'exceptionResolution.read',
+      'exceptionEscalation.raise',
+      'exceptionEscalation.handle',
+      'exceptionEscalation.review',
+      'exceptionEscalation.read',
     ],
   },
   {
     code: 'ORG_VIEWER',
     name: 'Organization Viewer',
-    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read', 'rule_resolution.read', 'rule_pack.read', 'patient.read', 'clinicianAssignment.read', 'insuranceMembership.read', 'encounter.read', 'encounterDiagnosis.read', 'encounterActivity.read', 'encounterObservation.read', 'encounterBillingContext.read', 'evidenceArtifact.read', 'eligibilityVerification.read', 'priorAuthorization.read', 'authorizationLine.read', 'authorizationLine.evaluate', 'preClaimCommercialContext.read', 'evidenceRequirement.read', 'encounterEvidence.read', 'evidenceCompleteness.evaluate', 'validationRun.read', 'preClaimReadiness.read', 'preClaimA6Handoff.read', 'claim.read', 'claimLine.read', 'claimDiagnosis.read', 'tariffRate.read', 'claimPricing.read', 'claimDraft.read', 'claimReview.read', 'claimFreeze.read', 'claimLifecycle.read', 'claimCorrection.read', 'revenueEvidence.read', 'evidenceClassification.read', 'adjudicationReadiness.read', 'evidenceCase.read', 'evidenceCasePrereq.read', 'exceptionIntake.read', 'exceptionTriage.read', 'exceptionInvestigation.read', 'codingRelease.read', 'exceptionRemediation.read', 'exceptionRemediationWork.read', 'exceptionResolution.read'],
+    permissions: ['organization.read', 'facility.read', 'clinician.read', 'specialty.read', 'payer.read', 'tpa.read', 'network.read', 'service.read', 'procedure_code.read', 'diagnosisCode.read', 'external_identifier.read', 'rule_source.read', 'rule_source_version.read', 'source_interpretation.read', 'rule_source_relationship.read', 'rule_definition.read', 'rule_version.read', 'rule_applicability.read', 'rule_source_binding.read', 'rule_executability.evaluate', 'facility_regulatory_profile.read', 'insurance_product.read', 'product_network.read', 'provider_contract.read', 'contract_facility.read', 'tariff_schedule.read', 'tariff_schedule_version.read', 'reference_dataset.read', 'rule_source_scope.read', 'rule_resolution.read', 'rule_pack.read', 'patient.read', 'clinicianAssignment.read', 'insuranceMembership.read', 'encounter.read', 'encounterDiagnosis.read', 'encounterActivity.read', 'encounterObservation.read', 'encounterBillingContext.read', 'evidenceArtifact.read', 'eligibilityVerification.read', 'priorAuthorization.read', 'authorizationLine.read', 'authorizationLine.evaluate', 'preClaimCommercialContext.read', 'evidenceRequirement.read', 'encounterEvidence.read', 'evidenceCompleteness.evaluate', 'validationRun.read', 'preClaimReadiness.read', 'preClaimA6Handoff.read', 'claim.read', 'claimLine.read', 'claimDiagnosis.read', 'tariffRate.read', 'claimPricing.read', 'claimDraft.read', 'claimReview.read', 'claimFreeze.read', 'claimLifecycle.read', 'claimCorrection.read', 'revenueEvidence.read', 'evidenceClassification.read', 'adjudicationReadiness.read', 'evidenceCase.read', 'evidenceCasePrereq.read', 'exceptionIntake.read', 'exceptionTriage.read', 'exceptionInvestigation.read', 'codingRelease.read', 'exceptionRemediation.read', 'exceptionRemediationWork.read', 'exceptionResolution.read', 'exceptionEscalation.read'],
   },
 ] as const
 
