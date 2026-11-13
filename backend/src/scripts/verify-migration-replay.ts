@@ -1777,6 +1777,61 @@ async function main() {
     const escalationTables = a88Created.filter((table) => replayedTables.has(table))
     check('the A8.8 tables are exactly exception_escalation_events after a clean replay', JSON.stringify(a88Created) === JSON.stringify(['exception_escalation_events']) && JSON.stringify(escalationTables) === JSON.stringify(a88Created), escalationTables.join(', '))
 
+    // A8.9 — the append-only internal closure of one A8.1 intake: at most one per intake. The contract, a positive
+    // sequence, the one controlled event and its exact shape (each basis kind with its own reason and owner contract) are
+    // held by CHECKs; one number per intake and one closure per intake by UNIQUE indexes; an insert guard holds database
+    // time, the parent's organization and Claim, the acting membership and its confirm permission, the assignment, the
+    // confirmed A8.7 decision, the confirmer's independence, the A8.8 position and the exact basis, the terminal state and
+    // the sequence; the table is append-only and cannot be truncated; every key is ON DELETE RESTRICT.
+    for (const trigger of ['exception_closure_events_insert_guard_trg', 'exception_closure_events_append_only_trg', 'exception_closure_events_no_truncate_trg']) {
+      check(`${trigger} is present after a clean replay`, replay.triggers.some((line) => line.endsWith(`:${trigger}`)))
+    }
+    for (const name of [
+      'exception_closure_events_pkey',
+      'exception_closure_events_contract_chk',
+      'exception_closure_events_sequence_chk',
+      'exception_closure_events_event_code_chk',
+      'exception_closure_events_shape_chk',
+      'exception_closure_events_exception_intake_id_fkey',
+      'exception_closure_events_organization_id_fkey',
+      'exception_closure_events_claim_id_fkey',
+      'exception_closure_events_resolution_decision_event_id_fkey',
+      'exception_closure_events_recorded_by_membership_id_fkey',
+      'exception_closure_events_recorded_by_user_id_fkey',
+    ]) {
+      const line = replay.constraints.find((candidate) => candidate.includes(`:${name}:`)) ?? ''
+      check(`${name} is present after a clean replay`, line !== '' && (!name.endsWith('_fkey') || line.includes('ON DELETE RESTRICT')), line.slice(0, 160))
+    }
+    const closureContract = replay.constraints.find((line) => line.includes('exception_closure_events_contract_chk')) ?? ''
+    const closureCodes = replay.constraints.find((line) => line.includes('exception_closure_events_event_code_chk')) ?? ''
+    const closureShape = replay.constraints.find((line) => line.includes('exception_closure_events_shape_chk')) ?? ''
+    check(
+      'the A8.9 CHECKs pin A8-CLOSURE-1, exactly the one closure event and the controlled reasons, basis kinds and basis owner contracts, with no reopen, payment or adjudication code, after a clean replay',
+      closureContract.includes("'A8-CLOSURE-1'") && closureCodes.includes("'CONFIRM_INTERNAL_CLOSURE'") &&
+        ['VERIFIED_INTERNAL_RESOLUTION', 'TERMINAL_FOLLOWUP_REVIEWED', 'RESOLUTION_DECISION', 'ESCALATION_RETURN', 'A8-RESOLUTION-DECISION-1', 'A8-ESCALATION-1'].every((code) => closureShape.includes(`'${code}'`)) &&
+        /IS NOT NULL/i.test(closureCodes) && !/'(REOPEN\w*|PAID|DENIED|SETTLED|ADJUDICAT\w*|AUTO_\w*)'/.test(`${closureCodes} ${closureShape}`),
+      `${closureContract.slice(0, 100)} | ${closureCodes.slice(0, 160)}`,
+    )
+    check(
+      'one closure event per (intake, sequence) and one closure per intake are unique after a clean replay',
+      replay.indexes.some((line) => line.startsWith('exception_closure_events_sequence_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id, sequence\)/.test(line)) &&
+        replay.indexes.some((line) => line.startsWith('exception_closure_events_exception_intake_id_key:') && /UNIQUE/i.test(line) && /\(exception_intake_id\)/.test(line)),
+    )
+    const closureExpected = [
+      'id', 'exception_intake_id', 'organization_id', 'claim_id', 'contract_version', 'sequence', 'event_code', 'resolution_decision_event_id', 'basis_reference_kind', 'basis_reference_id',
+      'basis_owner_contract_version', 'closure_reason_code', 'recorded_by_membership_id', 'recorded_by_user_id', 'recorded_at', 'created_at',
+    ]
+    const closureActual = replay.columns.filter((line) => line.startsWith('exception_closure_events.')).map((line) => line.slice('exception_closure_events.'.length).split(':')[0])
+    check(
+      `exception_closure_events carries exactly its ${closureExpected.length} A8.9 columns, with no status, closed flag, reopen, digest or narrative column, after a clean replay`,
+      closureActual.length === closureExpected.length && closureActual.every((column) => closureExpected.includes(column)),
+      closureActual.length === 0 ? 'the column catalog did not reach the table, so this absence is unproven' : closureActual.filter((column) => !closureExpected.includes(column)).join(', '),
+    )
+    // The tables the A8.9 migration itself creates, read from its committed file, and each must exist after the replay.
+    const a89Created = [...readFileSync(new URL('../../prisma/migrations/20261112090000_a8_9_exception_closure/migration.sql', import.meta.url), 'utf8').matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]).sort()
+    const closureTables = a89Created.filter((table) => replayedTables.has(table))
+    check('the A8.9 tables are exactly exception_closure_events after a clean replay', JSON.stringify(a89Created) === JSON.stringify(['exception_closure_events']) && JSON.stringify(closureTables) === JSON.stringify(a89Created), closureTables.join(', '))
+
     // CRG-01 FINAL Checkpoint A — five append-only CRG-owned tables beside the reused A3 reference-dataset model:
     // the code-system identity of a dataset, numbered rights decisions, one complete import per edition, its immutable
     // membership and retirement classifications. CHECKs hold the contract and every controlled value; insert guards
