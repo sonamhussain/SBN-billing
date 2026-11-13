@@ -43,6 +43,7 @@ model Organization {
   exceptionRemediationEvents   ExceptionRemediationEvent[]
   exceptionRemediationWorkEvents ExceptionRemediationWorkEvent[]
   exceptionResolutionEvents      ExceptionResolutionEvent[]
+  exceptionEscalationEvents      ExceptionEscalationEvent[]
 
   @@map("organizations")
 }
@@ -1108,6 +1109,7 @@ model User {
   exceptionRemediationEventsRecorded ExceptionRemediationEvent[] @relation("ExceptionRemediationEventRecordedBy")
   exceptionRemediationWorkEventsRecorded ExceptionRemediationWorkEvent[] @relation("ExceptionRemediationWorkEventRecordedBy")
   exceptionResolutionEventsRecorded      ExceptionResolutionEvent[]      @relation("ExceptionResolutionEventRecordedBy")
+  exceptionEscalationEventsRecorded      ExceptionEscalationEvent[]      @relation("ExceptionEscalationEventRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1177,6 +1179,8 @@ model OrganizationMembership {
   recordedRemediationEvents ExceptionRemediationEvent[] @relation("ExceptionRemediationEventRecordedByMembership")
   recordedRemediationWorkEvents ExceptionRemediationWorkEvent[] @relation("ExceptionRemediationWorkEventRecordedByMembership")
   recordedResolutionEvents      ExceptionResolutionEvent[]      @relation("ExceptionResolutionEventRecordedByMembership")
+  recordedEscalationEvents      ExceptionEscalationEvent[]      @relation("ExceptionEscalationEventRecordedByMembership")
+  nominatedEscalationEvents     ExceptionEscalationEvent[]      @relation("ExceptionEscalationEventTargetMember")
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -1900,6 +1904,7 @@ model Claim {
   exceptionRemediationEvents   ExceptionRemediationEvent[]
   exceptionRemediationWorkEvents ExceptionRemediationWorkEvent[]
   exceptionResolutionEvents      ExceptionResolutionEvent[]
+  exceptionEscalationEvents      ExceptionEscalationEvent[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -2507,6 +2512,7 @@ model ExceptionIntakeRecord {
   remediationEvents   ExceptionRemediationEvent[]
   remediationWorkEvents ExceptionRemediationWorkEvent[]
   resolutionEvents      ExceptionResolutionEvent[]
+  escalationEvents      ExceptionEscalationEvent[]
 
   @@unique([identityKey], map: "exception_intake_records_identity_key")
   @@index([claimId, recordedAt, id])
@@ -2836,6 +2842,57 @@ model ExceptionResolutionEvent {
   @@index([recordedByMembershipId])
   @@index([recordedByUserId])
   @@map("exception_resolution_events")
+}
+
+// A8.8 — the append-only internal-handoff history of one A8.1 exception intake (A8-ESCALATION-1), numbered 1..N by the
+// server: one escalation by the current A8.2 assignee to one nominated member of the same organization, its
+// acknowledgement and typed follow-ups by that member (each citing one exact A8.3 or A8.6 event of the intake, kind
+// stored), and one return to the owner by an independent reviewer (terminal in v1). Nothing is written while an A8.7
+// request awaits a decision or once the exception is RESOLVED_INTERNAL. The disposition is derived on every read and
+// never stored; escalation is never a priority, payer status, resolution or closure. There is no status,
+// current/latest pointer, timer, SLA, queue, closure, amount, narrative, attachment or payload column.
+model ExceptionEscalationEvent {
+  id                     String   @id @default(uuid()) @db.Uuid
+  exceptionIntakeId      String   @map("exception_intake_id") @db.Uuid
+  organizationId         String   @map("organization_id") @db.Uuid
+  claimId                String   @map("claim_id") @db.Uuid
+  contractVersion        String   @map("contract_version") @db.Text
+  sequence               Int
+  eventCode              String   @map("event_code") @db.Text
+  reasonCode             String?  @map("reason_code") @db.Text
+  targetMemberId         String?  @map("target_member_id") @db.Uuid
+  escalationEventId      String?  @map("escalation_event_id") @db.Uuid
+  acknowledgementEventId String?  @map("acknowledgement_event_id") @db.Uuid
+  followupCode           String?  @map("followup_code") @db.Text
+  sourceEventId          String?  @map("source_event_id") @db.Uuid
+  sourceEventKind        String?  @map("source_event_kind") @db.Text
+  returnReasonCode       String?  @map("return_reason_code") @db.Text
+  recordedByMembershipId String   @map("recorded_by_membership_id") @db.Uuid
+  recordedByUserId       String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt             DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  exceptionIntake       ExceptionIntakeRecord      @relation(fields: [exceptionIntakeId], references: [id], onDelete: Restrict)
+  organization          Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claim                 Claim                      @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  targetMember          OrganizationMembership?    @relation("ExceptionEscalationEventTargetMember", fields: [targetMemberId], references: [id], onDelete: Restrict)
+  escalation            ExceptionEscalationEvent?  @relation("ExceptionEscalationEventEscalation", fields: [escalationEventId], references: [id], onDelete: Restrict)
+  escalationReferences  ExceptionEscalationEvent[] @relation("ExceptionEscalationEventEscalation")
+  acknowledgement       ExceptionEscalationEvent?  @relation("ExceptionEscalationEventAcknowledgement", fields: [acknowledgementEventId], references: [id], onDelete: Restrict)
+  acknowledgedFollowups ExceptionEscalationEvent[] @relation("ExceptionEscalationEventAcknowledgement")
+  recordedByMembership  OrganizationMembership     @relation("ExceptionEscalationEventRecordedByMembership", fields: [recordedByMembershipId], references: [id], onDelete: Restrict)
+  recordedBy            User                       @relation("ExceptionEscalationEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([exceptionIntakeId, sequence], map: "exception_escalation_events_sequence_key")
+  @@index([organizationId])
+  @@index([claimId])
+  @@index([targetMemberId])
+  @@index([escalationEventId])
+  @@index([acknowledgementEventId])
+  @@index([sourceEventId])
+  @@index([recordedByMembershipId])
+  @@index([recordedByUserId])
+  @@map("exception_escalation_events")
 }
 
 // CRG-01 FINAL Checkpoint B — the append-only, numbered validator selection per (jurisdiction, authority)

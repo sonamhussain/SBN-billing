@@ -1254,8 +1254,15 @@ async function main() {
     hashAfterEvents === hashBeforeEvents && lifecycleDelta.claim_freeze_lifecycle_events === 5 && lifecycleDelta.claim_freezes === 0 && lifecycleDelta.claim_review_events === 0,
     'five events later every stored byte of the freeze, its package and the review history is identical; the illegal attempts wrote nothing',
   )
+  // Later phases' tables: those created by migrations committed after A6.10's own merge (none on its own branch, so
+  // this boundary is unchanged there). Every table that existed when A6.10 merged is judged as before.
+  const a610OwnMerge = branch === a610Branch ? '' : mergeOf(a610Branch)
+  const migrationDirsIn = (ref: string) => git(`ls-tree -d --name-only --full-tree ${ref} backend/prisma/migrations/`).split(/\r?\n/).filter((line) => /\/\d{14}_/.test(line))
+  const laterPhaseTables = new Set(a610OwnMerge ? migrationDirsIn('HEAD').filter((dir) => !migrationDirsIn(a610OwnMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
   const allColumns = (await prisma.$queryRaw<{ c: string }[]>`SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = 'public'`).map((row) => row.c)
-  const sendColumns = allColumns.filter((c) => /\.(sent_at|sent|submitted_at|transmitted_at|acknowledg\w*|payer_status|delivery_status|payer_claim_id|external_claim_id)$/.test(c))
+  // A later phase's own internal columns (an A8.8 escalation acknowledgement, say) are that phase's to judge; every
+  // table that existed when A6.10 merged is judged exactly as before.
+  const sendColumns = allColumns.filter((c) => /\.(sent_at|sent|submitted_at|transmitted_at|acknowledg\w*|payer_status|delivery_status|payer_claim_id|external_claim_id)$/.test(c) && !laterPhaseTables.has(c.split('.')[0]))
   const eventDtoKeys = [...deepKeys(historyS1)]
   check(
     'T087',
@@ -1470,11 +1477,6 @@ async function main() {
     provenance[0]?.ok === true && unresolved.length === 0 && entries.filter((e) => e.referenceKind in kindTables).length >= 10,
     'the identity in S1\'s stored bytes resolves to one coherent Claim → readiness → run → pricing → assessment → approval → activities lineage, and every typed manifest reference resolves to exactly one row',
   )
-  // Later phases' tables: those created by migrations committed after A6.10's own merge (none on its own branch, so
-  // this boundary is unchanged there). Every table that existed when A6.10 merged is judged as before.
-  const a610OwnMerge = branch === a610Branch ? '' : mergeOf(a610Branch)
-  const migrationDirsIn = (ref: string) => git(`ls-tree -d --name-only --full-tree ${ref} backend/prisma/migrations/`).split(/\r?\n/).filter((line) => /\/\d{14}_/.test(line))
-  const laterPhaseTables = new Set(a610OwnMerge ? migrationDirsIn('HEAD').filter((dir) => !migrationDirsIn(a610OwnMerge).includes(dir)).flatMap((dir) => [...committedText(`${dir}/migration.sql`).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])) : [])
   const laterTables = (await prisma.$queryRaw<{ t: string }[]>`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(remittance|payment|adjudicat|denial|receivable|outbox|queue|transmission|acknowledg|exception)'`).map((row) => row.t).filter((t) => !laterPhaseTables.has(t))
   const laterRoutes = [
     await post(`/api/claims/${claimW.id}/submit`, {}), await post(`/api/claim-submissions/${S2}/send`, {}), await post(`/api/claim-submissions/${S2}/transmit`, {}),

@@ -288,6 +288,15 @@ export const permissionCodes = [
   'exceptionResolution.request',
   'exceptionResolution.decide',
   'exceptionResolution.read',
+  // A8.8 - escalating an exception to one nominated member for internal review (Admin; the service further requires
+  // the current, eligible A8.2 assignee), acknowledging it and recording typed follow-ups as that nominated member
+  // (Admin), returning it to its owner as an independent reviewer (Admin; never the escalator, the nominated member or
+  // the current assignee), and reading the escalation history and derived disposition (Admin, Viewer). None resolves,
+  // closes, reassigns, executes, corrects, pays or sends anything.
+  'exceptionEscalation.raise',
+  'exceptionEscalation.handle',
+  'exceptionEscalation.review',
+  'exceptionEscalation.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]
