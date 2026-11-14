@@ -44,6 +44,7 @@ model Organization {
   exceptionRemediationWorkEvents ExceptionRemediationWorkEvent[]
   exceptionResolutionEvents      ExceptionResolutionEvent[]
   exceptionEscalationEvents      ExceptionEscalationEvent[]
+  exceptionClosureEvents         ExceptionClosureEvent[]
 
   @@map("organizations")
 }
@@ -1110,6 +1111,7 @@ model User {
   exceptionRemediationWorkEventsRecorded ExceptionRemediationWorkEvent[] @relation("ExceptionRemediationWorkEventRecordedBy")
   exceptionResolutionEventsRecorded      ExceptionResolutionEvent[]      @relation("ExceptionResolutionEventRecordedBy")
   exceptionEscalationEventsRecorded      ExceptionEscalationEvent[]      @relation("ExceptionEscalationEventRecordedBy")
+  exceptionClosureEventsRecorded         ExceptionClosureEvent[]         @relation("ExceptionClosureEventRecordedBy")
   @@unique([email])
   @@map("user")
 }
@@ -1181,6 +1183,7 @@ model OrganizationMembership {
   recordedResolutionEvents      ExceptionResolutionEvent[]      @relation("ExceptionResolutionEventRecordedByMembership")
   recordedEscalationEvents      ExceptionEscalationEvent[]      @relation("ExceptionEscalationEventRecordedByMembership")
   nominatedEscalationEvents     ExceptionEscalationEvent[]      @relation("ExceptionEscalationEventTargetMember")
+  recordedClosureEvents         ExceptionClosureEvent[]         @relation("ExceptionClosureEventRecordedByMembership")
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -1905,6 +1908,7 @@ model Claim {
   exceptionRemediationWorkEvents ExceptionRemediationWorkEvent[]
   exceptionResolutionEvents      ExceptionResolutionEvent[]
   exceptionEscalationEvents      ExceptionEscalationEvent[]
+  exceptionClosureEvents         ExceptionClosureEvent[]
 
   @@index([encounterId, createdAt])
   @@map("claims")
@@ -2513,6 +2517,7 @@ model ExceptionIntakeRecord {
   remediationWorkEvents ExceptionRemediationWorkEvent[]
   resolutionEvents      ExceptionResolutionEvent[]
   escalationEvents      ExceptionEscalationEvent[]
+  closureEvents         ExceptionClosureEvent[]
 
   @@unique([identityKey], map: "exception_intake_records_identity_key")
   @@index([claimId, recordedAt, id])
@@ -2832,6 +2837,7 @@ model ExceptionResolutionEvent {
   verification         ExceptionRemediationWorkEvent? @relation("ExceptionResolutionEventBasis", fields: [verificationEventId], references: [id], onDelete: Restrict)
   request              ExceptionResolutionEvent?      @relation("ExceptionResolutionEventRequest", fields: [requestEventId], references: [id], onDelete: Restrict)
   decision             ExceptionResolutionEvent?      @relation("ExceptionResolutionEventRequest")
+  closures             ExceptionClosureEvent[]        @relation("ExceptionClosureEventDecision")
   recordedByMembership OrganizationMembership         @relation("ExceptionResolutionEventRecordedByMembership", fields: [recordedByMembershipId], references: [id], onDelete: Restrict)
   recordedBy           User                           @relation("ExceptionResolutionEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
 
@@ -2893,6 +2899,47 @@ model ExceptionEscalationEvent {
   @@index([recordedByMembershipId])
   @@index([recordedByUserId])
   @@map("exception_escalation_events")
+}
+
+// A8.9 — the append-only internal closure of one A8.1 exception intake (A8-CLOSURE-1): at most one human confirmation
+// (v1, no reopening), recorded by a member holding exceptionClosure.confirm who is independent of the A8.7 requester and
+// decider, naming the intake's confirmed A8.7 decision and its typed basis (that decision, or the A8.8 return of a
+// completed escalation), only while the exception is assigned and no escalation is outstanding. The disposition is
+// derived on every read and never stored; CLOSED_INTERNAL is an internal process position only. There is no status,
+// closed flag, current/latest pointer, reopen, amount, narrative, attachment or payload column.
+model ExceptionClosureEvent {
+  id                        String   @id @default(uuid()) @db.Uuid
+  exceptionIntakeId         String   @unique(map: "exception_closure_events_exception_intake_id_key") @map("exception_intake_id") @db.Uuid
+  organizationId            String   @map("organization_id") @db.Uuid
+  claimId                   String   @map("claim_id") @db.Uuid
+  contractVersion           String   @map("contract_version") @db.Text
+  sequence                  Int
+  eventCode                 String   @map("event_code") @db.Text
+  resolutionDecisionEventId String   @map("resolution_decision_event_id") @db.Uuid
+  basisReferenceKind        String   @map("basis_reference_kind") @db.Text
+  basisReferenceId          String   @map("basis_reference_id") @db.Uuid
+  basisOwnerContractVersion String   @map("basis_owner_contract_version") @db.Text
+  closureReasonCode         String   @map("closure_reason_code") @db.Text
+  recordedByMembershipId    String   @map("recorded_by_membership_id") @db.Uuid
+  recordedByUserId          String   @map("recorded_by_user_id") @db.Uuid
+  recordedAt                DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  exceptionIntake      ExceptionIntakeRecord    @relation(fields: [exceptionIntakeId], references: [id], onDelete: Restrict)
+  organization         Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  claim                Claim                    @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  resolutionDecision   ExceptionResolutionEvent @relation("ExceptionClosureEventDecision", fields: [resolutionDecisionEventId], references: [id], onDelete: Restrict)
+  recordedByMembership OrganizationMembership   @relation("ExceptionClosureEventRecordedByMembership", fields: [recordedByMembershipId], references: [id], onDelete: Restrict)
+  recordedBy           User                     @relation("ExceptionClosureEventRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([exceptionIntakeId, sequence], map: "exception_closure_events_sequence_key")
+  @@index([organizationId])
+  @@index([claimId])
+  @@index([resolutionDecisionEventId])
+  @@index([basisReferenceId])
+  @@index([recordedByMembershipId])
+  @@index([recordedByUserId])
+  @@map("exception_closure_events")
 }
 
 // CRG-01 FINAL Checkpoint B — the append-only, numbered validator selection per (jurisdiction, authority)
