@@ -240,6 +240,19 @@ export const apiErrorCodes = [
   // A8.8: a follow-up cites a record of this exception that v1 does not accept as a source (only an A8.3 evidence link
   // or finding, or an A8.6 work report or verification, of the same exception); nothing was recorded.
   'UNSUPPORTED_REFERENCE',
+  // A8.9: the exception is not eligible for closure now (no confirmed A8.7 resolution, a pending or returned resolution,
+  // an outstanding A8.8 escalation, a decision or basis that is not the intake's own, or an exception that is not
+  // assigned); nothing was recorded.
+  'EXCEPTION_CLOSURE_NOT_ELIGIBLE',
+  // A8.9: the confirmer lacks the closure confirm permission now or is the A8.7 resolution's own requester or decider
+  // (membership or user); nothing was recorded.
+  'EXCEPTION_CLOSURE_NOT_INDEPENDENT',
+  // A8.9: the closure is not a legal next step (the exception is already CLOSED_INTERNAL, terminal in v1); nothing was
+  // recorded.
+  'EXCEPTION_CLOSURE_TRANSITION_REFUSED',
+  // A8.9: the closure could not be recorded safely (a busy Claim, conflicting concurrent requests, a database guard
+  // refusal, an unknown commit outcome) or a stored history is inconsistent; nothing was recorded or derived.
+  'EXCEPTION_CLOSURE_CONFLICT',
   // CRG-01 Checkpoint A: the stored coding-release history or an import contradicts itself (a mapping that no longer
   // matches its dataset, a lifecycle that does not explain a version's state, an import whose rows do not reproduce
   // its SHA-256, a code of another organization); nothing was decided or written.

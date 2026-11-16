@@ -71,6 +71,7 @@ import ExceptionRemediationCheck from '../modules/exception-remediation/Exceptio
 import ExceptionRemediationWorkCheck from '../modules/exception-remediation-work/ExceptionRemediationWorkCheck.tsx'
 import ExceptionResolutionCheck from '../modules/exception-resolution/ExceptionResolutionCheck.tsx'
 import ExceptionEscalationCheck from '../modules/exception-escalation/ExceptionEscalationCheck.tsx'
+import ExceptionClosureCheck from '../modules/exception-closure/ExceptionClosureCheck.tsx'
 
 // FE-01 — every existing engineering check, moved unchanged from the former Development Check page.
 // Keep order stable by architecture phase: A1 -> A2 -> A3 -> A4 -> A5. A new backend *Check is registered
@@ -155,4 +156,5 @@ export const developerChecks: DeveloperCheck[] = [
   { key: 'exception-remediation-work', label: 'Exception remediation work', Component: ExceptionRemediationWorkCheck },
   { key: 'exception-resolution', label: 'Exception resolution', Component: ExceptionResolutionCheck },
   { key: 'exception-escalation', label: 'Exception escalation', Component: ExceptionEscalationCheck },
+  { key: 'exception-closure', label: 'Exception closure', Component: ExceptionClosureCheck },
 ]

@@ -297,6 +297,11 @@ export const permissionCodes = [
   'exceptionEscalation.handle',
   'exceptionEscalation.review',
   'exceptionEscalation.read',
+  // A8.9 - confirming the internal closure of an exception on its confirmed A8.7 resolution (Admin; the service further
+  // requires independence of the A8.7 requester and decider), and reading the closure history and its historical
+  // reconstruction (Admin, Viewer). Neither reopens, adjudicates, pays, corrects or sends anything.
+  'exceptionClosure.confirm',
+  'exceptionClosure.read',
 ] as const
 
 export type PermissionCode = (typeof permissionCodes)[number]

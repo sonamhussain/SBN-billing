@@ -104,6 +104,7 @@ import { exceptionRemediationRouter } from './modules/exception-remediation/exce
 import { exceptionRemediationWorkRouter } from './modules/exception-remediation-work/exception-remediation-work.route.ts'
 import { exceptionResolutionRouter } from './modules/exception-resolution/exception-resolution.route.ts'
 import { exceptionEscalationRouter } from './modules/exception-escalation/exception-escalation.route.ts'
+import { exceptionClosureRouter } from './modules/exception-closure/exception-closure.route.ts'
 import { codingValidationRouter } from './modules/coding-validation/coding-validation.route.ts'
 
 export const app = express()
@@ -450,6 +451,12 @@ app.use('/api/claims', exceptionResolutionRouter)
 // disposition). Escalation is an internal handoff only. No PUT, PATCH or DELETE, and no queue, SLA, timer, closure,
 // reopen, resolution, execution, correction, export, payer or transmission route.
 app.use('/api/claims', exceptionEscalationRouter)
+
+// A8.9 - the append-only internal closure of one exception (confirm it once, as a member independent of its A8.7
+// requester and decider, on its confirmed A8.7 resolution and typed basis; read the history and the read-only
+// historical reconstruction of that basis). CLOSED_INTERNAL is an internal process position only. No PUT, PATCH or
+// DELETE, and no reopen, bulk or automatic closure, SLA, payer, payment, export or transmission route.
+app.use('/api/claims', exceptionClosureRouter)
 
 // CRG-01 Checkpoint B - two read-only checks of coding receipts as recorded: one validation run's receipts and one
 // frozen submission's coding binding, each verified as recorded. No write route.
