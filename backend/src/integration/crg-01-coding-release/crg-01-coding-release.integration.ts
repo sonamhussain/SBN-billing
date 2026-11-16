@@ -1382,6 +1382,18 @@ async function main() {
   const createdAfter = (merge: string) =>
     migrationDirsAt(ownTip).filter((dir) => !migrationDirsAt(merge).includes(dir)).flatMap((dir) => [...gitArgs(['show', `${ownTip}:${dir}/migration.sql`]).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1]))
   const probeTable = `remittance_import_probe_${runToken}`
+  // Harness correction (A8.10, docs/Harness_Corrections.md §4). On a branch after this package's own merge, a table
+  // that an ACCEPTED later owner created is recognized by provenance, never by name. "Accepted later owner" means a
+  // migration merged to origin/main after this package and committed byte-identically at HEAD, e.g. A8.9's
+  // exception_closure_events, which matches the A7.4/A7.5 'closure' term. On this package's own branch, ownTip is HEAD,
+  // so the set is empty and the predicate is exactly the original one. A migration added on the current branch itself
+  // is not on origin/main, so its tables are still judged.
+  const laterOwnerTables = new Set(
+    migrationDirsAt('origin/main')
+      .filter((dir) => !migrationDirsAt(ownTip).includes(dir) && migrationDirsAt('HEAD').includes(dir) && gitArgs(['show', `HEAD:${dir}/migration.sql`]) === gitArgs(['show', `origin/main:${dir}/migration.sql`]))
+      .flatMap((dir) => [...gitArgs(['show', `origin/main:${dir}/migration.sql`]).matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => m[1])),
+  )
+  const closureProbeTable = `exception_closure_probe_${runToken}`
   const reviews = await Promise.all(
     BUNDLED_REVIEW.map(async (suite) => {
       const before = patternIn(gitArgs(['show', `${ownBase}:${suite.path}`]))
@@ -1390,22 +1402,33 @@ async function main() {
       const later = new Set(merge ? createdAfter(merge) : [])
       const liveMatches = (await prisma.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* $1 ORDER BY 1`, before)).map((r) => r.t)
       const ownBranchForm = gitArgs(['show', `${ownTip}:${suite.path}`]).includes(`const ownMerge = branch === ${suite.branchConst} ? '' : mergeOf(${suite.branchConst})`)
-      return { suite, before, after, merge, later, excluded: liveMatches.filter((t) => later.has(t)), stillJudged: liveMatches.filter((t) => !later.has(t)), ownBranchForm }
+      return {
+        suite, before, after, merge, later, ownBranchForm,
+        excluded: liveMatches.filter((t) => later.has(t)),
+        laterOwned: liveMatches.filter((t) => !later.has(t) && laterOwnerTables.has(t)),
+        stillJudged: liveMatches.filter((t) => !later.has(t) && !laterOwnerTables.has(t)),
+      }
     }),
   )
+  // Negative tests, rolled back: two tables that no committed migration creates. The import-named one must be caught by
+  // all four patterns; the closure-named one by every pattern that holds 'closure'. So the correction exempts no name.
   const probe = await rolledBack(async (tx) => {
     await tx.$executeRawUnsafe(`CREATE TABLE "${probeTable}" (id integer)`)
+    await tx.$executeRawUnsafe(`CREATE TABLE "${closureProbeTable}" (id integer)`)
     return Promise.all(
-      reviews.map(async (review) => (await tx.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* $1`, review.before)).map((r) => r.t).filter((t) => !review.later.has(t))),
+      reviews.map(async (review) => (await tx.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* $1`, review.before)).map((r) => r.t).filter((t) => !review.later.has(t) && !laterOwnerTables.has(t))),
     )
   })
-  const probeGone = (await prisma.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_name = $1`, probeTable)).length === 0
+  const probeGone = (await prisma.$queryRawUnsafe<{ t: string }[]>(`SELECT table_name AS t FROM information_schema.tables WHERE table_name = ANY($1::text[])`, [probeTable, closureProbeTable])).length === 0
+  const closurePatterns = reviews.filter((r) => /closure/.test(r.before))
+  const laterOwned = [...new Set(reviews.flatMap((r) => r.laterOwned))].sort()
   check(
     'CRG-G08',
     'Bundled A7 corrections weaken no protection',
     reviews.every((r) => r.before.length > 0 && r.after === r.before && r.merge.length === 40 && r.ownBranchForm && same(r.excluded, ['crg_release_imports']) && r.stillJudged.length === 0 && createdAfter(r.merge).includes('crg_release_imports')) &&
-      (probe.value ?? []).length === 4 && (probe.value ?? []).every((caught) => caught.includes(probeTable)) && probeGone,
-    `${reviews.map((r) => `${r.suite.path.split('/')[3]} ${r.suite.check}`).join(', ')}: each pattern is byte-identical to its accepted one; on its own branch (ownMerge '') nothing is excluded; at this HEAD each excludes exactly crg_release_imports (created by this package's migration) and nothing else; a hand-made ${probeTable} (no migration, rolled back) is still refused by all four`,
+      (probe.value ?? []).length === 4 && (probe.value ?? []).every((caught) => caught.includes(probeTable)) &&
+      closurePatterns.length > 0 && closurePatterns.every((r) => (probe.value ?? [])[reviews.indexOf(r)]?.includes(closureProbeTable)) && probeGone,
+    `${reviews.map((r) => `${r.suite.path.split('/')[3]} ${r.suite.check}`).join(', ')}: each pattern is byte-identical to its accepted one; on its own branch (ownMerge '') nothing is excluded; at this HEAD each excludes exactly crg_release_imports (created by this package's migration) and judges every other table, except tables that accepted later owners created by migrations merged after this package (${laterOwned.join(', ') || 'none'}), recognized by provenance; a hand-made ${probeTable} (no migration, rolled back) is still refused by all four, and a hand-made ${closureProbeTable} by the ${closurePatterns.length} closure pattern(s)`,
   )
   check('CRG-126', 'Zero unexpected 5xx', serverErrors === 0 && connectionResets === 0, `${serverErrors} HTTP 5xx answers and ${connectionResets} connection resets in this run`)
   const headNow = git('rev-parse HEAD')

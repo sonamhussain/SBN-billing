@@ -96,6 +96,7 @@
     "test:a8:remediation-work": "node --env-file=.env src/integration/a8-remediation-work/a8-remediation-work.integration.ts",
     "test:a8:exception-resolution": "node --env-file=.env src/integration/a8-exception-resolution/a8-exception-resolution.integration.ts",
     "test:a8:exception-escalation": "node --env-file=.env src/integration/a8-exception-escalation/a8-exception-escalation.integration.ts",
+    "test:a8:phase-closure": "node --env-file=.env src/integration/a8-phase-closure/a8-phase-closure.integration.ts",
     "test:a8:exception-closure": "node --env-file=.env src/integration/a8-exception-closure/a8-exception-closure.integration.ts"
   },
   "keywords": [],

@@ -511,3 +511,54 @@ the guard.
   - it is false with an unreviewed extra file, and false when the extra file has another name.
 - **The scan still detects.** The scan pattern (A5.8 T16, A6.6 T048) matches nothing in the committed code, including
   the new file. It still matches a broken copy with a row lock or a money multiplication injected.
+
+## 4. CRG-01A CRG-G08 — tables of accepted later owners recognized by provenance (A8.10)
+
+Corrected on `feature/a8-10-phase-closure` (A8 phase closure) at the head developer's decision. It is disclosed in
+`docs/A8_Phase_Closure.md` and the A8.10 PR. It is a harness file only. No product module, migration, schema,
+permission, audit action, route, frontend page or accepted contract changes.
+
+### Why
+
+CRG-G08 reviews the four A7 harness corrections bundled with Checkpoint A (A7.2 T026, A7.3 T105, A7.4 T107 and A7.5
+T108). It requires that, at the current HEAD, the only live table those patterns exclude is `crg_release_imports`, and
+that every other table matching a pattern is still judged.
+
+That was true at Checkpoint A's own HEAD. A8.10 is the first package to run CRG-01A after A8.6–A8.9 merged. A8.9's
+accepted migration (`20261112090000_a8_9_exception_closure`) creates `exception_closure_events`, which matches the
+`closure` term of the A7.4 and A7.5 patterns. The table was created after Checkpoint A, so CRG-G08 counted it as
+"still judged" and failed. The A7.4 T107 and A7.5 T108 checks themselves PASS in the same chain: their own accepted
+later-phase recognition (§1) already excludes the table by provenance. Only CRG-G08's review of them was out of date.
+
+Two wrong fixes were rejected:
+- renaming A8.9's table, which would be a bypass;
+- marking CRG-G08 N/A, which would be a weakening.
+
+### Changed predicate
+
+A table counts as created by an **accepted later owner** only if all of these hold for the migration that creates it:
+- the migration was merged to `origin/main` after Checkpoint A's own merge;
+- it is committed at HEAD byte-identically to `origin/main`.
+
+Such a table is recognized by **provenance, never by name**. It is listed in the check's evidence and is not counted as
+"still judged". Nothing else changes:
+- `excluded` must still be exactly `['crg_release_imports']`;
+- every pattern must still be byte-identical to its accepted one;
+- every other matching table is still judged.
+
+On Checkpoint A's own branch `ownTip` is HEAD, so the later-owner set is empty and the predicate is exactly the
+original one. A migration added on the current branch itself is not on `origin/main`, so the tables it creates are
+still judged.
+
+| Suite | Check |
+|---|---|
+| `backend/src/integration/crg-01-coding-release/crg-01-coding-release.integration.ts` | CRG-G08 `laterOwnerTables` (`stillJudged` excludes them; `excluded` unchanged) |
+
+### Negative test
+
+Both run inside CRG-G08 itself, every run, and are rolled back:
+- A hand-made `remittance_import_probe_<run>`, created by no migration, must still be refused by all four patterns.
+  This was already part of CRG-G08 and is kept unchanged.
+- A hand-made `exception_closure_probe_<run>`, created by no migration and carrying the same `closure` term as A8.9's
+  table, must still be refused by every pattern that holds `closure` (A7.4 and A7.5). So the correction exempts no
+  table by its name.
