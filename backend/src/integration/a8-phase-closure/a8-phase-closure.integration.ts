@@ -444,7 +444,8 @@ async function main() {
   )
   const changedPaths = git('diff --name-only origin/main...HEAD').split(/\r?\n/).filter(Boolean)
   const outOfScope = changedPaths.filter((file) => !file.startsWith(`${HARNESS_DIR}/`) && !ALLOWED.includes(file))
-  const packageDiff = gitArgs(['diff', '-U0', 'origin/main...HEAD', '--', 'backend/package.json']).split(/\r?\n/).filter((l) => /^[+-](?![+-])/.test(l))
+  // Pathspecs are given from the repository root (:(top)), because the suite runs inside backend/.
+  const packageDiff = gitArgs(['diff', '-U0', 'origin/main...HEAD', '--', ':(top)backend/package.json']).split(/\r?\n/).filter((l) => /^[+-](?![+-])/.test(l))
   const harnessFiles = changedPaths.filter((file) => file.startsWith(`${HARNESS_DIR}/`))
   const harnessCode = withoutRegexLiterals(harnessFiles.map((file) => committedCode(file)).join('\n'))
   // Any router (exceptionClosureRouter.post( included), a SERIALIZABLE writer, DDL, a permission or an audit write.
@@ -491,13 +492,14 @@ async function main() {
   const correctedLines = committedText(CORRECTED_HARNESS).split('\n')
   const reviewStart = correctedLines.findIndex((line) => line.includes('review of the four bundled A7 harness corrections')) + 1
   const reviewEnd = correctedLines.findIndex((line) => line.includes("check('CRG-126'")) + 1
-  const correctionHunks = gitArgs(['diff', '-U0', 'origin/main...HEAD', '--', CORRECTED_HARNESS])
+  const correctionHunks = gitArgs(['diff', '-U0', 'origin/main...HEAD', '--', `:(top)${CORRECTED_HARNESS}`])
     .split(/\r?\n/)
     .map((line) => line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/))
     .filter((m): m is RegExpMatchArray => m !== null)
     .map((m) => ({ from: Number(m[1]), to: Number(m[1]) + Math.max(Number(m[2] ?? '1'), 1) - 1 }))
   const V1_TERMS = ["same(r.excluded, ['crg_release_imports'])", 'r.stillJudged.length === 0', 'caught.includes(probeTable)', "createdAfter(r.merge).includes('crg_release_imports')"]
-  const correctionBounded = reviewStart > 0 && reviewEnd > reviewStart && correctionHunks.every((h) => h.from > reviewStart && h.to < reviewEnd) && V1_TERMS.every((term) => correctedLines.join('\n').includes(term))
+  // The corrected file changed on this branch, so its hunks must be found (an empty diff would prove nothing).
+  const correctionBounded = reviewStart > 0 && reviewEnd > reviewStart && correctionHunks.length > 0 && correctionHunks.every((h) => h.from > reviewStart && h.to < reviewEnd) && V1_TERMS.every((term) => correctedLines.join('\n').includes(term))
   check(
     'T010',
     'Earlier owners, literals and migrations unchanged',
